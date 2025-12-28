@@ -10,6 +10,10 @@ if os.name == 'nt':
 
 sys.path.append(r'C:\Users\newsi\AppData\Roaming\Python\Python313\site-packages')
 
+# [System Config] 불필요한 프록시 설정 제거 (서버 환경 호환성)
+for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+    os.environ.pop(key, None)
+
 import OpenDartReader
 import pandas as pd
 import time
