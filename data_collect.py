@@ -55,40 +55,73 @@ def get_dart_financials(dart, ticker, year):
         df = dart.finstate_all(ticker, year)
 
         if df is None or df.empty:
-            return 0, 0, 0, 0
+            return 0, 0, 0, 0, 0, 0, 0, 0, 0
 
         revenue = 0
         op = 0
         re = 0
         cash = 0
+        liabilities = 0
+        equity = 0
+        ocf = 0
+        capex = 0
+        da = 0
 
-        # 항목명 매칭 (공백 제거 후 'in' 연산자 사용)
+        # XBRL 표준 계정 ID 매칭
         for _, row in df.iterrows():
+            acc_id = str(row.get('account_id', ''))
             acc_name = str(row['account_nm']).replace(" ", "")
             val = pd.to_numeric(row['thstrm_amount'], errors='coerce')
             if pd.isna(val):
                 val = 0
 
-            # 매출액
-            if acc_name == '매출액' or acc_name == '수익(매출액)':
-                if revenue == 0 or acc_name == '매출액':
+            # 1. 매출액
+            if acc_id == 'ifrs-full_Revenue' or acc_name == '매출액' or acc_name == '수익(매출액)':
+                if revenue == 0 or acc_id == 'ifrs-full_Revenue':
                     revenue = val
-            # 영업이익 (정확히 "영업이익"인 경우만, 영업이익률은 제외)
-            elif acc_name == '영업이익':
-                op = val
-            # 이익잉여금
-            elif '이익잉여금' in acc_name and '기타' not in acc_name:
-                if re == 0 or acc_name == '이익잉여금':
+            
+            # 2. 영업이익
+            elif acc_id == 'dart_OperatingIncomeLoss' or acc_name == '영업이익' or acc_name == '영업이익(손실)':
+                if op == 0 or acc_id == 'dart_OperatingIncomeLoss':
+                    op = val
+            
+            # 3. 이익잉여금
+            elif acc_id == 'ifrs-full_RetainedEarnings' or (re == 0 and '이익잉여금' in acc_name and '기타' not in acc_name):
+                if re == 0 or acc_id == 'ifrs-full_RetainedEarnings':
                     re = val
-            # 현금및현금성자산
-            elif '현금및현금성자산' in acc_name:
-                if cash == 0 or acc_name == '현금및현금성자산':
+            
+            # 4. 현금및현금성자산
+            elif acc_id == 'ifrs-full_CashAndCashEquivalents' or (cash == 0 and '현금및현금성자산' in acc_name):
+                if cash == 0 or acc_id == 'ifrs-full_CashAndCashEquivalents':
                     cash = val
 
-        return revenue, op, re, cash
+            # 5. 부채총계
+            elif acc_id == 'ifrs-full_Liabilities' or acc_name == '부채총계':
+                liabilities = val
+
+            # 6. 자본총계
+            elif acc_id == 'ifrs-full_Equity' or acc_name == '자본총계':
+                if equity == 0 or acc_id == 'ifrs-full_Equity':
+                    equity = val
+
+            # 7. 영업활동현금흐름 (FCF 계산용)
+            elif acc_id == 'ifrs-full_CashFlowsFromUsedInOperatingActivities' or acc_name == '영업활동현금흐름':
+                ocf = val
+
+            # 8. 유형/무형자산 취득 (CapEx 계산용)
+            elif 'PurchaseOfPropertyPlantAndEquipment' in acc_id or 'PurchaseOfIntangibleAssets' in acc_id:
+                capex += val
+            elif acc_name in ['유형자산의취득', '무형자산의취득']:
+                capex += val
+
+            # 9. 감가상각비 (EBITDA 계산용)
+            if 'Depreciation' in acc_id or 'Amortisation' in acc_id or '감가상각' in acc_name:
+                da += val
+
+        return revenue, op, re, cash, liabilities, equity, ocf, capex, da
     except Exception as e:
         print(f"[DART] {ticker} 재무제표 조회 실패: {e}")
-        return 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 def main(stock_count=100, selected_fields=None):
     try:
@@ -120,11 +153,26 @@ def main(stock_count=100, selected_fields=None):
             df_top100 = df_cap.sort_values(by='시가총액', ascending=False).head(stock_count)
             print(f"대상 종목 수: {len(df_top100)}개")
 
-        # 3. 데이터 수집 연도 (전년도 사업보고서)
-        current_year = datetime.now().year - 1
+        # 3. 업종별 평균 PBR, PER 계산 (PBR, PER > 0 인 종목만 대상)
+        print("\n[2단계] 업종별 평균 PBR, PER 계산 중...")
+        # pykrx.stock.get_market_sector_classifications 결과는 ['종목명', '업종명', '종가', '대비', '등락률', '시가총액'] 컬럼을 가짐
+        df_merged = pd.concat([df_fundamental, df_sector[['업종명']]], axis=1)
+        
+        # PBR, PER이 0보다 큰 데이터만 필터링
+        df_valid = df_merged[(df_merged['PBR'] > 0) & (df_merged['PER'] > 0)]
+        
+        # 업종별 평균 계산
+        industry_avg = df_valid.groupby('업종명')[['PBR', 'PER']].mean()
+        industry_avg_dict = industry_avg.to_dict('index')
 
+        # 4. 종목별 상세 데이터 수집 중...
+        current_year = datetime.now().year - 1
         results = []
-        print(f"\n[2단계] 종목별 상세 데이터 수집 중...")
+        print(f"\n[3단계] 종목별 상세 데이터 수집 중...")
+
+        # 52주 데이터 계산을 위한 날짜 설정
+        end_date = latest_date
+        start_date = (datetime.strptime(latest_date, "%Y%m%d") - timedelta(days=365)).strftime("%Y%m%d")
 
         # 진행 상황 표시
         total = len(df_top100)
@@ -144,11 +192,34 @@ def main(stock_count=100, selected_fields=None):
             # ROE 계산 (ROE = EPS / BPS * 100)
             roe = (eps / bps * 100) if bps > 0 else 0.0
 
-            # (2) pykrx에서 업종 정보
-            sector = get_sector_from_pykrx(ticker, df_sector)
+            # (2) 52주 최고가/최저가 수집
+            high_52w = 0
+            low_52w = 0
+            try:
+                df_ohlcv = stock.get_market_ohlcv_by_date(start_date, end_date, ticker)
+                if not df_ohlcv.empty:
+                    high_52w = int(df_ohlcv['고가'].max())
+                    low_52w = int(df_ohlcv['저가'].min())
+            except:
+                pass
 
-            # (3) DART API 데이터 (매출액, 영업이익, 이익잉여금, 현금)
-            revenue, op, re, cash = get_dart_financials(dart, ticker, current_year)
+            # (3) pykrx에서 업종 정보
+            sector = get_sector_from_pykrx(ticker, df_sector)
+            
+            # 업종 평균 데이터 가져오기
+            avg_pbr = 0.0
+            avg_per = 0.0
+            if sector in industry_avg_dict:
+                avg_pbr = industry_avg_dict[sector]['PBR']
+                avg_per = industry_avg_dict[sector]['PER']
+
+            # (4) DART API 데이터 (매출액, 영업이익, 이익잉여금, 현금, 부채, 자본, 현금흐름, CapEx, D/A)
+            revenue, op, re, cash, liabilities, equity, ocf, capex, da = get_dart_financials(dart, ticker, current_year)
+
+            # (5) 추가 지표 계산
+            debt_ratio = (liabilities / equity * 100) if equity > 0 else 0.0
+            fcf = ocf - capex
+            ebitda = op + da
 
             # 데이터 저장
             results.append({
@@ -156,7 +227,9 @@ def main(stock_count=100, selected_fields=None):
                 '종목명': name,
                 '업종': sector,
                 'PBR': round(pbr, 2),
+                '업종평균PBR': round(avg_pbr, 2),
                 'PER': round(per, 2),
+                '업종평균PER': round(avg_per, 2),
                 'ROE': round(roe, 2),
                 'EPS': int(eps),
                 'BPS': int(bps),
@@ -164,7 +237,12 @@ def main(stock_count=100, selected_fields=None):
                 '매출액': int(revenue),
                 '영업이익': int(op),
                 '이익잉여금': int(re),
-                '현금및현금성자산': int(cash)
+                '현금및현금성자산': int(cash),
+                '52주최고가': int(high_52w),
+                '52주최저가': int(low_52w),
+                '부채비율': round(debt_ratio, 2),
+                'FCF': int(fcf),
+                'EBITDA': int(ebitda)
             })
 
             time.sleep(0.05)  # API 부하 방지
@@ -177,6 +255,15 @@ def main(stock_count=100, selected_fields=None):
             # 종목코드와 종목명은 항상 포함
             required_fields = ['종목코드', '종목명']
             fields_to_include = required_fields + [f for f in selected_fields if f not in required_fields]
+            
+            # PBR이나 PER이 선택된 경우 업종 평균도 포함
+            if 'PBR' in fields_to_include and '업종평균PBR' not in fields_to_include:
+                idx = fields_to_include.index('PBR')
+                fields_to_include.insert(idx + 1, '업종평균PBR')
+            if 'PER' in fields_to_include and '업종평균PER' not in fields_to_include:
+                idx = fields_to_include.index('PER')
+                fields_to_include.insert(idx + 1, '업종평균PER')
+                
             # DataFrame에 실제 존재하는 컬럼만 선택
             fields_to_include = [f for f in fields_to_include if f in df_result.columns]
             df_result = df_result[fields_to_include]

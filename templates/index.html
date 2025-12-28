@@ -86,6 +86,26 @@
                         <input type="checkbox" class="field-checkbox" value="현금및현금성자산" checked>
                         <span>현금및현금성자산</span>
                     </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="52주최고가" checked>
+                        <span>52주 최고가</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="52주최저가" checked>
+                        <span>52주 최저가</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="EBITDA" checked>
+                        <span>EBITDA</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="FCF" checked>
+                        <span>FCF</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="부채비율" checked>
+                        <span>부채비율</span>
+                    </label>
                 </div>
             </div>
         </div>
@@ -105,12 +125,6 @@
         <button id="collectBtn" class="btn" onclick="startCollection()">
             🚀 데이터 수집 시작
         </button>
-
-        <div id="progressSection" class="progress-section">
-            <div class="progress-bar-container">
-                <div id="progressBar" class="progress-bar">0%</div>
-            </div>
-        </div>
 
         <div id="downloadSection" class="download-section">
             <p class="success-msg">✅ 데이터 수집이 완료되었습니다!</p>
@@ -133,26 +147,21 @@
         let currentTaskId = null;
         let statusCheckInterval = null;
 
-        // 페이지 로드 시 과거 결과 로드
         window.onload = function () {
             loadResults();
         };
 
         function selectCount(count) {
-            // 버튼 활성화 상태 변경
             document.querySelectorAll('.count-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
             event.target.classList.add('active');
-
-            // 입력 필드 업데이트
             document.getElementById('stockCount').value = count;
         }
 
         function toggleSelectAll() {
             const selectAll = document.getElementById('selectAll');
             const checkboxes = document.querySelectorAll('.field-checkbox:not(:disabled)');
-
             checkboxes.forEach(checkbox => {
                 checkbox.checked = selectAll.checked;
             });
@@ -167,7 +176,6 @@
             const stockCount = parseInt(document.getElementById('stockCount').value);
             const selectedFields = getSelectedFields();
 
-            // 유효성 검사
             if (isNaN(stockCount) || stockCount < 0 || stockCount > 10000) {
                 alert('종목 수는 0(전체) 또는 1~10000 사이의 숫자여야 합니다.');
                 return;
@@ -179,13 +187,12 @@
             }
 
             const btn = document.getElementById('collectBtn');
-            const progressSection = document.getElementById('progressSection');
             const downloadSection = document.getElementById('downloadSection');
             const errorSection = document.getElementById('errorSection');
 
             btn.disabled = true;
-            btn.textContent = '수집 중...';
-            progressSection.classList.add('active');
+            btn.style.setProperty('--progress', '0%');
+            btn.textContent = '🚀 수집 중... (0%)';
             downloadSection.classList.remove('active');
             errorSection.style.display = 'none';
 
@@ -206,10 +213,12 @@
                         checkStatus();
                     } else {
                         showError('데이터 수집 시작에 실패했습니다.');
+                        resetButton();
                     }
                 })
                 .catch(error => {
                     showError('서버 연결에 실패했습니다: ' + error);
+                    resetButton();
                 });
         }
 
@@ -242,16 +251,15 @@
         }
 
         function updateProgress(data) {
-            const progressBar = document.getElementById('progressBar');
-
-            progressBar.style.width = data.progress + '%';
-            progressBar.textContent = data.progress + '%';
+            const btn = document.getElementById('collectBtn');
+            const progress = data.progress || 0;
+            btn.style.setProperty('--progress', progress + '%');
+            btn.textContent = `🚀 수집 중... (${progress}%)`;
         }
 
         function showDownload(filename) {
             const downloadSection = document.getElementById('downloadSection');
             const downloadLink = document.getElementById('downloadLink');
-
             downloadLink.href = `/api/download/${filename}`;
             downloadSection.classList.add('active');
         }
@@ -259,7 +267,6 @@
         function showError(message) {
             const errorSection = document.getElementById('errorSection');
             const errorMessage = document.getElementById('errorMessage');
-
             errorMessage.textContent = message;
             errorSection.style.display = 'block';
         }
@@ -267,6 +274,7 @@
         function resetButton() {
             const btn = document.getElementById('collectBtn');
             btn.disabled = false;
+            btn.style.removeProperty('--progress');
             btn.textContent = '🚀 데이터 수집 시작';
         }
 
@@ -275,12 +283,10 @@
                 .then(response => response.json())
                 .then(files => {
                     const resultsList = document.getElementById('resultsList');
-
                     if (files.length === 0) {
                         resultsList.innerHTML = '<p style="text-align: center; color: #999;">저장된 결과가 없습니다.</p>';
                         return;
                     }
-
                     resultsList.innerHTML = files.map(file => `
                         <div class="result-item">
                             <div class="result-info">
@@ -290,12 +296,36 @@
                                     | 크기: ${(file.size / 1024).toFixed(1)} KB
                                 </div>
                             </div>
-                            <a href="/api/download/${file.filename}" class="result-download">다운로드</a>
+                            <div class="result-actions">
+                                <a href="/api/download/${file.filename}" class="result-download">다운로드</a>
+                                <button onclick="deleteResult('${file.filename}')" class="result-delete">삭제</button>
+                            </div>
                         </div>
                     `).join('');
                 })
                 .catch(error => {
                     console.error('결과 목록 로드 실패:', error);
+                });
+        }
+
+        function deleteResult(filename) {
+            if (!confirm(`'${filename}' 파일을 삭제하시겠습니까?`)) {
+                return;
+            }
+
+            fetch(`/api/delete/${filename}`, {
+                method: 'DELETE'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        loadResults();
+                    } else {
+                        alert('삭제 실패: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('서버 오류: ' + error);
                 });
         }
     </script>

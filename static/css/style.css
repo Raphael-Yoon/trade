@@ -3,13 +3,13 @@
     --primary-hover: #4f46e5;
     --secondary: #a855f7;
     --bg-gradient: radial-gradient(at 0% 0%, hsla(253, 16%, 7%, 1) 0, transparent 50%),
-        radial-gradient(at 50% 0%, hsla(225, 39%, 30%, 1) 0, transparent 50%),
-        radial-gradient(at 100% 0%, hsla(339, 49%, 30%, 1) 0, transparent 50%);
-    --glass-bg: rgba(255, 255, 255, 0.03);
-    --glass-border: rgba(255, 255, 255, 0.1);
-    --text-main: #f8fafc;
-    --text-muted: #94a3b8;
-    --card-bg: rgba(30, 41, 59, 0.5);
+        radial-gradient(at 50% 0%, hsla(225, 39%, 20%, 1) 0, transparent 50%),
+        radial-gradient(at 100% 0%, hsla(339, 49%, 20%, 1) 0, transparent 50%);
+    --glass-bg: rgba(255, 255, 255, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.15);
+    --text-main: #ffffff;
+    --text-muted: #cbd5e1;
+    --card-bg: rgba(30, 41, 59, 0.7);
 }
 
 * {
@@ -99,14 +99,10 @@ h1 {
 .select-all-container {
     margin-bottom: 20px;
     padding: 12px 20px;
-    background: rgba(99, 102, 241, 0.1);
-    border: 1px solid rgba(99, 102, 241, 0.2);
+    background: rgba(99, 102, 241, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.3);
     border-radius: 12px;
     transition: all 0.3s ease;
-}
-
-.select-all-container:hover {
-    background: rgba(99, 102, 241, 0.15);
 }
 
 .field-checkboxes {
@@ -147,21 +143,17 @@ h1 {
     transition: color 0.2s;
 }
 
-.checkbox-label:last-child {
-    margin-bottom: 0;
-}
-
 .checkbox-label input[type="checkbox"] {
     appearance: none;
     width: 20px;
     height: 20px;
-    border: 2px solid var(--glass-border);
+    border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: 6px;
     margin-right: 12px;
     cursor: pointer;
     position: relative;
     transition: all 0.2s;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .checkbox-label input[type="checkbox"]:checked {
@@ -177,10 +169,6 @@ h1 {
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
-}
-
-.checkbox-label:hover span {
-    color: var(--text-main);
 }
 
 /* Stock Count Selector Styles */
@@ -212,7 +200,6 @@ h1 {
 .count-btn:hover {
     background: rgba(255, 255, 255, 0.1);
     color: var(--text-main);
-    border-color: var(--text-muted);
 }
 
 .count-btn.active {
@@ -241,7 +228,8 @@ h1 {
 
 /* Main Button */
 .btn {
-    background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+    position: relative;
+    background: #334155;
     color: white;
     border: none;
     padding: 20px 40px;
@@ -253,71 +241,35 @@ h1 {
     width: 100%;
     transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.4);
+    overflow: hidden;
+    z-index: 1;
 }
 
-.btn:hover {
+.btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: var(--progress, 0%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+    transition: width 0.4s ease;
+    z-index: -1;
+}
+
+.btn:not(:disabled)::before {
+    width: 100%;
+}
+
+.btn:hover:not(:disabled) {
     transform: translateY(-4px) scale(1.02);
     box-shadow: 0 20px 35px -5px rgba(99, 102, 241, 0.5);
-}
-
-.btn:active {
-    transform: translateY(0) scale(0.98);
 }
 
 .btn:disabled {
     background: #334155;
     cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
     opacity: 0.5;
-}
-
-/* Progress Section */
-.progress-section {
-    display: none;
-    margin-top: 40px;
-}
-
-.progress-section.active {
-    display: block;
-}
-
-.progress-bar-container {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 100px;
-    height: 12px;
-    overflow: hidden;
-    margin-bottom: 16px;
-    border: 1px solid var(--glass-border);
-}
-
-.progress-bar {
-    background: linear-gradient(90deg, var(--primary), var(--secondary));
-    height: 100%;
-    width: 0%;
-    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-}
-
-.progress-bar::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-    animation: shimmer 1.5s infinite;
-}
-
-@keyframes shimmer {
-    0% {
-        transform: translateX(-100%);
-    }
-
-    100% {
-        transform: translateX(100%);
-    }
 }
 
 /* Results Section */
@@ -365,16 +317,26 @@ h1 {
     color: var(--text-muted);
 }
 
-.result-download {
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
+.result-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.result-download,
+.result-delete {
     text-decoration: none;
-    padding: 10px 24px;
+    padding: 10px 20px;
     border-radius: 12px;
     font-size: 14px;
     font-weight: 600;
     transition: all 0.3s;
+    cursor: pointer;
     border: 1px solid var(--glass-border);
+}
+
+.result-download {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
 }
 
 .result-download:hover {
@@ -382,6 +344,19 @@ h1 {
     color: #0f172a;
 }
 
+.result-delete {
+    background: rgba(239, 68, 68, 0.1);
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.2);
+}
+
+.result-delete:hover {
+    background: #ef4444;
+    color: white;
+    border-color: #ef4444;
+}
+
+/* Download Section */
 .download-section {
     display: none;
     margin-top: 40px;

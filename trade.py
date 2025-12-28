@@ -27,6 +27,26 @@ RESULTS_DIR = os.path.join(os.path.dirname(__file__), 'results')
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
 
+def cleanup_old_results(max_files=20):
+    """오래된 결과 파일 자동 삭제"""
+    try:
+        files = []
+        for filename in os.listdir(RESULTS_DIR):
+            if filename.endswith('.xlsx'):
+                file_path = os.path.join(RESULTS_DIR, filename)
+                files.append((file_path, os.path.getctime(file_path)))
+        
+        # 생성 시간순 정렬 (오래된 순)
+        files.sort(key=lambda x: x[1])
+        
+        # max_files를 초과하는 파일 삭제
+        if len(files) > max_files:
+            for i in range(len(files) - max_files):
+                os.remove(files[i][0])
+                print(f"자동 삭제됨: {files[i][0]}")
+    except Exception as e:
+        print(f"파일 정리 중 오류: {e}")
+
 def run_data_collection(task_id, stock_count=100, fields=None):
     """백그라운드에서 데이터 수집 실행"""
     try:
@@ -84,6 +104,9 @@ def run_data_collection(task_id, stock_count=100, fields=None):
                 tasks[task_id]['progress'] = 100
                 tasks[task_id]['message'] = '데이터 수집 완료!'
                 tasks[task_id]['result_file'] = result_filename
+                
+                # 오래된 파일 정리
+                cleanup_old_results()
             else:
                 tasks[task_id]['status'] = 'error'
                 tasks[task_id]['message'] = '결과 파일을 찾을 수 없습니다.'
@@ -153,6 +176,20 @@ def download_file(filename):
         return jsonify({'error': '파일을 찾을 수 없습니다.'}), 404
 
     return send_file(file_path, as_attachment=True, download_name=filename)
+
+@app.route('/api/delete/<filename>', methods=['DELETE'])
+def delete_file(filename):
+    """결과 파일 삭제"""
+    file_path = os.path.join(RESULTS_DIR, filename)
+    
+    if not os.path.exists(file_path):
+        return jsonify({'success': False, 'message': '파일을 찾을 수 없습니다.'}), 404
+        
+    try:
+        os.remove(file_path)
+        return jsonify({'success': True, 'message': '파일이 삭제되었습니다.'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'삭제 실패: {str(e)}'}), 500
 
 @app.route('/api/results', methods=['GET'])
 def list_results():
