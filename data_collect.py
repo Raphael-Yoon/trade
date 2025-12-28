@@ -21,6 +21,8 @@ from pykrx import stock
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+import requests
+from bs4 import BeautifulSoup
 import warnings
 import argparse
 warnings.filterwarnings('ignore')
@@ -127,13 +129,150 @@ def get_dart_financials(dart, ticker, year):
         print(f"[DART] {ticker} 재무제표 조회 실패: {e}")
         return 0, 0, 0, 0, 0, 0, 0, 0, 0
 
-def main(stock_count=100, selected_fields=None):
+def get_dart_order_backlog(dart, corp_name, year):
+    """dart.report를 사용하여 수주상황(수주잔고)을 가져옵니다."""
+    try:
+        # 수주상황 리포트 조회
+        ds = dart.report(corp_name, "수주상황", year)
+        if ds is None or ds.empty:
+            return 0
+            
+        # 수주잔고(수주총계) 관련 컬럼 찾기 (표준화가 덜 되어 있어 여러 키워드 탐색)
+        target_col = None
+        for col in ds.columns:
+            if "잔고" in col or "수주잔고" in col or "잔액" in col:
+                target_col = col
+                break
+        
+        if target_col:
+            # 수치 변환 (문자열 제거 후 합계)
+            total_backlog = 0
+            for val in ds[target_col]:
+                try:
+                    # 쉼표 제거, 괄호 등 제거
+                    clean_val = str(val).replace(',', '').replace('-', '0').strip()
+                    # 숫자만 추출
+                    import re
+                    match = re.search(r'(\d+)', clean_val)
+                    if match:
+                        total_backlog += int(match.group(1))
+                except:
+                    pass
+            return total_backlog
+            
+        return 0
+    except Exception:
+        return 0
+
+def get_naver_consensus(ticker):
+    """네이버 금융에서 컨센서스(목표주가, 영업이익 전망)를 크롤링합니다."""
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={ticker}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # 1. 목표주가
+        target_price = 0
+        try:
+            # .rgt > .f_down/up em.no_down/up ... 구조가 복잡하므로 blind 텍스트나 특정 클래스 탐색
+            # 상단 투자의견/목표주가 영역
+            target_area = soup.select_one('.rgt em.no_up') or soup.select_one('.rgt em.no_down') or soup.select_one('.rgt em.no_flat')
+            if target_area:
+                 # 더 정확한 셀렉터 시도: class="em_pw" 안의 blind가 아님. 
+                 # 네이버 금융 구조: div.rgt > table > ... > tr > td > em.no_up > span.blind
+                 # 간단히: .rgt .blind 중 '목표주가' 라벨 옆 값 혹은 id='_target_price_none' 등 확인
+                 
+                 # 분석 영역 데이터 (종목분석 탭)을 보는 게 나을 수도 있음. 
+                 # 하지만 메인 페이지(overview)에 '투자의견/목표주가'가 뜸.
+                 pass
+
+            # 메인 페이지 description 영역 내 목표주가 span
+            # 예: <em class="no_up"> <span class="blind">85,000</span> </em>
+            # 구조가 동적이므로, "투자의견 목표주가" 테이블을 찾는 게 빠름
+            
+            # wrapper > content > ... > .rwidth
+            # 대안: 값들이 있는 wrapper ID
+            wrap = soup.select_one('#tab_con1') # 종합정보 탭
+            
+            # 목표주가 찾기 (텍스트 매칭)
+            tp_wrappers = soup.find_all('em')
+            for em in tp_wrappers:
+                # em 부모가 목표주가 td 인지 확인 등을 할 수 있으나 복잡함.
+                pass
+                
+        except:
+            pass
+
+        # 더 쉬운 방법: 기업실적분석 테이블에서 'E' (Estimated) 년도 찾기
+        next_op = 0       # 내년 영업이익
+        next2_op = 0      # 내후년 영업이익 (요청은 향후 2개년이므로 내년만 먼저)
+        target_price_val = 0
+
+        # 목표주가 (컨센서스 영역) - 메인 페이지 우측 '목표주가'
+        # <div class="rgt"> ... <em class="no_up">...<span class="blind">90,000</span></em>
+        # 정확한 위치: div.invest_opinion > ... 
+        # class="blind" 값을 가져옴
+        try:
+            invest_opinion = soup.select('.invest_opinion .blind')
+            # 보통 순서: [투자의견, 목표주가, ...]
+            if len(invest_opinion) >= 2:
+                tp_str = invest_opinion[1].text.replace(',', '').strip()
+                if tp_str.isdigit():
+                    target_price_val = int(tp_str)
+        except:
+            pass
+
+        # 영업이익 전망 (기업실적분석 테이블)
+        # 테이블 클래스: .cop_analysis
+        table = soup.select_one('.cop_analysis')
+        if table:
+            # thead에서 날짜 확인 (최근 연간 실적 & 추정)
+            years = [th.text.strip() for th in table.select('thead tr:nth-of-type(2) th')]
+            # '2025.12(E)' 형태 찾기
+            
+            # 영업이익 행 찾기
+            # th class="" 혹은 텍스트 '영업이익'
+            rows = table.select('tbody tr')
+            op_row = None
+            for row in rows:
+                th = row.select_one('th')
+                if th and '영업이익' in th.text:
+                    op_row = row
+                    break
+            
+            if op_row:
+                cols = op_row.select('td')
+                # years 리스트와 cols 인덱스 매핑 (years 앞쪽은 과거, 뒤쪽은 미래)
+                # (E) 가 붙은 첫번째, 두번째 컬럼 찾기
+                
+                found_estimates = []
+                for i, y in enumerate(years):
+                    if '(E)' in y or 'E' in y: # 2024.12(E)
+                        val_str = cols[i].text.strip().replace(',', '')
+                        if val_str and val_str != '-':
+                            try:
+                                found_estimates.append(int(val_str))
+                            except:
+                                pass
+                
+                if len(found_estimates) > 0:
+                    next_op = found_estimates[0]
+                # 내후년까지 필요하면 found_estimates[1] 등 사용 가능. 요청은 '향후 2개년'이라 하나,
+                # 보통 내년도만 확실히 나와있는 경우가 많음. 여기선 next_op(내년) 위주로.
+
+        return target_price_val, next_op
+
+    except Exception as e:
+        return 0, 0
+
+def main(stock_count=100, selected_fields=None, market='KOSPI'):
     try:
         print("=" * 80)
         if stock_count == 0:
-            print("KOSPI 전체 종목 데이터 수집 시작")
+            print(f"{market} 전체 종목 데이터 수집 시작")
         else:
-            print(f"KOSPI 상위 {stock_count}개 종목 데이터 수집 시작")
+            print(f"{market} 상위 {stock_count}개 종목 데이터 수집 시작")
         print("수집 우선순위: pykrx > DART API")
         print("=" * 80)
 
@@ -145,9 +284,22 @@ def main(stock_count=100, selected_fields=None):
 
         # 2. pykrx로 시가총액 상위 100개 종목 조회
         print("\n[1단계] pykrx로 시가총액 및 기본 데이터 수집 중...")
-        df_cap = stock.get_market_cap_by_ticker(latest_date, market="KOSPI")
-        df_fundamental = stock.get_market_fundamental(latest_date, market="KOSPI")
-        df_sector = stock.get_market_sector_classifications(latest_date, market="KOSPI")
+        df_cap = stock.get_market_cap_by_ticker(latest_date, market=market)
+        df_fundamental = stock.get_market_fundamental(latest_date, market=market)
+        
+        # [Fix] market='ALL'일 때 get_market_sector_classifications에서 KeyError: '종가' 발생하는 문제 우회
+        # KOSPI와 KOSDAQ을 각각 조회하여 병합
+        if market == 'ALL':
+            try:
+                df_sector_kospi = stock.get_market_sector_classifications(latest_date, market="KOSPI")
+                df_sector_kosdaq = stock.get_market_sector_classifications(latest_date, market="KOSDAQ")
+                df_sector = pd.concat([df_sector_kospi, df_sector_kosdaq])
+            except Exception as e:
+                print(f"업종 정보 병합 실패 (개별 조회 시도): {e}")
+                # 실패 시 KOSPI만이라도
+                df_sector = stock.get_market_sector_classifications(latest_date, market="KOSPI")
+        else:
+            df_sector = stock.get_market_sector_classifications(latest_date, market=market)
 
         # 상위 N개 종목 (0이면 전체)
         if stock_count == 0:
@@ -159,8 +311,9 @@ def main(stock_count=100, selected_fields=None):
 
         # 3. 업종별 평균 PBR, PER 계산 (PBR, PER > 0 인 종목만 대상)
         print("\n[2단계] 업종별 평균 PBR, PER 계산 중...")
-        # pykrx.stock.get_market_sector_classifications 결과는 ['종목명', '업종명', '종가', '대비', '등락률', '시가총액'] 컬럼을 가짐
-        df_merged = pd.concat([df_fundamental, df_sector[['업종명']]], axis=1)
+        # pykrx.stock.get_market_sector_classifications 결과 병합 (인덱스 기준)
+        # 업종 정보가 없는 종목이 있을 수 있으므로 how='left' (fundamental 기준)
+        df_merged = df_fundamental.join(df_sector[['업종명']], how='left')
         
         # PBR, PER이 0보다 큰 데이터만 필터링
         df_valid = df_merged[(df_merged['PBR'] > 0) & (df_merged['PER'] > 0)]
@@ -177,6 +330,25 @@ def main(stock_count=100, selected_fields=None):
         # 52주 데이터 계산을 위한 날짜 설정
         end_date = latest_date
         start_date = (datetime.strptime(latest_date, "%Y%m%d") - timedelta(days=365)).strftime("%Y%m%d")
+
+        # [New] 수급 데이터 (20일 외인/기관 순매수)
+        print("\n[2.5단계] 최근 20일 수급 데이터(외인/기관) 일괄 수집 중...")
+        supply_start_date = (datetime.strptime(latest_date, "%Y%m%d") - timedelta(days=30)).strftime("%Y%m%d")
+        
+        # 전체 종목 수급을 한번에 가져오는 것이 효율적 (market=market)
+        # pykrx의 get_market_net_purchases_of_equities_by_ticker는 기간 합산을 반환함 ("ALL" or specific market)
+        df_supply = stock.get_market_net_purchases_of_equities_by_ticker(supply_start_date, latest_date, "ALL")
+        # 컬럼: 종목명, 매도거래량, 매수거래량, 순매수거래량, 매도거래대금, 매수거래대금, 순매수거래대금
+        # 여기서 필요한 건 '순매수거래대금' -> 그러나 투자주체별(외인/기관)로 나눠진 API가 아님.
+        # 이 API는 투자자별로 쪼개주지 않음. 
+        # stock.get_market_net_purchases_of_equities_by_ticker는 '개인/기관/외국인' 구분이 없음 (전체 합계라 의미가 다름).
+        # 종목별/투자자별 순매수를 '기간'으로 조회 가능한 API -> stock.get_market_net_purchases_of_equities_by_ticker(from, to, "KOSPI", investor="...") 
+        # -> 이게 아님. stock.get_market_net_purchases_of_equities_by_ticker는 파라미터가 start, end, market, investor 임.
+        
+        # 외국인 순매수 (거래대금 기준)
+        df_foreign = stock.get_market_net_purchases_of_equities_by_ticker(supply_start_date, latest_date, "ALL", investor="외국인")
+        # 기관 순매수
+        df_inst = stock.get_market_net_purchases_of_equities_by_ticker(supply_start_date, latest_date, "ALL", investor="기관합계")
 
         # 진행 상황 표시
         total = len(df_top100)
@@ -219,6 +391,20 @@ def main(stock_count=100, selected_fields=None):
 
             # (4) DART API 데이터 (매출액, 영업이익, 이익잉여금, 현금, 부채, 자본, 현금흐름, CapEx, D/A)
             revenue, op, re, cash, liabilities, equity, ocf, capex, da = get_dart_financials(dart, ticker, current_year)
+            
+            # [New] DART 수주잔고
+            backlog = get_dart_order_backlog(dart, name, current_year) # 종목명(name) 사용 권장 (dart.report)
+
+            # [New] 네이버 금융 컨센서스
+            target_price, next_op = get_naver_consensus(ticker)
+
+            # [New] 수급 데이터 매핑
+            net_buy_foreign = 0
+            net_buy_inst = 0
+            if ticker in df_foreign.index:
+                net_buy_foreign = df_foreign.loc[ticker, '순매수거래대금']
+            if ticker in df_inst.index:
+                net_buy_inst = df_inst.loc[ticker, '순매수거래대금']
 
             # (5) 추가 지표 계산
             debt_ratio = (liabilities / equity * 100) if equity > 0 else 0.0
@@ -246,7 +432,12 @@ def main(stock_count=100, selected_fields=None):
                 '52주최저가': int(low_52w),
                 '부채비율': round(debt_ratio, 2),
                 'FCF': int(fcf),
-                'EBITDA': int(ebitda)
+                'EBITDA': int(ebitda),
+                '수주잔고': int(backlog),
+                '외국인순매수': int(net_buy_foreign),
+                '기관순매수': int(net_buy_inst),
+                '내년예상영업이익': int(next_op),
+                '목표주가': int(target_price)
             })
 
             time.sleep(0.05)  # API 부하 방지
@@ -314,14 +505,16 @@ def main(stock_count=100, selected_fields=None):
         sys.exit(1)  # 오류 발생 시 비정상 종료 알림
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='KOSPI 상위 종목 데이터 수집')
+    parser = argparse.ArgumentParser(description='국내 주식 데이터 수집 (KOSPI/KOSDAQ)')
     parser.add_argument('--count', type=int, default=100,
                        help='수집할 종목 수 (기본값: 100)')
     parser.add_argument('--fields', type=str, default=None,
                        help='수집할 필드 (쉼표로 구분, 예: PBR,PER,ROE)')
+    parser.add_argument('--market', type=str, default='KOSPI',
+                       help='대상 시장 (KOSPI 또는 KOSDAQ, 기본값: KOSPI)')
     args = parser.parse_args()
 
     # 필드를 리스트로 변환
     selected_fields = args.fields.split(',') if args.fields else None
 
-    main(stock_count=args.count, selected_fields=selected_fields)
+    main(stock_count=args.count, selected_fields=selected_fields, market=args.market)

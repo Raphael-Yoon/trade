@@ -47,12 +47,12 @@ def cleanup_old_results(max_files=20):
     except Exception as e:
         print(f"파일 정리 중 오류: {e}")
 
-def run_data_collection(task_id, stock_count=100, fields=None):
+def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
     """백그라운드에서 데이터 수집 실행"""
     try:
         tasks[task_id]['status'] = 'running'
         tasks[task_id]['progress'] = 0
-        tasks[task_id]['message'] = '데이터 수집 시작...'
+        tasks[task_id]['message'] = f'{market} 데이터 수집 시작...'
         tasks[task_id]['stock_count'] = stock_count
 
         # data_collect.py 실행
@@ -62,7 +62,7 @@ def run_data_collection(task_id, stock_count=100, fields=None):
         if 'uwsgi' in python_cmd.lower():
             python_cmd = 'python'
 
-        cmd = [python_cmd, script_path, '--count', str(stock_count)]
+        cmd = [python_cmd, script_path, '--count', str(stock_count), '--market', market]
 
         # 선택된 필드가 있으면 추가
         if fields:
@@ -101,7 +101,7 @@ def run_data_collection(task_id, stock_count=100, fields=None):
             source_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'result.xlsx')
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             count_label = 'all' if stock_count == 0 else f'top{stock_count}'
-            result_filename = f'kospi_{count_label}_{timestamp}.xlsx'
+            result_filename = f'{market.lower()}_{count_label}_{timestamp}.xlsx'
             result_path = os.path.join(RESULTS_DIR, result_filename)
 
             if os.path.exists(source_file):
@@ -136,6 +136,7 @@ def start_collection():
     data = request.get_json() or {}
     stock_count = data.get('stock_count', 100)
     fields = data.get('fields', [])
+    market = data.get('market', 'KOSPI')
 
     # 유효성 검사
     if not isinstance(stock_count, int) or stock_count < 0 or stock_count > 10000:
@@ -150,14 +151,15 @@ def start_collection():
         'progress': 0,
         'message': '대기 중...',
         'stock_count': stock_count,
+        'market': market,
         'created_at': datetime.now().isoformat()
     }
 
     # 백그라운드 스레드로 실행
-    thread = threading.Thread(target=run_data_collection, args=(task_id, stock_count, fields))
+    thread = threading.Thread(target=run_data_collection, args=(task_id, stock_count, fields, market))
     thread.start()
 
-    message = '전체 종목 데이터 수집이 시작되었습니다.' if stock_count == 0 else f'{stock_count}개 종목 데이터 수집이 시작되었습니다.'
+    message = f'{market} 전체 종목 데이터 수집이 시작되었습니다.' if stock_count == 0 else f'{market} {stock_count}개 종목 데이터 수집이 시작되었습니다.'
 
     return jsonify({
         'success': True,

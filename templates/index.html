@@ -28,6 +28,23 @@
             <div class="field-checkboxes">
                 <div class="field-group">
                     <h4>기본 정보</h4>
+                    <!-- New Market Selection inside Basic Info -->
+                    <div class="market-selection-area"
+                        style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <label style="display:block; margin-bottom:10px; font-size:14px; color:var(--text-muted);">대상 시장
+                            (하나 이상 선택)</label>
+                        <div style="display: flex; gap: 20px;">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="marketKospi" value="KOSPI" checked>
+                                <span>KOSPI</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="marketKosdaq" value="KOSDAQ">
+                                <span>KOSDAQ</span>
+                            </label>
+                        </div>
+                    </div>
+
                     <label class="checkbox-label">
                         <input type="checkbox" class="field-checkbox" value="종목코드" checked disabled>
                         <span>종목코드 (필수)</span>
@@ -41,6 +58,7 @@
                         <span>업종</span>
                     </label>
                 </div>
+                <!-- ... other field groups ... -->
                 <div class="field-group">
                     <h4>투자 지표</h4>
                     <label class="checkbox-label">
@@ -106,6 +124,29 @@
                         <input type="checkbox" class="field-checkbox" value="부채비율" checked>
                         <span>부채비율</span>
                     </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="수주잔고" checked>
+                        <span>수주잔고</span>
+                    </label>
+                </div>
+                <div class="field-group">
+                    <h4>컨센서스 및 수급</h4>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="목표주가" checked>
+                        <span>목표주가</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="내년예상영업이익" checked>
+                        <span>내년 예상 영업이익</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="외국인순매수" checked>
+                        <span>외국인 순매수 (20일)</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="기관순매수" checked>
+                        <span>기관 순매수 (20일)</span>
+                    </label>
                 </div>
             </div>
         </div>
@@ -152,7 +193,9 @@
         };
 
         function selectCount(count) {
-            document.querySelectorAll('.count-btn').forEach(btn => {
+            // Only select buttons within .stock-count-selector
+            const buttons = document.querySelectorAll('.stock-count-selector .count-btn');
+            buttons.forEach(btn => {
                 btn.classList.remove('active');
             });
             event.target.classList.add('active');
@@ -175,6 +218,22 @@
         function startCollection() {
             const stockCount = parseInt(document.getElementById('stockCount').value);
             const selectedFields = getSelectedFields();
+
+            // Market selection logic
+            const useKospi = document.getElementById('marketKospi').checked;
+            const useKosdaq = document.getElementById('marketKosdaq').checked;
+
+            if (!useKospi && !useKosdaq) {
+                alert('최소한 하나의 시장(KOSPI, KOSDAQ)을 선택해야 합니다.');
+                return;
+            }
+
+            let market = 'KOSPI';
+            if (useKospi && useKosdaq) {
+                market = 'ALL';
+            } else if (useKosdaq) {
+                market = 'KOSDAQ';
+            }
 
             if (isNaN(stockCount) || stockCount < 0 || stockCount > 10000) {
                 alert('종목 수는 0(전체) 또는 1~10000 사이의 숫자여야 합니다.');
@@ -203,7 +262,8 @@
                 },
                 body: JSON.stringify({
                     stock_count: stockCount,
-                    fields: selectedFields
+                    fields: selectedFields,
+                    market: market
                 })
             })
                 .then(response => response.json())
