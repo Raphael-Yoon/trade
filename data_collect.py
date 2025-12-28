@@ -268,8 +268,8 @@ def main(stock_count=100, selected_fields=None):
             fields_to_include = [f for f in fields_to_include if f in df_result.columns]
             df_result = df_result[fields_to_include]
 
-        # 4. 엑셀 저장 먼저 수행
-        output_file = "result.xlsx"
+        # 4. 엑셀 저장 먼저 수행 (절대 경로 사용)
+        output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result.xlsx")
         df_result.to_excel(output_file, index=False, engine='openpyxl')
 
         # 엑셀 포맷팅

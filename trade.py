@@ -8,7 +8,7 @@ if os.name == 'nt':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
-sys.path.append(r'C:\Users\newsi\AppData\Roaming\Python\Python313\site-packages')
+# sys.path.append(r'C:\Users\newsi\AppData\Roaming\Python\Python313\site-packages')
 
 from flask import Flask, render_template, jsonify, send_file, request
 import threading
@@ -73,7 +73,8 @@ def run_data_collection(task_id, stock_count=100, fields=None):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            encoding='utf-8'
+            encoding='utf-8',
+            cwd=os.path.dirname(__file__)  # 작업 디렉토리 고정
         )
 
         # 실시간 출력 읽기
@@ -216,8 +217,4 @@ def list_results():
     return jsonify(files)
 
 if __name__ == '__main__':
-    print("=" * 80)
-    print("KOSPI 데이터 수집 웹 서버 시작")
-    print("브라우저에서 http://localhost:5000 접속")
-    print("=" * 80)
     app.run(debug=True, host='0.0.0.0', port=5000)
