@@ -98,7 +98,7 @@ def run_data_collection(task_id, stock_count=100, fields=None):
 
         if process.returncode == 0:
             # 결과 파일 이동
-            source_file = os.path.join(os.path.dirname(__file__), 'result.xlsx')
+            source_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'result.xlsx')
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             count_label = 'all' if stock_count == 0 else f'top{stock_count}'
             result_filename = f'kospi_{count_label}_{timestamp}.xlsx'

@@ -307,6 +307,7 @@ def main(stock_count=100, selected_fields=None):
         print(f"\nError occurred: {e}")
         import traceback
         traceback.print_exc()
+        sys.exit(1)  # 오류 발생 시 비정상 종료 알림
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='KOSPI 상위 종목 데이터 수집')
