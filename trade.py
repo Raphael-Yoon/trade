@@ -57,7 +57,12 @@ def run_data_collection(task_id, stock_count=100, fields=None):
 
         # data_collect.py 실행
         script_path = os.path.join(os.path.dirname(__file__), 'data_collect.py')
-        cmd = [sys.executable, script_path, '--count', str(stock_count)]
+        # uWSGI 환경 대응: sys.executable이 uwsgi일 경우 python 명령어로 대체
+        python_cmd = sys.executable
+        if 'uwsgi' in python_cmd.lower():
+            python_cmd = 'python'
+
+        cmd = [python_cmd, script_path, '--count', str(stock_count)]
 
         # 선택된 필드가 있으면 추가
         if fields:
