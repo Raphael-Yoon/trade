@@ -73,198 +73,134 @@ def get_dart_financials(dart, ticker, year):
         capex = 0
         da = 0
 
-        # XBRL 표준 계정 ID 매칭
+        # XBRL 표준 계정 ID 매칭 (sj_div 필터링 추가로 정확도 향상)
         for _, row in df.iterrows():
             acc_id = str(row.get('account_id', ''))
             acc_name = str(row['account_nm']).replace(" ", "")
+            sj_div = str(row.get('sj_div', ''))
             val = pd.to_numeric(row['thstrm_amount'], errors='coerce')
             if pd.isna(val):
                 val = 0
 
-            # 1. 매출액
-            if acc_id == 'ifrs-full_Revenue' or acc_name == '매출액' or acc_name == '수익(매출액)':
-                if revenue == 0 or acc_id == 'ifrs-full_Revenue':
+            # 1. 매출액 (IS/CIS)
+            if acc_id in ['ifrs-full_Revenue', 'ifrs-full_RevenueFromContractWithCustomers'] or acc_name in ['매출액', '수익(매출액)']:
+                if revenue == 0 or 'Revenue' in acc_id:
                     revenue = val
             
-            # 2. 영업이익
-            elif acc_id == 'dart_OperatingIncomeLoss' or acc_name == '영업이익' or acc_name == '영업이익(손실)':
+            # 2. 영업이익 (IS/CIS)
+            elif acc_id == 'dart_OperatingIncomeLoss' or acc_name in ['영업이익', '영업이익(손실)']:
                 if op == 0 or acc_id == 'dart_OperatingIncomeLoss':
                     op = val
             
-            # 3. 이익잉여금
-            elif acc_id == 'ifrs-full_RetainedEarnings' or (re == 0 and '이익잉여금' in acc_name and '기타' not in acc_name):
+            # 3. 이익잉여금 (BS)
+            elif sj_div == 'BS' and (acc_id == 'ifrs-full_RetainedEarnings' or ('이익잉여금' in acc_name and '기타' not in acc_name)):
                 if re == 0 or acc_id == 'ifrs-full_RetainedEarnings':
                     re = val
             
-            # 4. 현금및현금성자산
-            elif acc_id == 'ifrs-full_CashAndCashEquivalents' or (cash == 0 and '현금및현금성자산' in acc_name):
+            # 4. 현금및현금성자산 (BS)
+            elif sj_div == 'BS' and (acc_id == 'ifrs-full_CashAndCashEquivalents' or '현금및현금성자산' in acc_name):
                 if cash == 0 or acc_id == 'ifrs-full_CashAndCashEquivalents':
                     cash = val
 
-            # 5. 부채총계
-            elif acc_id == 'ifrs-full_Liabilities' or acc_name == '부채총계':
-                liabilities = val
+            # 5. 부채총계 (BS)
+            elif sj_div == 'BS' and (acc_id == 'ifrs-full_Liabilities' or acc_name == '부채총계'):
+                if liabilities == 0 or acc_id == 'ifrs-full_Liabilities':
+                    liabilities = val
 
-            # 6. 자본총계
-            elif acc_id == 'ifrs-full_Equity' or acc_name == '자본총계':
-                if equity == 0 or acc_id == 'ifrs-full_Equity':
+            # 6. 자본총계 (BS)
+            elif sj_div == 'BS' and (acc_id in ['ifrs-full_Equity', 'ifrs-full_EquityAttributableToOwnersOfParent'] or acc_name == '자본총계'):
+                if equity == 0 or 'Equity' in acc_id:
                     equity = val
 
-            # 7. 영업활동현금흐름 (FCF 계산용)
-            elif acc_id == 'ifrs-full_CashFlowsFromUsedInOperatingActivities' or acc_name == '영업활동현금흐름':
+            # 7. 영업활동현금흐름 (CF)
+            elif sj_div == 'CF' and (acc_id == 'ifrs-full_CashFlowsFromUsedInOperatingActivities' or acc_name == '영업활동현금흐름'):
                 ocf = val
 
-            # 8. 유형/무형자산 취득 (CapEx 계산용)
-            elif 'PurchaseOfPropertyPlantAndEquipment' in acc_id or 'PurchaseOfIntangibleAssets' in acc_id:
-                capex += val
-            elif acc_name in ['유형자산의취득', '무형자산의취득']:
+            # 8. 유형/무형자산 취득 (CF)
+            elif sj_div == 'CF' and ('PurchaseOfPropertyPlantAndEquipment' in acc_id or 'PurchaseOfIntangibleAssets' in acc_id or acc_name in ['유형자산의취득', '무형자산의취득']):
                 capex += val
 
-            # 9. 감가상각비 (EBITDA 계산용)
+            # 9. 감가상각비 (IS/CIS/CF)
             if 'Depreciation' in acc_id or 'Amortisation' in acc_id or '감가상각' in acc_name:
-                da += val
+                if da == 0 or 'Depreciation' in acc_id:
+                    da = val
 
         return revenue, op, re, cash, liabilities, equity, ocf, capex, da
     except Exception as e:
         print(f"[DART] {ticker} 재무제표 조회 실패: {e}")
         return 0, 0, 0, 0, 0, 0, 0, 0, 0
 
-def get_dart_order_backlog(dart, corp_name, year):
-    """dart.report를 사용하여 수주상황(수주잔고)을 가져옵니다."""
-    try:
-        # 수주상황 리포트 조회
-        ds = dart.report(corp_name, "수주상황", year)
-        if ds is None or ds.empty:
-            return 0
-            
-        # 수주잔고(수주총계) 관련 컬럼 찾기 (표준화가 덜 되어 있어 여러 키워드 탐색)
-        target_col = None
-        for col in ds.columns:
-            if "잔고" in col or "수주잔고" in col or "잔액" in col:
-                target_col = col
-                break
-        
-        if target_col:
-            # 수치 변환 (문자열 제거 후 합계)
-            total_backlog = 0
-            for val in ds[target_col]:
-                try:
-                    # 쉼표 제거, 괄호 등 제거
-                    clean_val = str(val).replace(',', '').replace('-', '0').strip()
-                    # 숫자만 추출
-                    import re
-                    match = re.search(r'(\d+)', clean_val)
-                    if match:
-                        total_backlog += int(match.group(1))
-                except:
-                    pass
-            return total_backlog
-            
-        return 0
-    except Exception:
-        return 0
 
-def get_naver_consensus(ticker):
-    """네이버 금융에서 컨센서스(목표주가, 영업이익 전망)를 크롤링합니다."""
+def get_naver_financials(ticker):
+    """네이버 금융에서 컨센서스(목표주가, 영업이익 전망) 및 부채비율을 크롤링합니다."""
     try:
         url = f"https://finance.naver.com/item/main.naver?code={ticker}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers)
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 1. 목표주가
-        target_price = 0
-        try:
-            # .rgt > .f_down/up em.no_down/up ... 구조가 복잡하므로 blind 텍스트나 특정 클래스 탐색
-            # 상단 투자의견/목표주가 영역
-            target_area = soup.select_one('.rgt em.no_up') or soup.select_one('.rgt em.no_down') or soup.select_one('.rgt em.no_flat')
-            if target_area:
-                 # 더 정확한 셀렉터 시도: class="em_pw" 안의 blind가 아님. 
-                 # 네이버 금융 구조: div.rgt > table > ... > tr > td > em.no_up > span.blind
-                 # 간단히: .rgt .blind 중 '목표주가' 라벨 옆 값 혹은 id='_target_price_none' 등 확인
-                 
-                 # 분석 영역 데이터 (종목분석 탭)을 보는 게 나을 수도 있음. 
-                 # 하지만 메인 페이지(overview)에 '투자의견/목표주가'가 뜸.
-                 pass
-
-            # 메인 페이지 description 영역 내 목표주가 span
-            # 예: <em class="no_up"> <span class="blind">85,000</span> </em>
-            # 구조가 동적이므로, "투자의견 목표주가" 테이블을 찾는 게 빠름
-            
-            # wrapper > content > ... > .rwidth
-            # 대안: 값들이 있는 wrapper ID
-            wrap = soup.select_one('#tab_con1') # 종합정보 탭
-            
-            # 목표주가 찾기 (텍스트 매칭)
-            tp_wrappers = soup.find_all('em')
-            for em in tp_wrappers:
-                # em 부모가 목표주가 td 인지 확인 등을 할 수 있으나 복잡함.
-                pass
-                
-        except:
-            pass
-
-        # 더 쉬운 방법: 기업실적분석 테이블에서 'E' (Estimated) 년도 찾기
-        next_op = 0       # 내년 영업이익
-        next2_op = 0      # 내후년 영업이익 (요청은 향후 2개년이므로 내년만 먼저)
+        # 1. 목표주가 (투자정보 테이블에서 추출)
         target_price_val = 0
-
-        # 목표주가 (컨센서스 영역) - 메인 페이지 우측 '목표주가'
-        # <div class="rgt"> ... <em class="no_up">...<span class="blind">90,000</span></em>
-        # 정확한 위치: div.invest_opinion > ... 
-        # class="blind" 값을 가져옴
         try:
-            invest_opinion = soup.select('.invest_opinion .blind')
-            # 보통 순서: [투자의견, 목표주가, ...]
-            if len(invest_opinion) >= 2:
-                tp_str = invest_opinion[1].text.replace(',', '').strip()
-                if tp_str.isdigit():
-                    target_price_val = int(tp_str)
+            # 모든 th 태그를 돌며 '목표주가' 텍스트가 포함된 것을 찾음
+            for th in soup.find_all('th'):
+                if '목표주가' in th.text:
+                    td = th.find_next_sibling('td')
+                    if td:
+                        # em 태그 내의 숫자 추출
+                        ems = td.find_all('em')
+                        for em in ems:
+                            val_str = em.text.replace(',', '').strip()
+                            if val_str.isdigit() and int(val_str) > 100:
+                                target_price_val = int(val_str)
+                                break
+                    if target_price_val > 0: break
         except:
             pass
 
-        # 영업이익 전망 (기업실적분석 테이블)
-        # 테이블 클래스: .cop_analysis
+        # 2. 기업실적분석 테이블 (영업이익 전망, 부채비율)
+        next_op = 0
+        debt_ratio = 0.0
+        
         table = soup.select_one('.cop_analysis')
         if table:
-            # thead에서 날짜 확인 (최근 연간 실적 & 추정)
             years = [th.text.strip() for th in table.select('thead tr:nth-of-type(2) th')]
-            # '2025.12(E)' 형태 찾기
-            
-            # 영업이익 행 찾기
-            # th class="" 혹은 텍스트 '영업이익'
             rows = table.select('tbody tr')
-            op_row = None
+            
             for row in rows:
                 th = row.select_one('th')
-                if th and '영업이익' in th.text:
-                    op_row = row
-                    break
-            
-            if op_row:
-                cols = op_row.select('td')
-                # years 리스트와 cols 인덱스 매핑 (years 앞쪽은 과거, 뒤쪽은 미래)
-                # (E) 가 붙은 첫번째, 두번째 컬럼 찾기
+                if not th: continue
                 
-                found_estimates = []
-                for i, y in enumerate(years):
-                    if '(E)' in y or 'E' in y: # 2024.12(E)
+                # 영업이익 전망
+                if '영업이익' in th.text:
+                    cols = row.select('td')
+                    for i, y in enumerate(years):
+                        if '(E)' in y or 'E' in y:
+                            val_str = cols[i].text.strip().replace(',', '')
+                            if val_str and val_str != '-':
+                                try:
+                                    next_op = int(val_str)
+                                    break # 첫 번째 추정치만 사용
+                                except: pass
+                
+                # 부채비율
+                elif '부채비율' in th.text:
+                    cols = row.select('td')
+                    # 최근 확정 실적 또는 최근 분기 실적 중 가장 뒤에 있는 유효한 값 탐색
+                    # 보통 인덱스 3(최근연도) 또는 인덱스 7~9(최근분기)가 유효함
+                    for i in range(len(cols)-1, -1, -1):
                         val_str = cols[i].text.strip().replace(',', '')
-                        if val_str and val_str != '-':
+                        if val_str and val_str != '-' and val_str != '':
                             try:
-                                found_estimates.append(int(val_str))
-                            except:
-                                pass
-                
-                if len(found_estimates) > 0:
-                    next_op = found_estimates[0]
-                # 내후년까지 필요하면 found_estimates[1] 등 사용 가능. 요청은 '향후 2개년'이라 하나,
-                # 보통 내년도만 확실히 나와있는 경우가 많음. 여기선 next_op(내년) 위주로.
+                                debt_ratio = float(val_str)
+                                break
+                            except: pass
 
-        return target_price_val, next_op
+        return target_price_val, next_op, debt_ratio
 
     except Exception as e:
-        return 0, 0
+        print(f"[Naver] {ticker} 데이터 크롤링 실패: {e}")
+        return 0, 0, 0.0
 
 def main(stock_count=100, selected_fields=None, market='KOSPI'):
     try:
@@ -338,12 +274,6 @@ def main(stock_count=100, selected_fields=None, market='KOSPI'):
         # 전체 종목 수급을 한번에 가져오는 것이 효율적 (market=market)
         # pykrx의 get_market_net_purchases_of_equities_by_ticker는 기간 합산을 반환함 ("ALL" or specific market)
         df_supply = stock.get_market_net_purchases_of_equities_by_ticker(supply_start_date, latest_date, "ALL")
-        # 컬럼: 종목명, 매도거래량, 매수거래량, 순매수거래량, 매도거래대금, 매수거래대금, 순매수거래대금
-        # 여기서 필요한 건 '순매수거래대금' -> 그러나 투자주체별(외인/기관)로 나눠진 API가 아님.
-        # 이 API는 투자자별로 쪼개주지 않음. 
-        # stock.get_market_net_purchases_of_equities_by_ticker는 '개인/기관/외국인' 구분이 없음 (전체 합계라 의미가 다름).
-        # 종목별/투자자별 순매수를 '기간'으로 조회 가능한 API -> stock.get_market_net_purchases_of_equities_by_ticker(from, to, "KOSPI", investor="...") 
-        # -> 이게 아님. stock.get_market_net_purchases_of_equities_by_ticker는 파라미터가 start, end, market, investor 임.
         
         # 외국인 순매수 (거래대금 기준)
         df_foreign = stock.get_market_net_purchases_of_equities_by_ticker(supply_start_date, latest_date, "ALL", investor="외국인")
@@ -392,11 +322,9 @@ def main(stock_count=100, selected_fields=None, market='KOSPI'):
             # (4) DART API 데이터 (매출액, 영업이익, 이익잉여금, 현금, 부채, 자본, 현금흐름, CapEx, D/A)
             revenue, op, re, cash, liabilities, equity, ocf, capex, da = get_dart_financials(dart, ticker, current_year)
             
-            # [New] DART 수주잔고
-            backlog = get_dart_order_backlog(dart, name, current_year) # 종목명(name) 사용 권장 (dart.report)
 
-            # [New] 네이버 금융 컨센서스
-            target_price, next_op = get_naver_consensus(ticker)
+            # [New] 네이버 금융 데이터 (목표주가, 예상영업이익, 부채비율)
+            target_price, next_op, naver_debt_ratio = get_naver_financials(ticker)
 
             # [New] 수급 데이터 매핑
             net_buy_foreign = 0
@@ -407,7 +335,12 @@ def main(stock_count=100, selected_fields=None, market='KOSPI'):
                 net_buy_inst = df_inst.loc[ticker, '순매수거래대금']
 
             # (5) 추가 지표 계산
-            debt_ratio = (liabilities / equity * 100) if equity > 0 else 0.0
+            # 부채비율: 네이버 금융 우선, 없으면 DART Fallback
+            if naver_debt_ratio > 0:
+                debt_ratio = naver_debt_ratio
+            else:
+                debt_ratio = (liabilities / equity * 100) if equity > 0 else 0.0
+
             fcf = ocf - capex
             ebitda = op + da
 
@@ -433,7 +366,6 @@ def main(stock_count=100, selected_fields=None, market='KOSPI'):
                 '부채비율': round(debt_ratio, 2),
                 'FCF': int(fcf),
                 'EBITDA': int(ebitda),
-                '수주잔고': int(backlog),
                 '외국인순매수': int(net_buy_foreign),
                 '기관순매수': int(net_buy_inst),
                 '내년예상영업이익': int(next_op),
