@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 import os
-
+ 
 # Windows 콘솔 UTF-8 설정
 if os.name == 'nt':
     os.system('chcp 65001 > nul')
