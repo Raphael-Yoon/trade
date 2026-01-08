@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 import sys
 import os
- 
+
 # Windows 콘솔 UTF-8 설정
 if os.name == 'nt':
     os.system('chcp 65001 > nul')
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
-
-# sys.path.append(r'C:\Users\newsi\AppData\Roaming\Python\Python313\site-packages')
 
 from flask import Flask, render_template, jsonify, send_file, request
 import threading
@@ -19,7 +17,7 @@ import json
 
 app = Flask(__name__)
 
-# 작업 상태 저장 (실제 운영 환경에서는 Redis 등 사용 권장)
+# 작업 상태 저장
 tasks = {}
 
 # 결과 파일 저장 디렉토리
@@ -57,7 +55,6 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
 
         # data_collect.py 실행
         script_path = os.path.join(os.path.dirname(__file__), 'data_collect.py')
-        # uWSGI 환경 대응: sys.executable이 uwsgi일 경우 python 명령어로 대체
         python_cmd = sys.executable
         if 'uwsgi' in python_cmd.lower():
             python_cmd = 'python'
@@ -74,7 +71,7 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
-            cwd=os.path.dirname(__file__)  # 작업 디렉토리 고정
+            cwd=os.path.dirname(__file__)
         )
 
         # 실시간 출력 읽기
@@ -86,11 +83,14 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
                 # 진행률 파싱 (진행률: [10/100] 10% 완료)
                 if '진행률:' in line and '%' in line:
                     try:
-                        # [10/100] 형태에서 숫자 추출
-                        if '[' in line and ']' in line:
-                            bracket_content = line[line.find('[')+1:line.find(']')]
-                            current, total = map(int, bracket_content.split('/'))
-                            tasks[task_id]['progress'] = int((current / total) * 100)
+                        # [current/total] 형태에서 숫자 추출 (가장 첫 번째 대괄호 쌍 사용)
+                        start_idx = line.find('[')
+                        end_idx = line.find(']')
+                        if start_idx != -1 and end_idx != -1:
+                            bracket_content = line[start_idx+1:end_idx]
+                            if '/' in bracket_content:
+                                current, total = map(int, bracket_content.split('/'))
+                                tasks[task_id]['progress'] = int((current / total) * 100)
                     except:
                         pass
 
@@ -110,8 +110,6 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
                 tasks[task_id]['progress'] = 100
                 tasks[task_id]['message'] = '데이터 수집 완료!'
                 tasks[task_id]['result_file'] = result_filename
-                
-                # 오래된 파일 정리
                 cleanup_old_results()
             else:
                 tasks[task_id]['status'] = 'error'
@@ -127,18 +125,15 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
 
 @app.route('/')
 def index():
-    """메인 페이지"""
     return render_template('index.html')
 
 @app.route('/api/collect', methods=['POST'])
 def start_collection():
-    """데이터 수집 시작"""
     data = request.get_json() or {}
     stock_count = data.get('stock_count', 100)
     fields = data.get('fields', [])
     market = data.get('market', 'KOSPI')
 
-    # 유효성 검사
     if not isinstance(stock_count, int) or stock_count < 0 or stock_count > 10000:
         return jsonify({
             'success': False,
@@ -155,7 +150,6 @@ def start_collection():
         'created_at': datetime.now().isoformat()
     }
 
-    # 백그라운드 스레드로 실행
     thread = threading.Thread(target=run_data_collection, args=(task_id, stock_count, fields, market))
     thread.start()
 
@@ -169,30 +163,22 @@ def start_collection():
 
 @app.route('/api/status/<task_id>', methods=['GET'])
 def get_status(task_id):
-    """작업 상태 조회"""
     if task_id not in tasks:
         return jsonify({'error': '작업을 찾을 수 없습니다.'}), 404
-
     return jsonify(tasks[task_id])
 
 @app.route('/api/download/<filename>', methods=['GET'])
 def download_file(filename):
-    """결과 파일 다운로드"""
     file_path = os.path.join(RESULTS_DIR, filename)
-
     if not os.path.exists(file_path):
         return jsonify({'error': '파일을 찾을 수 없습니다.'}), 404
-
     return send_file(file_path, as_attachment=True, download_name=filename)
 
 @app.route('/api/delete/<filename>', methods=['DELETE'])
 def delete_file(filename):
-    """결과 파일 삭제"""
     file_path = os.path.join(RESULTS_DIR, filename)
-    
     if not os.path.exists(file_path):
         return jsonify({'success': False, 'message': '파일을 찾을 수 없습니다.'}), 404
-        
     try:
         os.remove(file_path)
         return jsonify({'success': True, 'message': '파일이 삭제되었습니다.'})
@@ -201,7 +187,6 @@ def delete_file(filename):
 
 @app.route('/api/results', methods=['GET'])
 def list_results():
-    """저장된 결과 파일 목록"""
     files = []
     if os.path.exists(RESULTS_DIR):
         for filename in os.listdir(RESULTS_DIR):
@@ -213,8 +198,6 @@ def list_results():
                     'size': stat.st_size,
                     'created_at': datetime.fromtimestamp(stat.st_ctime).isoformat()
                 })
-
-    # 최신순 정렬
     files.sort(key=lambda x: x['created_at'], reverse=True)
     return jsonify(files)
 
