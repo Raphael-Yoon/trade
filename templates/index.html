@@ -54,8 +54,16 @@
                         <span>종목명 (필수)</span>
                     </label>
                     <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="업종" checked>
-                        <span>업종</span>
+                        <input type="checkbox" class="field-checkbox" value="회계감사의견" checked disabled>
+                        <span>회계감사 의견 (필수)</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="내부통제의견" checked disabled>
+                        <span>내부통제 의견 (필수)</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="업종" checked disabled>
+                        <span>업종 (필수)</span>
                     </label>
                 </div>
                 <div class="field-group">
@@ -83,6 +91,14 @@
                     <label class="checkbox-label">
                         <input type="checkbox" class="field-checkbox" value="배당수익률" checked>
                         <span>배당수익률</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="업종평균PBR" checked>
+                        <span>업종평균 PBR</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="업종평균PER" checked>
+                        <span>업종평균 PER</span>
                     </label>
                 </div>
                 <div class="field-group">
@@ -155,12 +171,19 @@
                 <button class="count-btn" onclick="selectCount(500)">500개</button>
                 <button class="count-btn" onclick="selectCount(0)">전체</button>
             </div>
-            <input type="number" id="stockCount" value="100" min="0" max="10000" placeholder="직접 입력 (0=전체, 1~10000)">
+            <input type="hidden" id="stockCount" value="100">
         </div>
 
-        <button id="collectBtn" class="btn" onclick="startCollection()">
-            🚀 데이터 수집 시작
-        </button>
+        <div class="action-buttons" style="display: flex; gap: 10px;">
+            <button id="collectBtn" class="btn" style="flex: 1;" onclick="startCollection()">
+                🚀 데이터 수집 시작
+            </button>
+            <button id="cancelBtn" class="btn btn-cancel"
+                style="width: 140px; display: none; background: #ef4444; white-space: nowrap;"
+                onclick="cancelCollection()">
+                ⏹ 수집 중단
+            </button>
+        </div>
 
         <div id="downloadSection" class="download-section">
             <p class="success-msg">✅ 데이터 수집이 완료되었습니다!</p>
@@ -265,6 +288,7 @@
                 .then(data => {
                     if (data.success) {
                         currentTaskId = data.task_id;
+                        document.getElementById('cancelBtn').style.display = 'block';
                         checkStatus();
                     } else {
                         showError('데이터 수집 시작에 실패했습니다.');
@@ -326,11 +350,38 @@
             errorSection.style.display = 'block';
         }
 
+        function cancelCollection() {
+            if (!currentTaskId) return;
+
+            if (!confirm('현재 진행 중인 수집 작업을 취소하시겠습니까?')) {
+                return;
+            }
+
+            fetch(`/api/cancel/${currentTaskId}`, {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        clearInterval(statusCheckInterval);
+                        resetButton();
+                        alert('수집이 취소되었습니다.');
+                    } else {
+                        alert('취소 실패: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('서버 오류: ' + error);
+                });
+        }
+
         function resetButton() {
             const btn = document.getElementById('collectBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
             btn.disabled = false;
             btn.style.removeProperty('--progress');
             btn.textContent = '🚀 데이터 수집 시작';
+            cancelBtn.style.display = 'none';
         }
 
         function loadResults() {
