@@ -73,6 +73,8 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
             encoding='utf-8',
             cwd=os.path.dirname(__file__)
         )
+        
+        tasks[task_id]['process'] = process
 
         # 실시간 출력 읽기
         for line in process.stdout:
@@ -81,9 +83,9 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
                 tasks[task_id]['message'] = line
 
                 # 진행률 파싱 (진행률: [10/100] 10% 완료)
-                if '진행률:' in line and '%' in line:
+                if '진행률:' in line:
                     try:
-                        # [current/total] 형태에서 숫자 추출 (가장 첫 번째 대괄호 쌍 사용)
+                        # [current/total] 형태에서 숫자 추출
                         start_idx = line.find('[')
                         end_idx = line.find(']')
                         if start_idx != -1 and end_idx != -1:
@@ -91,10 +93,22 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
                             if '/' in bracket_content:
                                 current, total = map(int, bracket_content.split('/'))
                                 tasks[task_id]['progress'] = int((current / total) * 100)
+                        
+                        # % 기호로도 백업 파싱
+                        elif '%' in line:
+                            percent_val = line.split('%')[0].split()[-1]
+                            tasks[task_id]['progress'] = int(percent_val)
                     except:
                         pass
 
         process.wait()
+
+        # 프로세스 참조 제거
+        if 'process' in tasks[task_id]:
+            del tasks[task_id]['process']
+
+        if tasks[task_id].get('status') == 'cancelled':
+            return
 
         if process.returncode == 0:
             # 결과 파일 이동
@@ -165,7 +179,33 @@ def start_collection():
 def get_status(task_id):
     if task_id not in tasks:
         return jsonify({'error': '작업을 찾을 수 없습니다.'}), 404
-    return jsonify(tasks[task_id])
+    
+    # 프로세스 객체는 JSON 직렬화가 안 되므로 복사하여 제외
+    task_info = {k: v for k, v in tasks[task_id].items() if k != 'process'}
+    return jsonify(task_info)
+
+@app.route('/api/cancel/<task_id>', methods=['POST'])
+def cancel_collection(task_id):
+    if task_id not in tasks:
+        return jsonify({'error': '작업을 찾을 수 없습니다.'}), 404
+    
+    task = tasks[task_id]
+    if task['status'] == 'running' and 'process' in task:
+        try:
+            process = task['process']
+            import psutil
+            parent = psutil.Process(process.pid)
+            for child in parent.children(recursive=True):
+                child.terminate()
+            parent.terminate()
+            
+            task['status'] = 'cancelled'
+            task['message'] = '사용자에 의해 수집이 취소되었습니다.'
+            return jsonify({'success': True, 'message': '수집이 취소되었습니다.'})
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'취소 중 오류 발생: {str(e)}'}), 500
+    
+    return jsonify({'success': False, 'message': '취소할 수 있는 상태가 아닙니다.'})
 
 @app.route('/api/download/<filename>', methods=['GET'])
 def download_file(filename):
