@@ -3,6 +3,7 @@ import sys
 import os
 import time
 import requests
+import json
 import re
 import argparse
 import pandas as pd
@@ -272,6 +273,53 @@ def get_dart_financials(dart, ticker, year):
         print(f"[DART] {ticker} 재무제표 조회 실패: {e}")
         return 0, 0, 0, 0, 0, 0, 0, 0, 0
 
+def get_audit_opinions(corp_code, year, api_key):
+    """DART API를 사용하여 회계감사 의견 및 내부통제 의견을 가져옵니다."""
+    audit_opinion = 'N/A'
+    internal_control = 'N/A'
+    
+    # 최근 2개년도 시도 (2024년 데이터가 없을 경우 2023년 시도)
+    years_to_try = [str(year), str(int(year)-1)]
+    
+    for y in years_to_try:
+        try:
+            # 1. 회계감사인의 명칭 및 감사의견 API (가장 기본)
+            url = f"https://opendart.fss.or.kr/api/accnutAdtorNmNdAdtOpinion.json?crtfc_key={api_key}&corp_code={corp_code}&bsns_year={y}&reprt_code=11011"
+            res = requests.get(url, timeout=5).json()
+            
+            if res.get('status') == '000' and 'list' in res and len(res['list']) > 0:
+                # DART 응답 리스트 중 의견이 실제 기재된 항목 찾기 (첫 번째 항목이 '-'인 경우 대비)
+                best_item = None
+                for item in res['list']:
+                    op = item.get('adt_opinion')
+                    if op and op != '-' and op != 'None' and op.strip() != '':
+                        best_item = item
+                        break
+                
+                if not best_item:
+                    continue # 의견이 있는 항목이 없으면 이전 연도 시도
+                
+                audit_opinion = best_item.get('adt_opinion', 'N/A')
+                emphs_raw = (best_item.get('emphs_matter', '') or '') + (best_item.get('adt_reprt_spcmnt_matter', '') or '')
+                
+                # 내부회계관리제도 의견 판별
+                if '내부회계' in emphs_raw:
+                    if '적정' in emphs_raw: internal_control = '적정'
+                    elif any(word in emphs_raw for word in ['비적정', '취약', '부적정', '부적합']): 
+                        internal_control = '부적정(취약)'
+                    else:
+                        internal_control = '적정'
+                elif audit_opinion and '적정' in audit_opinion:
+                    internal_control = '적정'
+                
+                if audit_opinion != 'N/A':
+                    break # 성공적으로 찾았으면 루프 종료
+        except Exception as e:
+            print(f"[DART] {corp_code} ({y}) 감사의견 조회 중 오류: {e}")
+            continue
+            
+    return audit_opinion, internal_control
+
 def main(stock_count=100, selected_fields=None, market='KOSPI'):
     try:
         print("=" * 80)
@@ -287,7 +335,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI'):
         results = []
         total = len(tickers_with_names)
         for idx, (ticker, name) in enumerate(tickers_with_names, 1):
-            print(f"\r진행률: [{idx}/{total}] {idx*100//total}% 완료 ({name})", end='', flush=True)
+            print(f"진행률: [{idx}/{total}] {idx*100//total}% 완료 ({name})", flush=True)
 
             naver_data = get_naver_financials(ticker)
             if not naver_data: continue
@@ -298,6 +346,11 @@ def main(stock_count=100, selected_fields=None, market='KOSPI'):
             net_buy_inst = net_buy_inst_vol * price
 
             revenue, op, re_val, cash, liabilities, equity, ocf, capex, da = get_dart_financials(dart, ticker, current_year)
+            
+            # 감사 의견 가져오기 (고유번호 필요)
+            corp_code = dart.find_corp_code(ticker)
+            if not corp_code: corp_code = ticker
+            audit_op, internal_op = get_audit_opinions(corp_code, current_year, API_KEY)
 
             fcf = ocf - capex
             ebitda = op + da
@@ -308,6 +361,8 @@ def main(stock_count=100, selected_fields=None, market='KOSPI'):
             res_dict = {
                 '종목코드': ticker,
                 '종목명': name,
+                '회계감사의견': audit_op,
+                '내부통제의견': internal_op,
                 '업종': naver_data.get('sector'),
                 'PBR': naver_data.get('pbr'),
                 '업종평균PBR': 0.0,

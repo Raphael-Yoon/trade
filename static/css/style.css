@@ -233,23 +233,6 @@ h1 {
     box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
 }
 
-#stockCount {
-    width: 100%;
-    padding: 16px;
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid var(--glass-border);
-    border-radius: 14px;
-    font-size: 16px;
-    color: white;
-    text-align: center;
-    transition: border-color 0.3s;
-}
-
-#stockCount:focus {
-    outline: none;
-    border-color: var(--primary);
-}
-
 /* Main Button */
 .btn {
     position: relative;
