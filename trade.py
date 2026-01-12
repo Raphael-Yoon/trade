@@ -59,7 +59,13 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
         if 'uwsgi' in python_cmd.lower():
             python_cmd = 'python'
 
-        cmd = [python_cmd, script_path, '--count', str(stock_count), '--market', market]
+        # 결과 파일명 미리 생성
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        count_label = 'all' if stock_count == 0 else f'top{stock_count}'
+        result_filename = f'{market.lower()}_{count_label}_{timestamp}.xlsx'
+        result_path = os.path.join(RESULTS_DIR, result_filename)
+
+        cmd = [python_cmd, script_path, '--count', str(stock_count), '--market', market, '--output', result_path]
 
         # 선택된 필드가 있으면 추가
         if fields:
@@ -111,15 +117,7 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
             return
 
         if process.returncode == 0:
-            # 결과 파일 이동
-            source_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'result.xlsx')
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            count_label = 'all' if stock_count == 0 else f'top{stock_count}'
-            result_filename = f'{market.lower()}_{count_label}_{timestamp}.xlsx'
-            result_path = os.path.join(RESULTS_DIR, result_filename)
-
-            if os.path.exists(source_file):
-                os.rename(source_file, result_path)
+            if os.path.exists(result_path):
                 tasks[task_id]['status'] = 'completed'
                 tasks[task_id]['progress'] = 100
                 tasks[task_id]['message'] = '데이터 수집 완료!'

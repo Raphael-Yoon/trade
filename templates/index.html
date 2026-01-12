@@ -28,7 +28,6 @@
             <div class="field-checkboxes">
                 <div class="field-group">
                     <h4>기본 정보</h4>
-                    <!-- New Market Selection inside Basic Info -->
                     <div class="market-selection-area"
                         style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
                         <label style="display:block; margin-bottom:10px; font-size:14px; color:var(--text-muted);">대상 시장
@@ -65,6 +64,14 @@
                         <input type="checkbox" class="field-checkbox" value="업종" checked disabled>
                         <span>업종 (필수)</span>
                     </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="현재가" checked>
+                        <span>현재가</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="시가총액" checked>
+                        <span>시가총액</span>
+                    </label>
                 </div>
                 <div class="field-group">
                     <h4>투자 지표</h4>
@@ -99,6 +106,14 @@
                     <label class="checkbox-label">
                         <input type="checkbox" class="field-checkbox" value="업종평균PER" checked>
                         <span>업종평균 PER</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="영업이익률" checked>
+                        <span>영업이익률</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="순이익률" checked>
+                        <span>순이익률</span>
                     </label>
                 </div>
                 <div class="field-group">
@@ -139,6 +154,14 @@
                         <input type="checkbox" class="field-checkbox" value="부채비율" checked>
                         <span>부채비율</span>
                     </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="유동비율" checked>
+                        <span>유동비율</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="당기순이익" checked>
+                        <span>당기순이익</span>
+                    </label>
                 </div>
                 <div class="field-group">
                     <h4>컨센서스 및 수급</h4>
@@ -158,6 +181,10 @@
                         <input type="checkbox" class="field-checkbox" value="기관순매수" checked>
                         <span>기관 순매수 (20일)</span>
                     </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="field-checkbox" value="외국인보유율" checked>
+                        <span>외국인 보유율</span>
+                    </label>
                 </div>
             </div>
         </div>
@@ -174,19 +201,19 @@
             <input type="hidden" id="stockCount" value="100">
         </div>
 
-        <div class="action-buttons" style="display: flex; gap: 10px;">
+        <div class="action-buttons" style="display: flex; gap: 16px;">
             <button id="collectBtn" class="btn" style="flex: 1;" onclick="startCollection()">
-                🚀 데이터 수집 시작
+                <div id="progressFill" class="btn-progress-fill"></div>
+                <span id="collectBtnText">🚀 데이터 수집 시작</span>
             </button>
-            <button id="cancelBtn" class="btn btn-cancel"
-                style="width: 140px; display: none; background: #ef4444; white-space: nowrap;"
+            <button id="cancelBtn" class="btn btn-delete" style="width: 160px; display: none; white-space: nowrap;"
                 onclick="cancelCollection()">
-                ⏹ 수집 중단
+                <span>⏹ 중단</span>
             </button>
         </div>
 
         <div id="downloadSection" class="download-section">
-            <p class="success-msg">✅ 데이터 수집이 완료되었습니다!</p>
+            <p class="success-msg">✨ 분석 완료!</p>
             <a id="downloadLink" href="#" class="download-btn">📥 엑셀 파일 다운로드</a>
         </div>
 
@@ -195,9 +222,11 @@
         </div>
 
         <div class="results-section">
-            <h2>📁 과거 수집 결과</h2>
+            <h2>📁 분석 대시보드</h2>
             <div id="resultsList">
-                <p style="text-align: center; color: #999;">불러오는 중...</p>
+                <div class="skeleton skeleton-card"></div>
+                <div class="skeleton skeleton-card"></div>
+                <div class="skeleton skeleton-card"></div>
             </div>
         </div>
     </div>
@@ -211,7 +240,6 @@
         };
 
         function selectCount(count) {
-            // Only select buttons within .stock-count-selector
             const buttons = document.querySelectorAll('.stock-count-selector .count-btn');
             buttons.forEach(btn => {
                 btn.classList.remove('active');
@@ -237,7 +265,6 @@
             const stockCount = parseInt(document.getElementById('stockCount').value);
             const selectedFields = getSelectedFields();
 
-            // Market selection logic
             const useKospi = document.getElementById('marketKospi').checked;
             const useKosdaq = document.getElementById('marketKosdaq').checked;
 
@@ -264,12 +291,14 @@
             }
 
             const btn = document.getElementById('collectBtn');
+            const btnText = document.getElementById('collectBtnText');
+            const progressFill = document.getElementById('progressFill');
             const downloadSection = document.getElementById('downloadSection');
             const errorSection = document.getElementById('errorSection');
 
             btn.disabled = true;
-            btn.style.setProperty('--progress', '0%');
-            btn.textContent = '🚀 수집 중... (0%)';
+            progressFill.style.width = '0%';
+            btnText.textContent = '⚡ 분석 엔진 가동 중... (0%)';
             downloadSection.classList.remove('active');
             errorSection.style.display = 'none';
 
@@ -330,10 +359,11 @@
         }
 
         function updateProgress(data) {
-            const btn = document.getElementById('collectBtn');
+            const btnText = document.getElementById('collectBtnText');
+            const progressFill = document.getElementById('progressFill');
             const progress = data.progress || 0;
-            btn.style.setProperty('--progress', progress + '%');
-            btn.textContent = `🚀 수집 중... (${progress}%)`;
+            progressFill.style.width = progress + '%';
+            btnText.textContent = `⚡ 분석 중... ${progress}% 완료`;
         }
 
         function showDownload(filename) {
@@ -377,10 +407,12 @@
 
         function resetButton() {
             const btn = document.getElementById('collectBtn');
+            const btnText = document.getElementById('collectBtnText');
+            const progressFill = document.getElementById('progressFill');
             const cancelBtn = document.getElementById('cancelBtn');
             btn.disabled = false;
-            btn.style.removeProperty('--progress');
-            btn.textContent = '🚀 데이터 수집 시작';
+            progressFill.style.width = '100%';
+            btnText.textContent = '🚀 데이터 수집 시작';
             cancelBtn.style.display = 'none';
         }
 
@@ -390,24 +422,34 @@
                 .then(files => {
                     const resultsList = document.getElementById('resultsList');
                     if (files.length === 0) {
-                        resultsList.innerHTML = '<p style="text-align: center; color: #999;">저장된 결과가 없습니다.</p>';
+                        resultsList.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">저장된 결과가 없습니다.</p>';
                         return;
                     }
-                    resultsList.innerHTML = files.map(file => `
-                        <div class="result-item">
-                            <div class="result-info">
-                                <div class="result-filename">${file.filename}</div>
-                                <div class="result-meta">
-                                    생성: ${new Date(file.created_at).toLocaleString('ko-KR')}
-                                    | 크기: ${(file.size / 1024).toFixed(1)} KB
+                    resultsList.innerHTML = files.map(file => {
+                        const date = new Date(file.created_at).toLocaleString('ko-KR');
+                        const size = (file.size / 1024).toFixed(1);
+                        const isKospi = file.filename.includes('kospi');
+                        const icon = isKospi ? '📈' : '📉';
+
+                        return `
+                        <div class="result-card">
+                            <div class="result-header">
+                                <div class="result-icon">${icon}</div>
+                                <div class="result-info">
+                                    <div class="result-filename">${file.filename}</div>
+                                    <div class="result-meta">
+                                        <span>📅 ${date}</span>
+                                        <span>💾 ${size} KB</span>
+                                    </div>
                                 </div>
                             </div>
                             <div class="result-actions">
-                                <a href="/api/download/${file.filename}" class="result-download">다운로드</a>
-                                <button onclick="deleteResult('${file.filename}')" class="result-delete">삭제</button>
+                                <a href="/api/download/${file.filename}" class="result-btn btn-download">다운로드</a>
+                                <button onclick="deleteResult('${file.filename}')" class="result-btn btn-delete">삭제</button>
                             </div>
                         </div>
-                    `).join('');
+                        `;
+                    }).join('');
                 })
                 .catch(error => {
                     console.error('결과 목록 로드 실패:', error);

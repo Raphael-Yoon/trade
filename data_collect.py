@@ -13,6 +13,10 @@ import OpenDartReader
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 import warnings
+from concurrent.futures import ThreadPoolExecutor
+import threading
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 warnings.filterwarnings('ignore')
 
@@ -25,7 +29,33 @@ if os.name == 'nt':
 # API 키 설정
 API_KEY = '08e04530eea4ba322907021334794e4164002525'
 
-def get_top_tickers_from_naver(market='KOSPI', count=100):
+# 캐시 디렉토리 설정
+CACHE_DIR = os.path.join(os.path.dirname(__file__), 'docs_cache')
+if not os.path.exists(CACHE_DIR):
+    os.makedirs(CACHE_DIR)
+
+def get_cached_data(ticker, year):
+    """로컬 캐시에서 재무 데이터를 가져옵니다."""
+    cache_path = os.path.join(CACHE_DIR, f"{ticker}_{year}.json")
+    if os.path.exists(cache_path):
+        # 파일 수정 시간이 오늘인 경우에만 캐시 사용 (데이터 최신성 유지)
+        mtime = datetime.fromtimestamp(os.path.getmtime(cache_path))
+        if mtime.date() == datetime.now().date():
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except: pass
+    return None
+
+def save_cache_data(ticker, year, data):
+    """재무 데이터를 로컬 캐시에 저장합니다."""
+    cache_path = os.path.join(CACHE_DIR, f"{ticker}_{year}.json")
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except: pass
+
+def get_top_tickers_from_naver(session, market='KOSPI', count=100):
     """네이버 금융에서 시가총액 상위 종목 리스트를 가져옵니다."""
     markets_to_fetch = ['KOSPI', 'KOSDAQ'] if market.upper() == 'ALL' else [market.upper()]
     all_tickers = []
@@ -33,7 +63,6 @@ def get_top_tickers_from_naver(market='KOSPI', count=100):
     for m in markets_to_fetch:
         sosok = 0 if m == 'KOSPI' else 1
         base_url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
         page = 1
         market_tickers = []
         
@@ -42,7 +71,7 @@ def get_top_tickers_from_naver(market='KOSPI', count=100):
         
         while len(market_tickers) < target_count:
             url = f"{base_url}&page={page}"
-            res = requests.get(url, headers=headers)
+            res = session.get(url)
             soup = BeautifulSoup(res.text, 'html.parser')
             table = soup.find('table', {'class': 'type_2'})
             if not table: break
@@ -57,17 +86,16 @@ def get_top_tickers_from_naver(market='KOSPI', count=100):
             
             if not found: break
             page += 1
-            time.sleep(0.1)
+            time.sleep(0.05)
         all_tickers.extend(market_tickers)
     
     return all_tickers[:count] if count > 0 else all_tickers
 
-def get_naver_financials(ticker):
+def get_naver_financials(session, ticker):
     """네이버 금융에서 상세 데이터를 크롤링합니다."""
     try:
         url = f"https://finance.naver.com/item/main.naver?code={ticker}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers)
+        res = session.get(url)
         soup = BeautifulSoup(res.text, 'html.parser')
         
         market_cap = 0
@@ -138,6 +166,8 @@ def get_naver_financials(ticker):
         target_price_val = 0
         next_op = 0
         debt_ratio = 0.0
+        op_margin = 0.0
+        net_margin = 0.0
         
         try:
             for th in soup.find_all('th'):
@@ -160,7 +190,8 @@ def get_naver_financials(ticker):
             for row in rows:
                 th = row.select_one('th')
                 if not th: continue
-                if '영업이익' in th.text:
+                th_text = th.text.strip()
+                if '영업이익' in th_text and '률' not in th_text:
                     cols = row.select('td')
                     for i, y in enumerate(years):
                         if '(E)' in y or 'E' in y:
@@ -170,7 +201,7 @@ def get_naver_financials(ticker):
                                     next_op = int(val_str)
                                     break
                                 except: pass
-                elif '부채비율' in th.text:
+                elif '부채비율' in th_text:
                     cols = row.select('td')
                     for i in range(len(cols)-1, -1, -1):
                         val_str = cols[i].text.strip().replace(',', '')
@@ -179,6 +210,27 @@ def get_naver_financials(ticker):
                                 debt_ratio = float(val_str)
                                 break
                             except: pass
+                elif '영업이익률' in th_text:
+                    cols = row.select('td')
+                    # 최근 실적(마지막에서 두번째 또는 세번째) 가져오기
+                    for i in range(len(cols)-1, -1, -1):
+                        if '(E)' not in years[i]:
+                            val_str = cols[i].text.strip().replace(',', '')
+                            if val_str and val_str != '-':
+                                try:
+                                    op_margin = float(val_str)
+                                    break
+                                except: pass
+                elif '순이익률' in th_text:
+                    cols = row.select('td')
+                    for i in range(len(cols)-1, -1, -1):
+                        if '(E)' not in years[i]:
+                            val_str = cols[i].text.strip().replace(',', '')
+                            if val_str and val_str != '-':
+                                try:
+                                    net_margin = float(val_str)
+                                    break
+                                except: pass
 
         return {
             'price': price,
@@ -194,18 +246,19 @@ def get_naver_financials(ticker):
             'avg_per': avg_per,
             'target_price': target_price_val,
             'next_op': next_op,
-            'debt_ratio': debt_ratio
+            'debt_ratio': debt_ratio,
+            'op_margin': op_margin,
+            'net_margin': net_margin
         }
     except Exception as e:
         print(f"[Naver] {ticker} 데이터 크롤링 실패: {e}")
         return None
 
-def get_naver_investor_data(ticker):
+def get_naver_investor_data(session, ticker):
     """네이버 금융에서 외국인/기관 순매수 데이터를 크롤링합니다."""
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers)
+        res = session.get(url)
         soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
         
         tables = soup.find_all('table', {'class': 'type2'})
@@ -215,12 +268,21 @@ def get_naver_investor_data(ticker):
                 table = t
                 break
         
-        if not table: return 0, 0
+        if not table: return 0, 0, 0.0
         
         rows = table.select('tr[onmouseover]')[:20]
         net_buy_foreign = 0
         net_buy_inst = 0
+        foreign_ratio = 0.0
         
+        # 첫 번째 행에서 외국인 보유비율 가져오기
+        try:
+            first_row_cols = rows[0].select('td')
+            if len(first_row_cols) >= 9:
+                fr_text = first_row_cols[8].text.strip().replace('%', '')
+                if fr_text: foreign_ratio = float(fr_text)
+        except: pass
+
         for row in rows:
             cols = row.select('td')
             if len(cols) < 9: continue
@@ -231,17 +293,34 @@ def get_naver_investor_data(ticker):
                 if f_nums: net_buy_foreign += int(f_nums[0])
             except: pass
             
-        return int(net_buy_foreign), int(net_buy_inst)
+        return int(net_buy_foreign), int(net_buy_inst), foreign_ratio
     except:
-        return 0, 0
+        return 0, 0, 0.0
 
 def get_dart_financials(dart, ticker, year):
     """OpenDARTReader를 사용하여 재무 데이터를 추출합니다."""
     try:
         df = dart.finstate_all(ticker, year)
-        if df is None or df.empty: return 0, 0, 0, 0, 0, 0, 0, 0, 0
+        if df is None or df.empty: return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
-        revenue = op = re_val = cash = liabilities = equity = ocf = capex = da = 0
+        revenue = op = re_val = cash = liabilities = equity = ocf = capex = da = net_income = current_assets = current_liabilities = 0
+        
+        # 계정 ID 매핑 (표준 XBRL 태그 우선)
+        mapping = {
+            'revenue': ['ifrs-full_Revenue', 'ifrs-full_RevenueFromContractWithCustomers', 'ifrs_Revenue'],
+            'op': ['dart_OperatingIncomeLoss'],
+            're': ['ifrs-full_RetainedEarnings'],
+            'cash': ['ifrs-full_CashAndCashEquivalents'],
+            'liabilities': ['ifrs-full_Liabilities'],
+            'equity': ['ifrs-full_Equity', 'ifrs-full_EquityAttributableToOwnersOfParent'],
+            'ocf': ['ifrs-full_CashFlowsFromUsedInOperatingActivities'],
+            'capex': ['ifrs-full_PurchaseOfPropertyPlantAndEquipment', 'ifrs-full_PurchaseOfIntangibleAssets'],
+            'depreciation': ['ifrs-full_DepreciationAndAmortisationExpense', 'ifrs-full_DepreciationExpense', 'ifrs-full_AmortisationExpense'],
+            'net_income': ['ifrs-full_ProfitLoss', 'ifrs-full_ProfitLossAttributableToOwnersOfParent'],
+            'current_assets': ['ifrs-full_CurrentAssets'],
+            'current_liabilities': ['ifrs-full_CurrentLiabilities']
+        }
+
         for _, row in df.iterrows():
             acc_id = str(row.get('account_id', ''))
             acc_name = str(row['account_nm']).replace(" ", "")
@@ -249,31 +328,60 @@ def get_dart_financials(dart, ticker, year):
             val = pd.to_numeric(row['thstrm_amount'], errors='coerce')
             if pd.isna(val): val = 0
 
-            if acc_id in ['ifrs-full_Revenue', 'ifrs-full_RevenueFromContractWithCustomers'] or acc_name in ['매출액', '수익(매출액)']:
-                if revenue == 0 or 'Revenue' in acc_id: revenue = val
-            elif acc_id == 'dart_OperatingIncomeLoss' or acc_name in ['영업이익', '영업이익(손실)']:
-                if op == 0 or acc_id == 'dart_OperatingIncomeLoss': op = val
-            elif sj_div == 'BS' and (acc_id == 'ifrs-full_RetainedEarnings' or ('이익잉여금' in acc_name and '기타' not in acc_name)):
-                if re_val == 0 or acc_id == 'ifrs-full_RetainedEarnings': re_val = val
-            elif sj_div == 'BS' and (acc_id == 'ifrs-full_CashAndCashEquivalents' or '현금및현금성자산' in acc_name):
-                if cash == 0 or acc_id == 'ifrs-full_CashAndCashEquivalents': cash = val
-            elif sj_div == 'BS' and (acc_id == 'ifrs-full_Liabilities' or acc_name == '부채총계'):
-                if liabilities == 0 or acc_id == 'ifrs-full_Liabilities': liabilities = val
-            elif sj_div == 'BS' and (acc_id in ['ifrs-full_Equity', 'ifrs-full_EquityAttributableToOwnersOfParent'] or acc_name == '자본총계'):
-                if equity == 0 or 'Equity' in acc_id: equity = val
-            elif sj_div == 'CF' and (acc_id == 'ifrs-full_CashFlowsFromUsedInOperatingActivities' or acc_name == '영업활동현금흐름'):
+            # 1. Revenue
+            if acc_id in mapping['revenue'] or acc_name in ['매출액', '수익(매출액)', '영업수익']:
+                if revenue == 0 or acc_id in mapping['revenue']: revenue = val
+            
+            # 2. Operating Income
+            elif acc_id in mapping['op'] or acc_name in ['영업이익', '영업이익(손실)']:
+                if op == 0 or acc_id in mapping['op']: op = val
+            
+            # 3. Retained Earnings
+            elif sj_div == 'BS' and (acc_id in mapping['re'] or ('이익잉여금' in acc_name and '기타' not in acc_name)):
+                if re_val == 0 or acc_id in mapping['re']: re_val = val
+            
+            # 4. Cash
+            elif sj_div == 'BS' and (acc_id in mapping['cash'] or '현금및현금성자산' in acc_name):
+                if cash == 0 or acc_id in mapping['cash']: cash = val
+            
+            # 5. Liabilities
+            elif sj_div == 'BS' and (acc_id in mapping['liabilities'] or acc_name == '부채총계'):
+                if liabilities == 0 or acc_id in mapping['liabilities']: liabilities = val
+            
+            # 6. Equity
+            elif sj_div == 'BS' and (acc_id in mapping['equity'] or acc_name == '자본총계'):
+                if equity == 0 or acc_id in mapping['equity']: equity = val
+            
+            # 7. OCF
+            elif sj_div == 'CF' and (acc_id in mapping['ocf'] or acc_name == '영업활동현금흐름'):
                 ocf = val
-            elif sj_div == 'CF' and ('PurchaseOfPropertyPlantAndEquipment' in acc_id or 'PurchaseOfIntangibleAssets' in acc_id or acc_name in ['유형자산의취득', '무형자산의취득']):
+            
+            # 8. CAPEX
+            elif sj_div == 'CF' and (any(tag in acc_id for tag in mapping['capex']) or acc_name in ['유형자산의취득', '무형자산의취득']):
                 capex += val
-            if 'Depreciation' in acc_id or 'Amortisation' in acc_id or '감가상각' in acc_name:
-                if da == 0 or 'Depreciation' in acc_id: da = val
+            
+            # 9. D&A (EBITDA 계산용)
+            elif any(tag in acc_id for tag in mapping['depreciation']) or '감가상각' in acc_name:
+                da += val
 
-        return revenue, op, re_val, cash, liabilities, equity, ocf, capex, da
+            # 10. Net Income
+            elif acc_id in mapping['net_income'] or acc_name in ['당기순이익', '당기순이익(손실)']:
+                if net_income == 0 or acc_id in mapping['net_income']: net_income = val
+
+            # 11. Current Assets
+            elif sj_div == 'BS' and (acc_id in mapping['current_assets'] or acc_name == '유동자산'):
+                if current_assets == 0 or acc_id in mapping['current_assets']: current_assets = val
+
+            # 12. Current Liabilities
+            elif sj_div == 'BS' and (acc_id in mapping['current_liabilities'] or acc_name == '유동부채'):
+                if current_liabilities == 0 or acc_id in mapping['current_liabilities']: current_liabilities = val
+
+        return revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, current_assets, current_liabilities
     except Exception as e:
         print(f"[DART] {ticker} 재무제표 조회 실패: {e}")
-        return 0, 0, 0, 0, 0, 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
-def get_audit_opinions(corp_code, year, api_key):
+def get_audit_opinions(session, corp_code, year, api_key):
     """DART API를 사용하여 회계감사 의견 및 내부통제 의견을 가져옵니다."""
     audit_opinion = 'N/A'
     internal_control = 'N/A'
@@ -285,7 +393,7 @@ def get_audit_opinions(corp_code, year, api_key):
         try:
             # 1. 회계감사인의 명칭 및 감사의견 API (가장 기본)
             url = f"https://opendart.fss.or.kr/api/accnutAdtorNmNdAdtOpinion.json?crtfc_key={api_key}&corp_code={corp_code}&bsns_year={y}&reprt_code=11011"
-            res = requests.get(url, timeout=5).json()
+            res = session.get(url, timeout=5).json()
             
             if res.get('status') == '000' and 'list' in res and len(res['list']) > 0:
                 # DART 응답 리스트 중 의견이 실제 기재된 항목 찾기 (첫 번째 항목이 '-'인 경우 대비)
@@ -320,93 +428,171 @@ def get_audit_opinions(corp_code, year, api_key):
             
     return audit_opinion, internal_control
 
-def main(stock_count=100, selected_fields=None, market='KOSPI'):
+def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None):
     try:
         print("=" * 80)
         print(f"{market} 데이터 수집 시작 (상위 {stock_count if stock_count > 0 else '전체'}개)")
         print("=" * 80)
 
+        # 세션 초기화 및 재시도 전략 설정
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=3,  # 최대 재시도 횟수
+            backoff_factor=1,  # 재시도 간격 (1초, 2초, 4초...)
+            status_forcelist=[429, 500, 502, 503, 504],  # 재시도할 HTTP 상태 코드
+            allowed_methods=["HEAD", "GET", "OPTIONS"]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        
+        session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
+
+        # 모든 요청에 기본 타임아웃 적용을 위한 래퍼 (선택 사항이지만 안전함)
+        original_get = session.get
+        def timeout_get(*args, **kwargs):
+            if 'timeout' not in kwargs:
+                kwargs['timeout'] = 10
+            return original_get(*args, **kwargs)
+        session.get = timeout_get
+
         dart = OpenDartReader(API_KEY)
-        tickers_with_names = get_top_tickers_from_naver(market, stock_count if stock_count > 0 else 3000)
+        tickers_with_names = get_top_tickers_from_naver(session, market, stock_count if stock_count > 0 else 3000)
         
         now = datetime.now()
         current_year = now.year - 2 if now.month < 4 else now.year - 1
             
         results = []
         total = len(tickers_with_names)
-        for idx, (ticker, name) in enumerate(tickers_with_names, 1):
-            print(f"진행률: [{idx}/{total}] {idx*100//total}% 완료 ({name})", flush=True)
+        processed_count = 0
+        lock = threading.Lock()
 
-            naver_data = get_naver_financials(ticker)
-            if not naver_data: continue
-
-            net_buy_foreign_vol, net_buy_inst_vol = get_naver_investor_data(ticker)
-            price = naver_data.get('price', 0)
-            net_buy_foreign = net_buy_foreign_vol * price
-            net_buy_inst = net_buy_inst_vol * price
-
-            revenue, op, re_val, cash, liabilities, equity, ocf, capex, da = get_dart_financials(dart, ticker, current_year)
+        def process_stock(ticker_info):
+            nonlocal processed_count
+            ticker, name = ticker_info
             
-            # 감사 의견 가져오기 (고유번호 필요)
-            corp_code = dart.find_corp_code(ticker)
-            if not corp_code: corp_code = ticker
-            audit_op, internal_op = get_audit_opinions(corp_code, current_year, API_KEY)
+            try:
+                naver_data = get_naver_financials(session, ticker)
+                if not naver_data:
+                    with lock:
+                        processed_count += 1
+                    return None
 
-            fcf = ocf - capex
-            ebitda = op + da
-            roe = naver_data.get('per', 0) # 임시
-            if naver_data.get('bps', 0) > 0:
-                roe = round((naver_data.get('eps', 0) / naver_data.get('bps', 0)) * 100, 2)
+                net_buy_foreign_vol, net_buy_inst_vol, foreign_ratio = get_naver_investor_data(session, ticker)
+                price = naver_data.get('price', 0)
+                net_buy_foreign = net_buy_foreign_vol * price
+                net_buy_inst = net_buy_inst_vol * price
 
-            res_dict = {
-                '종목코드': ticker,
-                '종목명': name,
-                '회계감사의견': audit_op,
-                '내부통제의견': internal_op,
-                '업종': naver_data.get('sector'),
-                'PBR': naver_data.get('pbr'),
-                '업종평균PBR': 0.0,
-                'PER': naver_data.get('per'),
-                '업종평균PER': naver_data.get('avg_per'),
-                'ROE': roe,
-                'EPS': naver_data.get('eps'),
-                'BPS': naver_data.get('bps'),
-                '배당수익률': naver_data.get('div_yield'),
-                '매출액': revenue,
-                '영업이익': op,
-                '이익잉여금': re_val,
-                '현금및현금성자산': cash,
-                '52주최고가': naver_data.get('high_52w'),
-                '52주최저가': naver_data.get('low_52w'),
-                '부채비율': naver_data.get('debt_ratio') if naver_data.get('debt_ratio') > 0 else (round(liabilities/equity*100, 2) if equity > 0 else 0),
-                'FCF': fcf,
-                'EBITDA': ebitda,
-                '외국인순매수': net_buy_foreign,
-                '기관순매수': net_buy_inst,
-                '내년예상영업이익': naver_data.get('next_op'),
-                '목표주가': naver_data.get('target_price')
-            }
-            results.append(res_dict)
+                # DART 데이터 캐시 확인
+                cached = get_cached_data(ticker, current_year)
+                if cached:
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab = (
+                        cached['revenue'], cached['op'], cached['re_val'], cached['cash'],
+                        cached['liabilities'], cached['equity'], cached['ocf'], cached['capex'], cached['da'],
+                        cached.get('net_income', 0), cached.get('cur_assets', 0), cached.get('cur_liab', 0)
+                    )
+                else:
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab = get_dart_financials(dart, ticker, current_year)
+                    # 캐시 저장
+                    save_cache_data(ticker, current_year, {
+                        'revenue': revenue, 'op': op, 're_val': re_val, 'cash': cash,
+                        'liabilities': liabilities, 'equity': equity, 'ocf': ocf, 'capex': capex, 'da': da,
+                        'net_income': net_income, 'cur_assets': cur_assets, 'cur_liab': cur_liab
+                    })
+                
+                # 감사 의견 가져오기 (고유번호 필요)
+                corp_code = dart.find_corp_code(ticker)
+                if not corp_code: corp_code = ticker
+                audit_op, internal_op = get_audit_opinions(session, corp_code, current_year, API_KEY)
+
+                fcf = ocf - capex
+                ebitda = op + da
+                current_ratio = round((cur_assets / cur_liab) * 100, 2) if cur_liab > 0 else 0.0
+                
+                # ROE 계산 개선: 자본총계(equity) 기준 우선, 없으면 네이버 데이터 활용
+                roe = 0.0
+                if equity > 0 and op > 0:
+                    # 단순 영업이익/자본총계 (DART 기준)
+                    roe = round((op / equity) * 100, 2)
+                elif naver_data.get('per', 0) > 0:
+                    # 네이버 ROE 활용 (eps/bps)
+                    if naver_data.get('bps', 0) > 0:
+                        roe = round((naver_data.get('eps', 0) / naver_data.get('bps', 0)) * 100, 2)
+
+                res_dict = {
+                    '종목코드': ticker,
+                    '종목명': name,
+                    '현재가': price,
+                    '시가총액': naver_data.get('market_cap'),
+                    '회계감사의견': audit_op,
+                    '내부통제의견': internal_op,
+                    '업종': naver_data.get('sector'),
+                    'PBR': naver_data.get('pbr'),
+                    '업종평균PBR': 0.0,
+                    'PER': naver_data.get('per'),
+                    '업종평균PER': naver_data.get('avg_per'),
+                    'ROE': roe,
+                    'EPS': naver_data.get('eps'),
+                    'BPS': naver_data.get('bps'),
+                    '배당수익률': naver_data.get('div_yield'),
+                    '매출액': revenue,
+                    '영업이익': op,
+                    '당기순이익': net_income,
+                    '영업이익률': naver_data.get('op_margin'),
+                    '순이익률': naver_data.get('net_margin'),
+                    '이익잉여금': re_val,
+                    '현금및현금성자산': cash,
+                    '52주최고가': naver_data.get('high_52w'),
+                    '52주최저가': naver_data.get('low_52w'),
+                    '부채비율': naver_data.get('debt_ratio') if naver_data.get('debt_ratio') > 0 else (round(liabilities/equity*100, 2) if equity > 0 else 0),
+                    '유동비율': current_ratio,
+                    'FCF': fcf,
+                    'EBITDA': ebitda,
+                    '외국인보유율': foreign_ratio,
+                    '외국인순매수': net_buy_foreign,
+                    '기관순매수': net_buy_inst,
+                    '내년예상영업이익': naver_data.get('next_op'),
+                    '목표주가': naver_data.get('target_price')
+                }
+                
+                with lock:
+                    processed_count += 1
+                    print(f"진행률: [{processed_count}/{total}] {processed_count*100//total}% 완료 ({name})", flush=True)
+                
+                return res_dict
+            except Exception as e:
+                print(f"\n[{name}] 처리 중 오류: {e}")
+                with lock:
+                    processed_count += 1
+                return None
+
+        # ThreadPoolExecutor를 사용하여 병렬 처리 (최대 8개 스레드)
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            thread_results = list(executor.map(process_stock, tickers_with_names))
+
+        # None 결과 제외
+        results = [r for r in thread_results if r is not None]
 
         df = pd.DataFrame(results)
         if selected_fields:
             df = df[[f for f in selected_fields if f in df.columns]]
 
-        output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result.xlsx")
+        output_file = output_path if output_path else os.path.join(os.path.dirname(os.path.abspath(__file__)), "result.xlsx")
         df.to_excel(output_file, index=False)
         
         print(f"\n\nData saved: {output_file}")
         print(f"Total stocks: {len(df)}")
 
     except Exception as e:
-        print(f"\n오류 발생: {e}")
+        print(f"\n메인 루프 오류 발생: {e}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--count', type=int, default=100)
     parser.add_argument('--market', type=str, default='KOSPI')
     parser.add_argument('--fields', type=str, default='')
+    parser.add_argument('--output', type=str, default='')
     args = parser.parse_args()
     
     fields = args.fields.split(',') if args.fields else None
-    main(args.count, fields, args.market)
+    main(args.count, fields, args.market, args.output)
