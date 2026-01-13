@@ -54,9 +54,13 @@ def upload_to_drive(file_path, folder_name="Stock_Analysis_Results"):
         folder_id = get_or_create_folder(service, folder_name)
         
         file_name = os.path.basename(file_path)
+        # .xlsx 확장자 제거 (구글 시트 변환 시 깔끔하게 보이기 위함)
+        display_name = os.path.splitext(file_name)[0]
+        
         file_metadata = {
-            'name': file_name,
-            'parents': [folder_id]
+            'name': display_name,
+            'parents': [folder_id],
+            'mimeType': 'application/vnd.google-apps.spreadsheet'  # 구글 시트로 변환 설정
         }
         
         media = MediaFileUpload(
@@ -72,11 +76,92 @@ def upload_to_drive(file_path, folder_name="Stock_Analysis_Results"):
         ).execute()
         
         print(f"파일 업로드 완료: {file_name} (ID: {file.get('id')})")
-        return file.get('webViewLink')
+        return {
+            'id': file.get('id'),
+            'link': file.get('webViewLink')
+        }
         
     except Exception as e:
         print(f"구글 드라이브 업로드 중 오류 발생: {e}")
         return None
+
+def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
+    """텍스트 내용을 구글 문서(Google Docs)로 생성"""
+    try:
+        service = get_drive_service()
+        folder_id = get_or_create_folder(service, folder_name)
+        
+        file_metadata = {
+            'name': title,
+            'parents': [folder_id],
+            'mimeType': 'application/vnd.google-apps.document'
+        }
+        
+        import io
+        from googleapiclient.http import MediaIoBaseUpload
+        
+        fh = io.BytesIO(content.encode('utf-8'))
+        media = MediaIoBaseUpload(fh, mimetype='text/plain', resumable=True)
+        
+        file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id, webViewLink'
+        ).execute()
+        
+        print(f"구글 문서 생성 완료: {title} (ID: {file.get('id')})")
+        return {
+            'id': file.get('id'),
+            'link': file.get('webViewLink')
+        }
+        
+    except Exception as e:
+        print(f"구글 문서 생성 중 오류 발생: {e}")
+        return None
+
+def delete_from_drive(file_id):
+    """구글 드라이브에서 파일 삭제"""
+    if not file_id:
+        return False
+    try:
+        service = get_drive_service()
+        service.files().delete(fileId=file_id).execute()
+        print(f"구글 드라이브 파일 삭제 완료 (ID: {file_id})")
+        return True
+    except Exception as e:
+        print(f"구글 드라이브 파일 삭제 중 오류 발생: {e}")
+        return False
+
+def download_from_drive(file_id):
+    """구글 드라이브에서 파일을 엑셀 형식으로 다운로드"""
+    try:
+        service = get_drive_service()
+        # 구글 시트를 엑셀로 내보내기
+        request = service.files().export_media(
+            fileId=file_id,
+            mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        return request.execute()
+    except Exception as e:
+        print(f"구글 드라이브 다운로드 중 오류 발생: {e}")
+        return None
+
+def list_files_in_folder(folder_name="Stock_Analysis_Results"):
+    """구글 드라이브 특정 폴더의 파일 목록 가져오기"""
+    try:
+        service = get_drive_service()
+        folder_id = get_or_create_folder(service, folder_name)
+        
+        query = f"'{folder_id}' in parents and trashed = false"
+        results = service.files().list(
+            q=query, 
+            fields="files(id, name, mimeType, createdTime, webViewLink, size)",
+            orderBy="createdTime desc"
+        ).execute()
+        return results.get('files', [])
+    except Exception as e:
+        print(f"구글 드라이브 목록 조회 중 오류 발생: {e}")
+        return []
 
 if __name__ == "__main__":
     # 테스트 코드

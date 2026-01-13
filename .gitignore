@@ -11,3 +11,4 @@ results/
 .idea/
 credentials.json
 token.pickle
+.env

@@ -11,9 +11,31 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 
 <body>
+    <!-- AI Analysis Modal -->
+    <div id="aiModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🤖 AI 투자 리포트</h2>
+                <span class="close-modal" onclick="closeAiModal()">&times;</span>
+            </div>
+            <div id="aiResultContent" class="modal-body">
+                <div class="loading-ai">
+                    <div class="ai-spinner"></div>
+                    <p>AI가 분석 중입니다...</p>
+                </div>
+            </div>
+            <div class="modal-footer"
+                style="padding: 20px 32px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; gap: 12px; background: rgba(255,255,255,0.02);">
+                <button class="result-btn" style="background: rgba(255,255,255,0.1); color: var(--text-main);"
+                    onclick="closeAiModal()">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
         <h1>📊 종목 분석</h1>
 
@@ -218,27 +240,57 @@
                 <a id="downloadLink" href="#" class="download-btn">📥 엑셀 파일 다운로드</a>
             </div>
         </div>
+    </div>
 
-        <div id="errorSection" style="display: none;">
-            <div class="error-message" id="errorMessage"></div>
+    <div class="container" style="margin-top: 40px;">
+        <div class="section-header"
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+            <h2 style="margin: 0; font-family: 'Outfit', sans-serif; font-size: 32px;">📁 분석 결과 목록</h2>
+            <button class="result-btn"
+                style="background: var(--primary); color: white; border: none; padding: 12px 24px; height: auto; display: flex; align-items: center; gap: 8px;"
+                onclick="syncWithDrive()">
+                <span>🔄 드라이브 동기화</span>
+            </button>
         </div>
-
-        <div class="results-section">
-            <h2>📁 분석 대시보드</h2>
-            <div id="resultsList">
-                <div class="skeleton skeleton-card"></div>
-                <div class="skeleton skeleton-card"></div>
-                <div class="skeleton skeleton-card"></div>
+        <div id="resultsList" class="results-grid">
+            <!-- 결과 카드가 여기에 동적으로 추가됨 -->
+            <div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">
+                <div class="ai-spinner" style="margin: 0 auto 20px;"></div>
+                <p>결과 목록을 불러오는 중...</p>
             </div>
         </div>
     </div>
 
+    <div id="toastContainer" class="toast-container"></div>
+
     <script>
         let currentTaskId = null;
         let statusCheckInterval = null;
+        let currentAiResult = "";
+        let currentAiFilename = "";
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+
+            const icon = type === 'success' ? '✅' : '❌';
+            toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+
+            container.appendChild(toast);
+
+            // 3초 후 제거
+            setTimeout(() => {
+                toast.style.animation = 'toastFadeOut 0.5s forwards';
+                setTimeout(() => toast.remove(), 500);
+            }, 3000);
+        }
 
         window.onload = function () {
-            loadResults();
+            // 초기 로드 시 드라이브와 동기화 수행
+            fetch('/api/sync', { method: 'POST' })
+                .then(() => loadResults())
+                .catch(() => loadResults());
         };
 
         function selectCount(count) {
@@ -271,7 +323,7 @@
             const useKosdaq = document.getElementById('marketKosdaq').checked;
 
             if (!useKospi && !useKosdaq) {
-                alert('최소한 하나의 시장(KOSPI, KOSDAQ)을 선택해야 합니다.');
+                showToast('최소한 하나의 시장(KOSPI, KOSDAQ)을 선택해야 합니다.', 'error');
                 return;
             }
 
@@ -283,12 +335,12 @@
             }
 
             if (isNaN(stockCount) || stockCount < 0 || stockCount > 10000) {
-                alert('종목 수는 0(전체) 또는 1~10000 사이의 숫자여야 합니다.');
+                showToast('종목 수는 0(전체) 또는 1~10000 사이의 숫자여야 합니다.', 'error');
                 return;
             }
 
             if (selectedFields.length < 2) {
-                alert('최소한 종목코드와 종목명 외에 1개 이상의 데이터를 선택해주세요.');
+                showToast('최소한 종목코드와 종목명 외에 1개 이상의 데이터를 선택해주세요.', 'error');
                 return;
             }
 
@@ -296,13 +348,11 @@
             const btnText = document.getElementById('collectBtnText');
             const progressFill = document.getElementById('progressFill');
             const downloadSection = document.getElementById('downloadSection');
-            const errorSection = document.getElementById('errorSection');
 
             btn.disabled = true;
             progressFill.style.width = '0%';
             btnText.textContent = '⚡ 분석 엔진 가동 중... (0%)';
             downloadSection.classList.remove('active');
-            errorSection.style.display = 'none';
 
             fetch('/api/collect', {
                 method: 'POST',
@@ -322,12 +372,12 @@
                         document.getElementById('cancelBtn').style.display = 'block';
                         checkStatus();
                     } else {
-                        showError('데이터 수집 시작에 실패했습니다.');
+                        showToast('데이터 수집 시작에 실패했습니다.', 'error');
                         resetButton();
                     }
                 })
                 .catch(error => {
-                    showError('서버 연결에 실패했습니다: ' + error);
+                    showToast('서버 연결에 실패했습니다: ' + error, 'error');
                     resetButton();
                 });
         }
@@ -348,13 +398,13 @@
                             loadResults();
                         } else if (data.status === 'error') {
                             clearInterval(statusCheckInterval);
-                            showError(data.message);
+                            showToast(data.message, 'error');
                             resetButton();
                         }
                     })
                     .catch(error => {
                         clearInterval(statusCheckInterval);
-                        showError('상태 확인 실패: ' + error);
+                        showToast('상태 확인 실패: ' + error, 'error');
                         resetButton();
                     });
             }, 1000);
@@ -391,13 +441,6 @@
             downloadSection.classList.add('active');
         }
 
-        function showError(message) {
-            const errorSection = document.getElementById('errorSection');
-            const errorMessage = document.getElementById('errorMessage');
-            errorMessage.textContent = message;
-            errorSection.style.display = 'block';
-        }
-
         function cancelCollection() {
             if (!currentTaskId) return;
 
@@ -413,13 +456,13 @@
                     if (data.success) {
                         clearInterval(statusCheckInterval);
                         resetButton();
-                        alert('수집이 취소되었습니다.');
+                        showToast('수집이 취소되었습니다.');
                     } else {
-                        alert('취소 실패: ' + data.message);
+                        showToast('취소 실패: ' + data.message, 'error');
                     }
                 })
                 .catch(error => {
-                    alert('서버 오류: ' + error);
+                    showToast('서버 오류: ' + error, 'error');
                 });
         }
 
@@ -435,6 +478,33 @@
             cancelBtn.style.display = 'none';
         }
 
+        function syncWithDrive() {
+            const btn = event.currentTarget;
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳ 동기화 중...</span>';
+
+            fetch('/api/sync', {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast(`동기화 완료! ${data.added}개 추가, ${data.removed}개 제거되었습니다.`);
+                        loadResults();
+                    } else {
+                        showToast('동기화 실패: ' + data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    showToast('서버 오류: ' + error, 'error');
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                });
+        }
+
         function loadResults() {
             fetch('/api/results')
                 .then(response => response.json())
@@ -447,7 +517,7 @@
                     resultsList.innerHTML = files.map(file => {
                         const date = new Date(file.created_at).toLocaleString('ko-KR');
                         const size = (file.size / 1024).toFixed(1);
-                        const isKospi = file.filename.includes('kospi');
+                        const isKospi = file.filename.toLowerCase().includes('kospi');
                         const icon = isKospi ? '📈' : '📉';
 
                         return `
@@ -464,8 +534,8 @@
                             </div>
                             <div class="result-actions">
                                 <a href="/api/download/${file.filename}" class="result-btn btn-download">다운로드</a>
-                                <button onclick="uploadToDrive('${file.filename}', this)" class="result-btn" style="background: #4285F4;">구글 드라이브</button>
                                 <button onclick="deleteResult('${file.filename}')" class="result-btn btn-delete">삭제</button>
+                                <button onclick="runAiAnalysis('${file.filename}')" class="result-btn btn-ai" style="grid-column: span 2;">🤖 AI 분석 리포트</button>
                             </div>
                         </div>
                         `;
@@ -473,32 +543,6 @@
                 })
                 .catch(error => {
                     console.error('결과 목록 로드 실패:', error);
-                });
-        }
-
-        function uploadToDrive(filename, btn) {
-            const originalText = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = '⏳ 업로드 중...';
-
-            fetch(`/api/upload_drive/${filename}`, {
-                method: 'POST'
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('구글 드라이브 업로드 성공!');
-                        window.open(data.drive_link, '_blank');
-                    } else {
-                        alert('업로드 실패: ' + data.message);
-                    }
-                })
-                .catch(error => {
-                    alert('서버 오류: ' + error);
-                })
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.textContent = originalText;
                 });
         }
 
@@ -513,15 +557,82 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
+                        showToast('파일이 삭제되었습니다.');
                         loadResults();
                     } else {
-                        alert('삭제 실패: ' + data.message);
+                        showToast('삭제 실패: ' + data.message, 'error');
                     }
                 })
                 .catch(error => {
-                    alert('서버 오류: ' + error);
+                    showToast('서버 오류: ' + error, 'error');
                 });
         }
+
+        // AI Analysis Functions
+        function runAiAnalysis(filename) {
+            currentAiFilename = filename;
+            openAiModal();
+
+            fetch(`/api/ai_analyze/${filename}`, {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        currentAiResult = data.result;
+                        const content = document.getElementById('aiResultContent');
+                        content.innerHTML = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
+
+                        if (data.cached) {
+                            showToast('기존에 분석된 리포트를 불러왔습니다.');
+                        } else {
+                            showToast('새로운 AI 분석 리포트가 생성되었습니다.');
+                        }
+                    } else {
+                        showToast('AI 분석 실패: ' + data.message, 'error');
+                        closeAiModal();
+                    }
+                })
+                .catch(error => {
+                    showToast('서버 오류: ' + error, 'error');
+                    closeAiModal();
+                });
+        }
+
+        function openAiModal() {
+            const modal = document.getElementById('aiModal');
+            const content = document.getElementById('aiResultContent');
+
+            content.innerHTML = `
+                <div class="loading-ai">
+                    <div class="ai-spinner"></div>
+                    <p>AI가 분석 중입니다...</p>
+                </div>
+            `;
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeAiModal() {
+            const modal = document.getElementById('aiModal');
+            modal.style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function (event) {
+            const modal = document.getElementById('aiModal');
+            if (event.target == modal) {
+                closeAiModal();
+            }
+        }
+
+        // Close modal when pressing ESC key
+        window.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                closeAiModal();
+            }
+        });
     </script>
 </body>
 
