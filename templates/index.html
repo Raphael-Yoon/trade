@@ -214,7 +214,9 @@
 
         <div id="downloadSection" class="download-section">
             <p class="success-msg">✨ 분석 완료!</p>
-            <a id="downloadLink" href="#" class="download-btn">📥 엑셀 파일 다운로드</a>
+            <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
+                <a id="downloadLink" href="#" class="download-btn">📥 엑셀 파일 다운로드</a>
+            </div>
         </div>
 
         <div id="errorSection" style="display: none;">
@@ -341,7 +343,7 @@
 
                         if (data.status === 'completed') {
                             clearInterval(statusCheckInterval);
-                            showDownload(data.result_file);
+                            showDownload(data.result_file, data.drive_link);
                             resetButton();
                             loadResults();
                         } else if (data.status === 'error') {
@@ -366,10 +368,26 @@
             btnText.textContent = `⚡ 분석 중... ${progress}% 완료`;
         }
 
-        function showDownload(filename) {
+        function showDownload(filename, driveLink = null) {
             const downloadSection = document.getElementById('downloadSection');
             const downloadLink = document.getElementById('downloadLink');
             downloadLink.href = `/api/download/${filename}`;
+
+            // 구글 드라이브 링크 추가
+            const existingDriveLink = document.getElementById('driveDownloadLink');
+            if (existingDriveLink) existingDriveLink.remove();
+
+            if (driveLink) {
+                const driveBtn = document.createElement('a');
+                driveBtn.id = 'driveDownloadLink';
+                driveBtn.href = driveLink;
+                driveBtn.target = '_blank';
+                driveBtn.className = 'download-btn';
+                driveBtn.style.background = '#4285F4'; // Google Blue
+                driveBtn.textContent = '📂 구글 드라이브에서 보기';
+                downloadLink.parentNode.appendChild(driveBtn);
+            }
+
             downloadSection.classList.add('active');
         }
 
@@ -411,6 +429,7 @@
             const progressFill = document.getElementById('progressFill');
             const cancelBtn = document.getElementById('cancelBtn');
             btn.disabled = false;
+            btn.style.height = '';
             progressFill.style.width = '100%';
             btnText.textContent = '🚀 데이터 수집 시작';
             cancelBtn.style.display = 'none';
@@ -445,6 +464,7 @@
                             </div>
                             <div class="result-actions">
                                 <a href="/api/download/${file.filename}" class="result-btn btn-download">다운로드</a>
+                                <button onclick="uploadToDrive('${file.filename}', this)" class="result-btn" style="background: #4285F4;">구글 드라이브</button>
                                 <button onclick="deleteResult('${file.filename}')" class="result-btn btn-delete">삭제</button>
                             </div>
                         </div>
@@ -453,6 +473,32 @@
                 })
                 .catch(error => {
                     console.error('결과 목록 로드 실패:', error);
+                });
+        }
+
+        function uploadToDrive(filename, btn) {
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '⏳ 업로드 중...';
+
+            fetch(`/api/upload_drive/${filename}`, {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('구글 드라이브 업로드 성공!');
+                        window.open(data.drive_link, '_blank');
+                    } else {
+                        alert('업로드 실패: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('서버 오류: ' + error);
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.textContent = originalText;
                 });
         }
 

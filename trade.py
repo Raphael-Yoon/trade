@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime
 import subprocess
 import json
+import psutil
 
 app = Flask(__name__)
 
@@ -122,6 +123,17 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
                 tasks[task_id]['progress'] = 100
                 tasks[task_id]['message'] = '데이터 수집 완료!'
                 tasks[task_id]['result_file'] = result_filename
+                
+                # 구글 드라이브 업로드 시도
+                try:
+                    from drive_sync import upload_to_drive
+                    drive_link = upload_to_drive(result_path)
+                    if drive_link:
+                        tasks[task_id]['message'] += f' (구글 드라이브 업로드 완료)'
+                        tasks[task_id]['drive_link'] = drive_link
+                except Exception as drive_err:
+                    print(f"드라이브 업로드 실패: {drive_err}")
+                
                 cleanup_old_results()
             else:
                 tasks[task_id]['status'] = 'error'
@@ -191,7 +203,6 @@ def cancel_collection(task_id):
     if task['status'] == 'running' and 'process' in task:
         try:
             process = task['process']
-            import psutil
             parent = psutil.Process(process.pid)
             for child in parent.children(recursive=True):
                 child.terminate()
@@ -222,6 +233,26 @@ def delete_file(filename):
         return jsonify({'success': True, 'message': '파일이 삭제되었습니다.'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'삭제 실패: {str(e)}'}), 500
+
+@app.route('/api/upload_drive/<filename>', methods=['POST'])
+def upload_existing_file(filename):
+    file_path = os.path.join(RESULTS_DIR, filename)
+    if not os.path.exists(file_path):
+        return jsonify({'success': False, 'message': '파일을 찾을 수 없습니다.'}), 404
+    
+    try:
+        from drive_sync import upload_to_drive
+        drive_link = upload_to_drive(file_path)
+        if drive_link:
+            return jsonify({
+                'success': True, 
+                'message': '구글 드라이브 업로드 완료!',
+                'drive_link': drive_link
+            })
+        else:
+            return jsonify({'success': False, 'message': '업로드에 실패했습니다.'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'오류 발생: {str(e)}'}), 500
 
 @app.route('/api/results', methods=['GET'])
 def list_results():

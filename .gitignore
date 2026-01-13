@@ -9,3 +9,5 @@ results/
 *.xlsx
 .vscode/
 .idea/
+credentials.json
+token.pickle
