@@ -1,0 +1,25 @@
+# Core dependencies
+pandas
+requests
+beautifulsoup4
+openpyxl
+python-dotenv
+
+# DART API
+OpenDartReader
+
+# Google APIs
+google-generativeai
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+
+# Flask web framework
+Flask
+
+# Process management
+psutil
+
+# Additional utilities
+urllib3
+markdown

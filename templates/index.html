@@ -87,12 +87,8 @@
                         <span>업종 (필수)</span>
                     </label>
                     <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="현재가" checked>
-                        <span>현재가</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="시가총액" checked>
-                        <span>시가총액</span>
+                        <input type="checkbox" class="field-checkbox" value="데이터기준" checked>
+                        <span>데이터 기준 (DART 보고서)</span>
                     </label>
                 </div>
                 <div class="field-group">
@@ -240,23 +236,18 @@
                 <a id="downloadLink" href="#" class="download-btn">📥 엑셀 파일 다운로드</a>
             </div>
         </div>
-    </div>
-
-    <div class="container" style="margin-top: 40px;">
-        <div class="section-header"
-            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-            <h2 style="margin: 0; font-family: 'Outfit', sans-serif; font-size: 32px;">📁 분석 결과 목록</h2>
-            <button class="result-btn"
-                style="background: var(--primary); color: white; border: none; padding: 12px 24px; height: auto; display: flex; align-items: center; gap: 8px;"
-                onclick="syncWithDrive()">
-                <span>🔄 드라이브 동기화</span>
-            </button>
-        </div>
-        <div id="resultsList" class="results-grid">
-            <!-- 결과 카드가 여기에 동적으로 추가됨 -->
-            <div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">
-                <div class="ai-spinner" style="margin: 0 auto 20px;"></div>
-                <p>결과 목록을 불러오는 중...</p>
+        <div class="results-section"
+            style="margin-top: 60px; padding-top: 60px; border-top: 1px solid rgba(255,255,255,0.1);">
+            <div class="section-header"
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+                <h2 style="margin: 0; font-family: 'Outfit', sans-serif; font-size: 32px;">📁 분석 결과 목록</h2>
+            </div>
+            <div id="resultsList" class="results-grid">
+                <!-- 결과 카드가 여기에 동적으로 추가됨 -->
+                <div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">
+                    <div class="ai-spinner" style="margin: 0 auto 20px;"></div>
+                    <p>결과 목록을 불러오는 중...</p>
+                </div>
             </div>
         </div>
     </div>
@@ -515,8 +506,38 @@
                         return;
                     }
                     resultsList.innerHTML = files.map(file => {
-                        const date = new Date(file.created_at).toLocaleString('ko-KR');
-                        const size = (file.size / 1024).toFixed(1);
+
+                        // 파일명 파싱: {market}_{count}_{timestamp}.xlsx
+                        const fileNameParts = file.filename.replace('.xlsx', '').split('_');
+                        let marketLabel = '';
+                        let countLabel = '';
+                        let displayTitle = file.filename;
+
+                        if (fileNameParts.length >= 2) {
+                            const market = fileNameParts[0].toUpperCase();
+                            const count = fileNameParts[1];
+
+                            if (market === 'KOSPI') marketLabel = 'KOSPI';
+                            else if (market === 'KOSDAQ') marketLabel = 'KOSDAQ';
+                            else if (market === 'ALL') marketLabel = '전체시장';
+
+                            if (count === 'all') countLabel = '전체 종목';
+                            else if (count.startsWith('top')) {
+                                const num = count.replace('top', '');
+                                countLabel = `상위 ${num}개`;
+                            }
+
+                            if (marketLabel && countLabel) {
+                                displayTitle = `${marketLabel} ${countLabel} 분석`;
+                            }
+                        }
+
+                        let formattedDate = '';
+                        if (fileNameParts.length >= 3) {
+                            const datePart = fileNameParts[2];
+                            formattedDate = `${datePart.substring(0, 4)}-${datePart.substring(4, 6)}-${datePart.substring(6, 8)}`;
+                        }
+
                         const isKospi = file.filename.toLowerCase().includes('kospi');
                         const icon = isKospi ? '📈' : '📉';
 
@@ -525,10 +546,9 @@
                             <div class="result-header">
                                 <div class="result-icon">${icon}</div>
                                 <div class="result-info">
-                                    <div class="result-filename">${file.filename}</div>
+                                    <div class="result-filename">${displayTitle}</div>
                                     <div class="result-meta">
-                                        <span>📅 ${date}</span>
-                                        <span>💾 ${size} KB</span>
+                                        <span>📅 ${formattedDate}</span>
                                     </div>
                                 </div>
                             </div>

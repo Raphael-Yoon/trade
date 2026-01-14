@@ -86,10 +86,13 @@ def upload_to_drive(file_path, folder_name="Stock_Analysis_Results"):
         return None
 
 def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
-    """텍스트 내용을 구글 문서(Google Docs)로 생성"""
+    """HTML 내용을 구글 문서(Google Docs)로 생성 (서식 보존)"""
     try:
         service = get_drive_service()
         folder_id = get_or_create_folder(service, folder_name)
+        
+        # 텍스트가 마크다운인 경우 HTML로 변환을 위해 trade.py에서 처리하지만,
+        # 여기서는 전달받은 content가 HTML이라고 가정하고 업로드합니다.
         
         file_metadata = {
             'name': title,
@@ -100,8 +103,35 @@ def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
         import io
         from googleapiclient.http import MediaIoBaseUpload
         
-        fh = io.BytesIO(content.encode('utf-8'))
-        media = MediaIoBaseUpload(fh, mimetype='text/plain', resumable=True)
+        # UTF-8 BOM을 추가하여 한글 깨짐 방지 및 HTML 선언
+        html_content = f"""
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {{ font-family: 'Nanum Gothic', 'Malgun Gothic', sans-serif; line-height: 1.6; color: #333; padding: 20px; }}
+                h1 {{ color: #1e293b; border-bottom: 2px solid #6366f1; padding-bottom: 10px; text-align: center; }}
+                h2 {{ color: #4338ca; margin-top: 30px; border-left: 5px solid #6366f1; padding-left: 10px; background-color: #f1f5f9; padding: 8px 10px; }}
+                h3 {{ color: #1e40af; margin-top: 20px; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 20px 0; table-layout: fixed; }}
+                th, td {{ border: 1px solid #cbd5e1; padding: 10px; text-align: left; word-break: break-all; font-size: 10pt; }}
+                th {{ background-color: #f8fafc; color: #1e293b; font-weight: bold; text-align: center; }}
+                /* 첫 번째 열(순위/번호) 너비 제한 */
+                th:first-child, td:first-child {{ width: 40px; text-align: center; }}
+                /* 종목명 열은 조금 더 넓게 */
+                th:nth-child(2), td:nth-child(2) {{ width: 120px; }}
+                blockquote {{ border-left: 4px solid #e2e8f0; padding-left: 15px; color: #64748b; font-style: italic; background-color: #f8fafc; padding: 10px 15px; }}
+                .highlight {{ background-color: #fef9c3; padding: 2px 5px; border-radius: 3px; }}
+            </style>
+        </head>
+        <body>
+            {content}
+        </body>
+        </html>
+        """
+        
+        fh = io.BytesIO(html_content.encode('utf-8'))
+        media = MediaIoBaseUpload(fh, mimetype='text/html', resumable=True)
         
         file = service.files().create(
             body=file_metadata,

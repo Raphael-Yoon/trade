@@ -15,6 +15,7 @@ from datetime import datetime
 import subprocess
 import json
 import psutil
+import markdown
 from ai_analysis import analyze_stock_data
 
 app = Flask(__name__)
@@ -407,7 +408,8 @@ def list_results():
                         })
                 except:
                     continue
-    files.sort(key=lambda x: x['created_at'] if x['created_at'] else '', reverse=True)
+    # 최신순(내림차순) 정렬: created_at이 없으면 빈 문자열 대신 아주 오래된 날짜를 기본값으로 사용
+    files.sort(key=lambda x: x.get('created_at') or '0000-00-00', reverse=True)
     return jsonify(files)
 
 @app.route('/api/ai_analyze/<filename>', methods=['POST'])
@@ -476,16 +478,24 @@ def ai_analyze(filename):
     if "오류" in result or "설정되지 않았습니다" in result:
         return jsonify({'success': False, 'message': result})
     
-    # 3. 구글 문서로 자동 저장
+    # 4. 마크다운을 HTML로 변환하여 구글 문서 서식 적용
+    try:
+        # 표(tables) 확장 기능 포함하여 변환
+        html_result = markdown.markdown(result, extensions=['tables', 'fenced_code'])
+    except Exception as e:
+        print(f"마크다운 변환 오류: {e}")
+        html_result = result.replace('\n', '<br>')
+
+    # 5. 구글 문서로 자동 저장
     drive_data = None
     try:
         from drive_sync import create_google_doc
         title = f"AI 분석 리포트 - {filename.replace('.xlsx', '')}"
-        drive_data = create_google_doc(title, result)
+        drive_data = create_google_doc(title, html_result)
     except Exception as e:
         print(f"자동 구글 문서 저장 실패: {e}")
     
-    # 4. 결과 캐시 저장
+    # 6. 결과 캐시 저장
     try:
         # 기존 캐시 데이터가 있으면 읽어옴 (spreadsheet_id 보존을 위해)
         cache_data = {}
@@ -521,11 +531,16 @@ def save_ai_report():
     if not content:
         return jsonify({'success': False, 'message': '저장할 내용이 없습니다.'})
         
+    try:
+        html_content = markdown.markdown(content, extensions=['tables', 'fenced_code'])
+    except:
+        html_content = content.replace('\n', '<br>')
+
     from drive_sync import create_google_doc
-    drive_link = create_google_doc(title, content)
+    drive_data = create_google_doc(title, html_content)
     
-    if drive_link:
-        return jsonify({'success': True, 'drive_link': drive_link})
+    if drive_data:
+        return jsonify({'success': True, 'drive_link': drive_data['link']})
     else:
         return jsonify({'success': False, 'message': '구글 문서 생성에 실패했습니다.'})
 

@@ -138,6 +138,7 @@ def get_naver_financials(session, ticker):
         bps = 0
         div_yield = 0.0
         avg_per = 0.0
+        avg_pbr = 0.0
         
         aside = soup.find('div', {'class': 'aside_invest_info'})
         if aside:
@@ -162,6 +163,10 @@ def get_naver_financials(session, ticker):
                     if nums: div_yield = float(nums[0])
                 if '동일업종 PER' in th_text:
                     if nums: avg_per = float(nums[0])
+                if '동일업종 PBR' in th_text:
+                    if nums: avg_pbr = float(nums[0])
+                elif '업종 PBR' in th_text:
+                    if nums: avg_pbr = float(nums[0])
 
         target_price_val = 0
         next_op = 0
@@ -244,6 +249,7 @@ def get_naver_financials(session, ticker):
             'bps': bps,
             'div_yield': div_yield,
             'avg_per': avg_per,
+            'avg_pbr': avg_pbr,
             'target_price': target_price_val,
             'next_op': next_op,
             'debt_ratio': debt_ratio,
@@ -298,43 +304,74 @@ def get_naver_investor_data(session, ticker):
         return 0, 0, 0.0
 
 def get_dart_financials(dart, ticker, year):
-    """OpenDARTReader를 사용하여 재무 데이터를 추출합니다."""
-    try:
-        df = dart.finstate_all(ticker, year)
-        if df is None or df.empty: return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    """OpenDARTReader를 사용하여 가장 최신의 재무 데이터를 추출합니다."""
+    # 시도할 보고서 코드: 사업보고서(11011), 3분기(11014), 반기(11012), 1분기(11013)
+    # 최신성 순서로 시도
+    report_codes = [
+        ('11011', '사업보고서'),
+        ('11014', '3분기보고서'),
+        ('11012', '반기보고서'),
+        ('11013', '1분기보고서')
+    ]
+    
+    # 올해(year)와 작년(year-1) 데이터를 순차적으로 탐색
+    for target_year in [year, year - 1]:
+        for code, code_nm in report_codes:
+            try:
+                df = dart.finstate_all(ticker, target_year, code)
+                if df is not None and not df.empty:
+                    # 데이터가 유효한지 확인 (매출액 등이 있는지)
+                    if any(df['account_nm'].str.contains('매출액|영업수익', na=False)):
+                        report_nm = f"{target_year}년 {code_nm}"
+                        return parse_finstate_df(df, report_nm, ticker)
+            except:
+                continue
+    
+    return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0
 
+def parse_finstate_df(df, report_nm, ticker):
+    """추출된 DataFrame에서 실시간 수치와 전년 동기 수치를 함께 파싱합니다."""
+    try:
         revenue = op = re_val = cash = liabilities = equity = ocf = capex = da = net_income = current_assets = current_liabilities = 0
+        prev_revenue = prev_op = 0
         
-        # 계정 ID 매핑 (표준 XBRL 태그 우선)
+        # 계정 ID 매핑
         mapping = {
             'revenue': ['ifrs-full_Revenue', 'ifrs-full_RevenueFromContractWithCustomers', 'ifrs_Revenue'],
             'op': ['dart_OperatingIncomeLoss'],
             're': ['ifrs-full_RetainedEarnings'],
-            'cash': ['ifrs-full_CashAndCashEquivalents'],
-            'liabilities': ['ifrs-full_Liabilities'],
-            'equity': ['ifrs-full_Equity', 'ifrs-full_EquityAttributableToOwnersOfParent'],
-            'ocf': ['ifrs-full_CashFlowsFromUsedInOperatingActivities'],
+            'cash': ['ifrs-full_CashAndCashEquivalents', 'ifrs_CashAndCashEquivalents'],
+            'liabilities': ['ifrs-full_Liabilities', 'ifrs_Liabilities'],
+            'equity': ['ifrs-full_Equity', 'ifrs_Equity', 'ifrs-full_EquityAttributableToOwnersOfParent'],
+            'ocf': ['ifrs-full_CashFlowsFromUsedInOperatingActivities', 'ifrs_CashFlowsFromUsedInOperatingActivities'],
             'capex': ['ifrs-full_PurchaseOfPropertyPlantAndEquipment', 'ifrs-full_PurchaseOfIntangibleAssets'],
             'depreciation': ['ifrs-full_DepreciationAndAmortisationExpense', 'ifrs-full_DepreciationExpense', 'ifrs-full_AmortisationExpense'],
-            'net_income': ['ifrs-full_ProfitLoss', 'ifrs-full_ProfitLossAttributableToOwnersOfParent'],
-            'current_assets': ['ifrs-full_CurrentAssets'],
-            'current_liabilities': ['ifrs-full_CurrentLiabilities']
+            'net_income': ['ifrs-full_ProfitLoss', 'ifrs_ProfitLoss', 'ifrs-full_ProfitLossAttributableToOwnersOfParent'],
+            'current_assets': ['ifrs-full_CurrentAssets', 'ifrs_CurrentAssets'],
+            'current_liabilities': ['ifrs-full_CurrentLiabilities', 'ifrs_CurrentLiabilities']
         }
 
         for _, row in df.iterrows():
             acc_id = str(row.get('account_id', ''))
             acc_name = str(row['account_nm']).replace(" ", "")
             sj_div = str(row.get('sj_div', ''))
+            # 당기 금액 및 전기 금액 추출
             val = pd.to_numeric(row['thstrm_amount'], errors='coerce')
+            prev_val = pd.to_numeric(row.get('frmtrm_amount', 0), errors='coerce')
             if pd.isna(val): val = 0
+            if pd.isna(prev_val): prev_val = 0
 
             # 1. Revenue
             if acc_id in mapping['revenue'] or acc_name in ['매출액', '수익(매출액)', '영업수익']:
-                if revenue == 0 or acc_id in mapping['revenue']: revenue = val
+                if revenue == 0 or acc_id in mapping['revenue']: 
+                    revenue = val
+                    prev_revenue = prev_val
             
             # 2. Operating Income
             elif acc_id in mapping['op'] or acc_name in ['영업이익', '영업이익(손실)']:
-                if op == 0 or acc_id in mapping['op']: op = val
+                if op == 0 or acc_id in mapping['op']: 
+                    op = val
+                    prev_op = prev_val
             
             # 3. Retained Earnings
             elif sj_div == 'BS' and (acc_id in mapping['re'] or ('이익잉여금' in acc_name and '기타' not in acc_name)):
@@ -376,10 +413,10 @@ def get_dart_financials(dart, ticker, year):
             elif sj_div == 'BS' and (acc_id in mapping['current_liabilities'] or acc_name == '유동부채'):
                 if current_liabilities == 0 or acc_id in mapping['current_liabilities']: current_liabilities = val
 
-        return revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, current_assets, current_liabilities
+        return revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, current_assets, current_liabilities, report_nm, prev_revenue, prev_op
     except Exception as e:
         print(f"[DART] {ticker} 재무제표 조회 실패: {e}")
-        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A"
 
 def get_audit_opinions(session, corp_code, year, api_key):
     """DART API를 사용하여 회계감사 의견 및 내부통제 의견을 가져옵니다."""
@@ -420,13 +457,13 @@ def get_audit_opinions(session, corp_code, year, api_key):
                 elif audit_opinion and '적정' in audit_opinion:
                     internal_control = '적정'
                 
-                if audit_opinion != 'N/A':
-                    break # 성공적으로 찾았으면 루프 종료
+            if audit_opinion != 'N/A':
+                return audit_opinion, internal_control, f"{y}년 사업보고서"
         except Exception as e:
             print(f"[DART] {corp_code} ({y}) 감사의견 조회 중 오류: {e}")
             continue
             
-    return audit_opinion, internal_control
+    return audit_opinion, internal_control, "N/A"
 
 def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None):
     try:
@@ -460,7 +497,8 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
         tickers_with_names = get_top_tickers_from_naver(session, market, stock_count if stock_count > 0 else 3000)
         
         now = datetime.now()
-        current_year = now.year - 2 if now.month < 4 else now.year - 1
+        # 단순히 2년을 빼는 게 아니라, 직전 연도를 기준으로 잡고 내부 로직에서 최신 보고서를 탐색하도록 변경
+        current_year = now.year - 1 
             
         results = []
         total = len(tickers_with_names)
@@ -485,25 +523,33 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
 
                 # DART 데이터 캐시 확인
                 cached = get_cached_data(ticker, current_year)
-                if cached:
-                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab = (
+                # 캐시가 있고, 리포트명이 정상이며, 전년 데이터가 포함되어 있는지 확인
+                if cached and cached.get('report_nm') != "N/A" and 'prev_rev' in cached:
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op = (
                         cached['revenue'], cached['op'], cached['re_val'], cached['cash'],
                         cached['liabilities'], cached['equity'], cached['ocf'], cached['capex'], cached['da'],
-                        cached.get('net_income', 0), cached.get('cur_assets', 0), cached.get('cur_liab', 0)
+                        cached.get('net_income', 0), cached.get('cur_assets', 0), cached.get('cur_liab', 0),
+                        cached.get('report_nm', f"{current_year}년 사업보고서"),
+                        cached.get('prev_rev', 0), cached.get('prev_op', 0)
                     )
                 else:
-                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab = get_dart_financials(dart, ticker, current_year)
+                    # 캐시가 없거나 전년 데이터가 없는 구버전 캐시라면 새로 수집
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op = get_dart_financials(dart, ticker, current_year)
                     # 캐시 저장
                     save_cache_data(ticker, current_year, {
                         'revenue': revenue, 'op': op, 're_val': re_val, 'cash': cash,
                         'liabilities': liabilities, 'equity': equity, 'ocf': ocf, 'capex': capex, 'da': da,
-                        'net_income': net_income, 'cur_assets': cur_assets, 'cur_liab': cur_liab
+                        'net_income': net_income, 'cur_assets': cur_assets, 'cur_liab': cur_liab,
+                        'report_nm': report_nm, 'prev_rev': prev_rev, 'prev_op': prev_op
                     })
                 
                 # 감사 의견 가져오기 (고유번호 필요)
                 corp_code = dart.find_corp_code(ticker)
                 if not corp_code: corp_code = ticker
-                audit_op, internal_op = get_audit_opinions(session, corp_code, current_year, API_KEY)
+                audit_op, internal_op, audit_report_nm = get_audit_opinions(session, corp_code, current_year, API_KEY)
+
+                # 데이터 기준 정보 (재무제표 보고서 우선, 없으면 감사의견 보고서)
+                data_basis = report_nm if report_nm != "N/A" else audit_report_nm
 
                 fcf = ocf - capex
                 ebitda = op + da
@@ -522,13 +568,12 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 res_dict = {
                     '종목코드': ticker,
                     '종목명': name,
-                    '현재가': price,
-                    '시가총액': naver_data.get('market_cap'),
+                    '데이터기준': data_basis,
                     '회계감사의견': audit_op,
                     '내부통제의견': internal_op,
                     '업종': naver_data.get('sector'),
                     'PBR': naver_data.get('pbr'),
-                    '업종평균PBR': 0.0,
+                    '업종평균PBR': naver_data.get('avg_pbr'),
                     'PER': naver_data.get('per'),
                     '업종평균PER': naver_data.get('avg_per'),
                     'ROE': roe,
@@ -536,7 +581,9 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     'BPS': naver_data.get('bps'),
                     '배당수익률': naver_data.get('div_yield'),
                     '매출액': revenue,
+                    '전년동기(전년)매출액': prev_rev,
                     '영업이익': op,
+                    '전년동기(전년)영업이익': prev_op,
                     '당기순이익': net_income,
                     '영업이익률': naver_data.get('op_margin'),
                     '순이익률': naver_data.get('net_margin'),
@@ -575,6 +622,12 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
 
         df = pd.DataFrame(results)
         if selected_fields:
+            # 전년 동기 데이터가 컬럼에 있다면 자동으로 선택 필드에 추가
+            yoy_fields = ['전년동기(전년)매출액', '전년동기(전년)영업이익']
+            for f in yoy_fields:
+                if f in df.columns and f not in selected_fields:
+                    selected_fields.append(f)
+            
             df = df[[f for f in selected_fields if f in df.columns]]
 
         output_file = output_path if output_path else os.path.join(os.path.dirname(os.path.abspath(__file__)), "result.xlsx")
