@@ -22,4 +22,4 @@ psutil
 
 # Additional utilities
 urllib3
-markdown
+markdown>=3.9

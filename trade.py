@@ -425,24 +425,48 @@ def ai_analyze(filename):
                 cache_data = json.load(f)
             
             report_id = cache_data.get('report_id')
+            # result가 있고 report_id가 있으면 드라이브 확인
             if cache_data.get('result') and report_id:
                 # 드라이브에 실제 리포트 파일이 있는지 확인
                 try:
                     from drive_sync import get_drive_service
                     service = get_drive_service()
-                    file_info = service.files().get(fileId=report_id, fields='id, trashed').execute()
-                    
-                    if not file_info.get('trashed'):
+                    if service:
+                        file_info = service.files().get(fileId=report_id, fields='id, trashed').execute()
+                        
+                        if not file_info.get('trashed'):
+                            return jsonify({
+                                'success': True, 
+                                'result': cache_data.get('result'),
+                                'drive_link': cache_data.get('drive_link'),
+                                'cached': True
+                            })
+                        else:
+                            print(f"AI 리포트가 휴지통에 있음. 재분석 진행: {filename}")
+                    else:
+                        # 서비스 연결 실패 시 캐시 데이터라도 반환
                         return jsonify({
                             'success': True, 
                             'result': cache_data.get('result'),
                             'drive_link': cache_data.get('drive_link'),
                             'cached': True
                         })
-                    else:
-                        print(f"AI 리포트가 휴지통에 있음. 재분석 진행: {filename}")
-                except:
-                    print(f"AI 리포트를 드라이브에서 찾을 수 없음. 재분석 진행: {filename}")
+                except Exception as e:
+                    print(f"AI 리포트 드라이브 확인 실패 ({e}). 캐시 데이터 사용: {filename}")
+                    return jsonify({
+                        'success': True, 
+                        'result': cache_data.get('result'),
+                        'drive_link': cache_data.get('drive_link'),
+                        'cached': True
+                    })
+            # result는 있는데 report_id가 없는 경우 (이전 버전 캐시 등)
+            elif cache_data.get('result'):
+                return jsonify({
+                    'success': True, 
+                    'result': cache_data.get('result'),
+                    'drive_link': cache_data.get('drive_link'),
+                    'cached': True
+                })
         except Exception as e:
             print(f"캐시 읽기 오류: {e}")
 
@@ -478,20 +502,12 @@ def ai_analyze(filename):
     if "오류" in result or "설정되지 않았습니다" in result:
         return jsonify({'success': False, 'message': result})
     
-    # 4. 마크다운을 HTML로 변환하여 구글 문서 서식 적용
-    try:
-        # 표(tables) 확장 기능 포함하여 변환
-        html_result = markdown.markdown(result, extensions=['tables', 'fenced_code'])
-    except Exception as e:
-        print(f"마크다운 변환 오류: {e}")
-        html_result = result.replace('\n', '<br>')
-
-    # 5. 구글 문서로 자동 저장
+    # 4. 구글 문서로 자동 저장 (마크다운 변환은 drive_sync에서 처리)
     drive_data = None
     try:
         from drive_sync import create_google_doc
         title = f"AI 분석 리포트 - {filename.replace('.xlsx', '')}"
-        drive_data = create_google_doc(title, html_result)
+        drive_data = create_google_doc(title, result)
     except Exception as e:
         print(f"자동 구글 문서 저장 실패: {e}")
     
@@ -504,11 +520,15 @@ def ai_analyze(filename):
                 cache_data = json.load(f)
         
         cache_data.update({
+            'filename': filename,
             'result': result,
             'report_id': drive_data['id'] if drive_data else cache_data.get('report_id'),
             'drive_link': drive_data['link'] if drive_data else cache_data.get('drive_link'),
             'created_at': datetime.now().isoformat()
         })
+        
+        # spreadsheet_id가 없는데 로컬에 엑셀 파일이 있는 경우 (드라이브 업로드 전 등)
+        # 하지만 이 시점에서는 이미 spreadsheet_id가 있거나 새로 업로드된 상태여야 함
         
         with open(cache_path, 'w', encoding='utf-8') as f:
             json.dump(cache_data, f, ensure_ascii=False, indent=4)
@@ -531,13 +551,8 @@ def save_ai_report():
     if not content:
         return jsonify({'success': False, 'message': '저장할 내용이 없습니다.'})
         
-    try:
-        html_content = markdown.markdown(content, extensions=['tables', 'fenced_code'])
-    except:
-        html_content = content.replace('\n', '<br>')
-
     from drive_sync import create_google_doc
-    drive_data = create_google_doc(title, html_content)
+    drive_data = create_google_doc(title, content)
     
     if drive_data:
         return jsonify({'success': True, 'drive_link': drive_data['link']})
