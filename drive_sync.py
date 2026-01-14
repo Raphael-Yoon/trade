@@ -103,6 +103,13 @@ def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
             print(f"마크다운 변환 중 오류: {e}")
             html_body = content.replace('\n', '<br>')
 
+        # 구글 문서 변환 시 표 너비를 문서 폭에 맞게 강제하기 위해 고정 픽셀(700px) 사용
+        # 첫 번째 컬럼(180px), 두 번째 컬럼(100px) 지정을 위해 table-layout: fixed 적용
+        html_body = html_body.replace('<table>', '<table width="700" style="width: 700px; border-collapse: collapse; border: 1px solid #cbd5e1; margin: 20px 0; table-layout: fixed;">')
+        html_body = html_body.replace('<thead>', '<thead style="background-color: #f8fafc;">')
+        html_body = html_body.replace('<th>', '<th style="background-color: #f8fafc; color: #1e293b; font-weight: bold; padding: 12px 8px; border: 1px solid #cbd5e1; text-align: center;">')
+        html_body = html_body.replace('<td>', '<td style="padding: 12px 8px; border: 1px solid #cbd5e1; text-align: left; vertical-align: top; word-wrap: break-word;">')
+
         file_metadata = {
             'name': title,
             'parents': [folder_id],
@@ -124,23 +131,25 @@ def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
                     line-height: 1.6; 
                     color: #333; 
                     padding: 20px; 
+                    width: 700px;
+                    margin: 0 auto;
                 }}
                 h1 {{ color: #1e293b; border-bottom: 2px solid #6366f1; padding-bottom: 10px; text-align: center; }}
                 h2 {{ color: #4338ca; margin-top: 30px; border-left: 5px solid #6366f1; padding-left: 10px; background-color: #f1f5f9; padding: 8px 10px; }}
                 h3 {{ color: #1e40af; margin-top: 20px; }}
                 
                 table {{ 
-                    width: 100%; 
+                    width: 700px !important; 
                     border-collapse: collapse; 
                     margin: 20px 0; 
-                    table-layout: fixed; 
+                    table-layout: fixed;
                 }}
                 th, td {{ 
                     border: 1px solid #cbd5e1; 
-                    padding: 10px; 
+                    padding: 12px 8px; 
                     text-align: left; 
-                    word-break: break-all; 
                     font-size: 10pt; 
+                    word-wrap: break-word;
                 }}
                 th {{ 
                     background-color: #f8fafc; 
@@ -149,15 +158,21 @@ def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
                     text-align: center; 
                 }}
                 
-                /* 첫 번째 컬럼(순위/번호) 너비 고정 및 가운데 정렬 */
+                /* 첫 번째 컬럼 (종목명 등) - 기존 60px에서 3배인 180px로 확대 */
                 th:first-child, td:first-child {{ 
-                    width: 80px !important; 
+                    width: 180px; 
                     text-align: center; 
                 }}
                 
-                /* 두 번째 컬럼(종목명) 최소 너비 확보 */
+                /* 두 번째 컬럼 (업종 등) - 너비 축소 (약 100px) */
                 th:nth-child(2), td:nth-child(2) {{ 
-                    min-width: 180px; 
+                    width: 100px; 
+                    text-align: center;
+                }}
+
+                /* 세 번째 컬럼 (추천 요약 등) - 나머지 모든 폭 사용 */
+                th:nth-child(3), td:nth-child(3) {{ 
+                    width: auto; 
                 }}
                 
                 blockquote {{ 
