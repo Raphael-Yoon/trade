@@ -259,6 +259,7 @@
         let statusCheckInterval = null;
         let currentAiResult = "";
         let currentAiFilename = "";
+        let isAiAnalyzing = false;
 
         function showToast(message, type = 'success') {
             const container = document.getElementById('toastContainer');
@@ -591,6 +592,7 @@
         // AI Analysis Functions
         function runAiAnalysis(filename) {
             currentAiFilename = filename;
+            isAiAnalyzing = true;
             openAiModal();
 
             fetch(`/api/ai_analyze/${filename}`, {
@@ -598,6 +600,7 @@
             })
                 .then(response => response.json())
                 .then(data => {
+                    isAiAnalyzing = false;
                     if (data.success) {
                         currentAiResult = data.result;
                         const content = document.getElementById('aiResultContent');
@@ -614,6 +617,7 @@
                     }
                 })
                 .catch(error => {
+                    isAiAnalyzing = false;
                     showToast('서버 오류: ' + error, 'error');
                     closeAiModal();
                 });
@@ -634,6 +638,10 @@
         }
 
         function closeAiModal() {
+            if (isAiAnalyzing) {
+                showToast('AI 분석 중입니다. 잠시만 기다려주세요.', 'error');
+                return;
+            }
             const modal = document.getElementById('aiModal');
             modal.style.display = 'none';
             document.body.style.overflow = 'auto';
