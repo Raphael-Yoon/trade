@@ -86,14 +86,30 @@ def upload_to_drive(file_path, folder_name="Stock_Analysis_Results"):
         return None
 
 def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
-    """HTML 내용을 구글 문서(Google Docs)로 생성 (서식 보존)"""
+    """마크다운 또는 HTML 내용을 구글 문서(Google Docs)로 생성 (서식 보존)"""
     try:
         service = get_drive_service()
         folder_id = get_or_create_folder(service, folder_name)
         
-        # 텍스트가 마크다운인 경우 HTML로 변환을 위해 trade.py에서 처리하지만,
-        # 여기서는 전달받은 content가 HTML이라고 가정하고 업로드합니다.
-        
+        # 마크다운 변환 시도 (ImportError 발생 시 fallback)
+        try:
+            import markdown
+            # tables: 테이블 지원, nl2br: 줄바꿈 지원, sane_lists: 리스트 개선
+            html_body = markdown.markdown(content, extensions=['tables', 'nl2br', 'sane_lists', 'fenced_code'])
+        except ImportError:
+            print("markdown 라이브러리가 없어 plain text 방식으로 처리합니다.")
+            html_body = content.replace('\n', '<br>')
+        except Exception as e:
+            print(f"마크다운 변환 중 오류: {e}")
+            html_body = content.replace('\n', '<br>')
+
+        # 구글 문서 변환 시 표 너비를 문서 폭에 맞게 강제하기 위해 고정 픽셀(700px) 사용
+        # 첫 번째 컬럼(180px), 두 번째 컬럼(100px) 지정을 위해 table-layout: fixed 적용
+        html_body = html_body.replace('<table>', '<table width="700" style="width: 700px; border-collapse: collapse; border: 1px solid #cbd5e1; margin: 20px 0; table-layout: fixed;">')
+        html_body = html_body.replace('<thead>', '<thead style="background-color: #f8fafc;">')
+        html_body = html_body.replace('<th>', '<th style="background-color: #f8fafc; color: #1e293b; font-weight: bold; padding: 12px 8px; border: 1px solid #cbd5e1; text-align: center;">')
+        html_body = html_body.replace('<td>', '<td style="padding: 12px 8px; border: 1px solid #cbd5e1; text-align: left; vertical-align: top; word-wrap: break-word;">')
+
         file_metadata = {
             'name': title,
             'parents': [folder_id],
@@ -105,27 +121,73 @@ def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
         
         # UTF-8 BOM을 추가하여 한글 깨짐 방지 및 HTML 선언
         html_content = f"""
+        <!DOCTYPE html>
         <html>
         <head>
             <meta charset="utf-8">
             <style>
-                body {{ font-family: 'Nanum Gothic', 'Malgun Gothic', sans-serif; line-height: 1.6; color: #333; padding: 20px; }}
+                body {{ 
+                    font-family: 'Nanum Gothic', 'Malgun Gothic', sans-serif; 
+                    line-height: 1.6; 
+                    color: #333; 
+                    padding: 20px; 
+                    width: 700px;
+                    margin: 0 auto;
+                }}
                 h1 {{ color: #1e293b; border-bottom: 2px solid #6366f1; padding-bottom: 10px; text-align: center; }}
                 h2 {{ color: #4338ca; margin-top: 30px; border-left: 5px solid #6366f1; padding-left: 10px; background-color: #f1f5f9; padding: 8px 10px; }}
                 h3 {{ color: #1e40af; margin-top: 20px; }}
-                table {{ width: 100%; border-collapse: collapse; margin: 20px 0; table-layout: fixed; }}
-                th, td {{ border: 1px solid #cbd5e1; padding: 10px; text-align: left; word-break: break-all; font-size: 10pt; }}
-                th {{ background-color: #f8fafc; color: #1e293b; font-weight: bold; text-align: center; }}
-                /* 첫 번째 열(순위/번호) 너비 제한 */
-                th:first-child, td:first-child {{ width: 40px; text-align: center; }}
-                /* 종목명 열은 조금 더 넓게 */
-                th:nth-child(2), td:nth-child(2) {{ width: 120px; }}
-                blockquote {{ border-left: 4px solid #e2e8f0; padding-left: 15px; color: #64748b; font-style: italic; background-color: #f8fafc; padding: 10px 15px; }}
+                
+                table {{ 
+                    width: 700px !important; 
+                    border-collapse: collapse; 
+                    margin: 20px 0; 
+                    table-layout: fixed;
+                }}
+                th, td {{ 
+                    border: 1px solid #cbd5e1; 
+                    padding: 12px 8px; 
+                    text-align: left; 
+                    font-size: 10pt; 
+                    word-wrap: break-word;
+                }}
+                th {{ 
+                    background-color: #f8fafc; 
+                    color: #1e293b; 
+                    font-weight: bold; 
+                    text-align: center; 
+                }}
+                
+                /* 첫 번째 컬럼 (종목명 등) - 기존 60px에서 3배인 180px로 확대 */
+                th:first-child, td:first-child {{ 
+                    width: 180px; 
+                    text-align: center; 
+                }}
+                
+                /* 두 번째 컬럼 (업종 등) - 너비 축소 (약 100px) */
+                th:nth-child(2), td:nth-child(2) {{ 
+                    width: 100px; 
+                    text-align: center;
+                }}
+
+                /* 세 번째 컬럼 (추천 요약 등) - 나머지 모든 폭 사용 */
+                th:nth-child(3), td:nth-child(3) {{ 
+                    width: auto; 
+                }}
+                
+                blockquote {{ 
+                    border-left: 4px solid #e2e8f0; 
+                    padding-left: 15px; 
+                    color: #64748b; 
+                    font-style: italic; 
+                    background-color: #f8fafc; 
+                    padding: 10px 15px; 
+                }}
                 .highlight {{ background-color: #fef9c3; padding: 2px 5px; border-radius: 3px; }}
             </style>
         </head>
         <body>
-            {content}
+            {html_body}
         </body>
         </html>
         """
