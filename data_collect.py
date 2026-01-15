@@ -327,13 +327,15 @@ def get_dart_financials(dart, ticker, year):
             except:
                 continue
     
-    return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0
+    return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0
+
 
 def parse_finstate_df(df, report_nm, ticker):
     """추출된 DataFrame에서 실시간 수치와 전년 동기 수치를 함께 파싱합니다."""
     try:
         revenue = op = re_val = cash = liabilities = equity = ocf = capex = da = net_income = current_assets = current_liabilities = 0
         prev_revenue = prev_op = prev_net_income = 0
+        prev2_revenue = prev2_op = prev2_net_income = 0
         
         # 계정 ID 매핑
         mapping = {
@@ -366,20 +368,27 @@ def parse_finstate_df(df, report_nm, ticker):
             if pd.isna(prev_val) or prev_val == 0:
                 prev_val = pd.to_numeric(row.get('frmtrm_add_amount'), errors='coerce')
                 
+            # 전전년 동기/전전년 금액 추출 (사업보고서 등에 주로 존재, bfefrmtrm_amount)
+            prev2_val = pd.to_numeric(row.get('bfefrmtrm_amount'), errors='coerce')
+            if pd.isna(prev2_val): prev2_val = 0
+                
             if pd.isna(val): val = 0
             if pd.isna(prev_val): prev_val = 0
+            # prev2_val은 없을 수도 있으므로 (분기보고서 등) 0으로 유지됨
 
             # 1. Revenue
             if acc_id in mapping['revenue'] or acc_name in ['매출액', '수익(매출액)', '영업수익']:
                 if revenue == 0 or acc_id in mapping['revenue']: 
                     revenue = val
                     prev_revenue = prev_val
+                    prev2_revenue = prev2_val
             
             # 2. Operating Income
             elif acc_id in mapping['op'] or acc_name in ['영업이익', '영업이익(손실)']:
                 if op == 0 or acc_id in mapping['op']: 
                     op = val
                     prev_op = prev_val
+                    prev2_op = prev2_val
             
             # 3. Retained Earnings
             elif sj_div == 'BS' and (acc_id in mapping['re'] or ('이익잉여금' in acc_name and '기타' not in acc_name)):
@@ -414,6 +423,7 @@ def parse_finstate_df(df, report_nm, ticker):
                 if net_income == 0 or acc_id in mapping['net_income']: 
                     net_income = val
                     prev_net_income = prev_val
+                    prev2_net_income = prev2_val
 
             # 11. Current Assets
             elif sj_div == 'BS' and (acc_id in mapping['current_assets'] or acc_name == '유동자산'):
@@ -423,10 +433,10 @@ def parse_finstate_df(df, report_nm, ticker):
             elif sj_div == 'BS' and (acc_id in mapping['current_liabilities'] or acc_name == '유동부채'):
                 if current_liabilities == 0 or acc_id in mapping['current_liabilities']: current_liabilities = val
 
-        return revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, current_assets, current_liabilities, report_nm, prev_revenue, prev_op, prev_net_income
+        return revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, current_assets, current_liabilities, report_nm, prev_revenue, prev_op, prev_net_income, prev2_revenue, prev2_op, prev2_net_income
     except Exception as e:
         print(f"[DART] {ticker} 재무제표 조회 실패: {e}")
-        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0
+        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0
 
 
 def get_audit_opinions(session, corp_code, year, api_key):
@@ -536,22 +546,25 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 cached = get_cached_data(ticker, current_year)
                 # 캐시가 있고, 리포트명이 정상이며, 전년 데이터가 포함되어 있는지 확인
                 if cached and cached.get('report_nm') != "N/A" and 'prev_rev' in cached:
-                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni = (
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = (
                         cached['revenue'], cached['op'], cached['re_val'], cached['cash'],
                         cached['liabilities'], cached['equity'], cached['ocf'], cached['capex'], cached['da'],
                         cached.get('net_income', 0), cached.get('cur_assets', 0), cached.get('cur_liab', 0),
                         cached.get('report_nm', f"{current_year}년 사업보고서"),
-                        cached.get('prev_rev', 0), cached.get('prev_op', 0), cached.get('prev_ni', 0)
+                        cached.get('prev_rev', 0), cached.get('prev_op', 0), cached.get('prev_ni', 0),
+                        cached.get('prev2_rev', 0), cached.get('prev2_op', 0), cached.get('prev2_ni', 0)
                     )
                 else:
                     # 캐시가 없거나 전년 데이터가 없는 구버전 캐시라면 새로 수집
-                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni = get_dart_financials(dart, ticker, current_year)
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = get_dart_financials(dart, ticker, current_year)
                     # 캐시 저장
                     save_cache_data(ticker, current_year, {
                         'revenue': revenue, 'op': op, 're_val': re_val, 'cash': cash,
                         'liabilities': liabilities, 'equity': equity, 'ocf': ocf, 'capex': capex, 'da': da,
                         'net_income': net_income, 'cur_assets': cur_assets, 'cur_liab': cur_liab,
-                        'report_nm': report_nm, 'prev_rev': prev_rev, 'prev_op': prev_op, 'prev_ni': prev_ni
+                        'report_nm': report_nm, 
+                        'prev_rev': prev_rev, 'prev_op': prev_op, 'prev_ni': prev_ni,
+                        'prev2_rev': prev2_rev, 'prev2_op': prev2_op, 'prev2_ni': prev2_ni
                     })
                 
                 # 감사 의견 가져오기 (고유번호 필요)
@@ -577,9 +590,20 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                         roe = round((naver_data.get('eps', 0) / naver_data.get('bps', 0)) * 100, 2)
 
                 # 성장성 지표 계산
+                # 1. 당기 성장률 (YoY): (당기 - 전년) / 전년
                 rev_growth = round(((revenue - prev_rev) / abs(prev_rev) * 100), 2) if prev_rev != 0 else 0.0
                 op_growth = round(((op - prev_op) / abs(prev_op) * 100), 2) if prev_op != 0 else 0.0
                 ni_growth = round(((net_income - prev_ni) / abs(prev_ni) * 100), 2) if prev_ni != 0 else 0.0
+
+                # 2. 전년 성장률 (Prev YoY): (전년 - 전전년) / 전전년
+                # 성장 추세(가속/둔화)를 판단하기 위함
+                prev2_rev = cached.get('prev2_rev', 0) if cached else 0
+                prev2_op = cached.get('prev2_op', 0) if cached else 0
+                prev2_ni = cached.get('prev2_ni', 0) if cached else 0
+
+                prev_rev_growth = round(((prev_rev - prev2_rev) / abs(prev2_rev) * 100), 2) if prev2_rev != 0 else 0.0
+                prev_op_growth = round(((prev_op - prev2_op) / abs(prev2_op) * 100), 2) if prev2_op != 0 else 0.0
+                prev_ni_growth = round(((prev_ni - prev2_ni) / abs(prev2_ni) * 100), 2) if prev2_ni != 0 else 0.0
 
                 res_dict = {
                     '종목코드': ticker,
@@ -596,15 +620,28 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     'EPS': naver_data.get('eps'),
                     'BPS': naver_data.get('bps'),
                     '배당수익률': naver_data.get('div_yield'),
+                    
+                    # 매출액 관련
                     '매출액': revenue,
                     '전년동기매출액': prev_rev,
+                    '전전년동기매출액': prev2_rev,
                     '매출액증가율(%)': rev_growth,
+                    '작년매출액증가율(%)': prev_rev_growth, # 추세 확인용
+                    
+                    # 영업이익 관련
                     '영업이익': op,
                     '전년동기영업이익': prev_op,
+                    '전전년동기영업이익': prev2_op,
                     '영업이익증가율(%)': op_growth,
+                    '작년영업이익증가율(%)': prev_op_growth, # 추세 확인용
+
+                    # 순이익 관련
                     '당기순이익': net_income,
                     '전년동기순이익': prev_ni,
+                    '전전년동기순이익': prev2_ni,
                     '순이익증가율(%)': ni_growth,
+                    '작년순이익증가율(%)': prev_ni_growth, # 추세 확인용
+
                     '영업이익률': naver_data.get('op_margin'),
                     '순이익률': naver_data.get('net_margin'),
                     '이익잉여금': re_val,
