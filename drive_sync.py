@@ -4,6 +4,7 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.http import MediaFileUpload
+import re
 
 # 구글 드라이브 API 권한 범위 (파일 읽기/쓰기/생성)
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
@@ -107,8 +108,15 @@ def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
         # 첫 번째 컬럼(180px), 두 번째 컬럼(100px) 지정을 위해 table-layout: fixed 적용
         html_body = html_body.replace('<table>', '<table width="700" style="width: 700px; border-collapse: collapse; border: 1px solid #cbd5e1; margin: 20px 0; table-layout: fixed;">')
         html_body = html_body.replace('<thead>', '<thead style="background-color: #f8fafc;">')
-        html_body = html_body.replace('<th>', '<th style="background-color: #f8fafc; color: #1e293b; font-weight: bold; padding: 12px 8px; border: 1px solid #cbd5e1; text-align: center;">')
-        html_body = html_body.replace('<td>', '<td style="padding: 12px 8px; border: 1px solid #cbd5e1; text-align: left; vertical-align: top; word-wrap: break-word;">')
+        html_body = html_body.replace('<th>', '<th style="background-color: #f8fafc; color: #1e293b; font-weight: bold; padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">')
+        html_body = html_body.replace('<td>', '<td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: left; vertical-align: top; word-wrap: break-word;">')
+
+        # [추가] 헤더(th) 내용에 포함된 강제 줄바꿈 태그 제거 (데이터 차원의 수정)
+        # 이미 스타일이 적용된 <th style="..."> 태그 내부의 내용물에서 <br>과 \n을 공백으로 치환
+        html_body = re.sub(r'(<th[^>]*>)(.*?)(</th>)', 
+                          lambda m: m.group(1) + m.group(2).replace('<br>', ' ').replace('<br/>', ' ').replace('\n', ' ') + m.group(3), 
+                          html_body, 
+                          flags=re.DOTALL | re.IGNORECASE)
 
         file_metadata = {
             'name': title,
@@ -144,18 +152,21 @@ def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
                     margin: 20px 0; 
                     table-layout: fixed;
                 }}
-                th, td {{ 
-                    border: 1px solid #cbd5e1; 
-                    padding: 12px 8px; 
-                    text-align: left; 
-                    font-size: 10pt; 
+                th, td {{
+                    border: 1px solid #cbd5e1;
+                    padding: 6px 10px;
+                    text-align: left;
+                    font-size: 10pt;
                     word-wrap: break-word;
+                    line-height: 1.4;
                 }}
-                th {{ 
-                    background-color: #f8fafc; 
-                    color: #1e293b; 
-                    font-weight: bold; 
-                    text-align: center; 
+                th {{
+                    background-color: #f8fafc;
+                    color: #1e293b;
+                    font-weight: bold;
+                    text-align: center;
+                    padding: 8px 10px;
+                    line-height: 1.3;
                 }}
                 
                 /* 첫 번째 컬럼 (종목명 등) - 기존 60px에서 3배인 180px로 확대 */

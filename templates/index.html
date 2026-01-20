@@ -246,12 +246,21 @@
             <input type="hidden" id="stockCount" value="100">
         </div>
 
-        <div class="action-buttons" style="display: flex; gap: 16px;">
-            <button id="collectBtn" class="btn" style="flex: 1;" onclick="startCollection()">
+        <div class="action-buttons" style="display: flex; gap: 16px; flex-direction: column;">
+            <button id="collectBtn" class="btn" style="flex: 1; {% if not is_local %}opacity: 0.6; cursor: not-allowed; filter: grayscale(1); background: #475569;{% endif %}" 
+                    onclick="startCollection()" {% if not is_local %}disabled{% endif %}>
                 <div id="progressFill" class="btn-progress-fill"></div>
-                <span id="collectBtnText">🚀 데이터 수집 시작</span>
+                <span id="collectBtnText">
+                    {% if is_local %}🚀 데이터 수집 시작{% else %}🔒 데이터 수집은 로컬에서만 가능합니다{% endif %}
+                </span>
             </button>
-            <button id="cancelBtn" class="btn btn-delete" style="width: 160px; display: none; white-space: nowrap;"
+            {% if not is_local %}
+            <p style="text-align: center; color: #94a3b8; font-size: 13px; margin-top: -8px;">
+                ⚠️ 운영 서버에서는 보안 및 성능상의 이유로 데이터 수집 기능이 제한됩니다.<br>
+                로컬 환경에서 데이터를 수집한 후 <b>구글 드라이브 동기화</b>를 통해 서버에서 확인하실 수 있습니다.
+            </p>
+            {% endif %}
+            <button id="cancelBtn" class="btn btn-delete" style="width: 100%; display: none; white-space: nowrap;"
                 onclick="cancelCollection()">
                 <span>⏹ 중단</span>
             </button>

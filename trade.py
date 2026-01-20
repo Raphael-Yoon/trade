@@ -15,7 +15,6 @@ from datetime import datetime
 import subprocess
 import json
 import psutil
-import markdown
 from ai_analysis import analyze_stock_data
 
 app = Flask(__name__)
@@ -166,12 +165,22 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
         tasks[task_id]['status'] = 'error'
         tasks[task_id]['message'] = f'오류 발생: {str(e)}'
 
+def check_is_local():
+    # Windows 환경이거나 환경변수가 없는 경우를 로컬로 간주
+    return os.name == 'nt' or 'PYTHONANYWHERE_DOMAIN' not in os.environ
+
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', is_local=check_is_local())
 
 @app.route('/api/collect', methods=['POST'])
 def start_collection():
+    if not check_is_local():
+        return jsonify({
+            'success': False,
+            'message': '서버 환경에서는 데이터 수집 기능을 사용할 수 없습니다. 로컬에서 수집 후 동기화해주세요.'
+        }), 403
+        
     data = request.get_json() or {}
     stock_count = data.get('stock_count', 100)
     fields = data.get('fields', [])
