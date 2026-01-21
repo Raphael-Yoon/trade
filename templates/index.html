@@ -252,7 +252,7 @@
             <input type="hidden" id="stockCount" value="100">
         </div>
 
-        <div class="action-buttons">
+        <div class="action-buttons" style="display: flex; gap: 16px;">
             <button id="collectBtn" class="btn"
                 style="flex: 1; {% if not is_local %}opacity: 0.6; cursor: not-allowed; filter: grayscale(1); background: #475569;{% endif %}"
                 onclick="startCollection()" {% if not is_local %}disabled{% endif %}>
