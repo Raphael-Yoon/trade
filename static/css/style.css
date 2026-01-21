@@ -155,26 +155,10 @@ h1 {
     overflow: hidden;
 }
 
-.field-group::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 4px;
-    background: linear-gradient(90deg, transparent, var(--primary), transparent);
-    opacity: 0;
-    transition: opacity 0.3s;
-}
-
 .field-group:hover {
     transform: translateY(-8px);
     border-color: rgba(255, 255, 255, 0.2);
     box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5);
-}
-
-.field-group:hover::after {
-    opacity: 1;
 }
 
 .field-group h4 {
@@ -252,7 +236,6 @@ h1 {
     font-weight: 700;
     font-family: 'Outfit', sans-serif;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 1px solid transparent;
 }
 
 .count-btn:hover {
@@ -290,10 +273,6 @@ h1 {
     box-shadow: 0 30px 60px -15px rgba(99, 102, 241, 0.6);
 }
 
-.btn:active:not(:disabled) {
-    transform: scale(0.98);
-}
-
 .btn:disabled {
     opacity: 0.7;
     cursor: not-allowed;
@@ -305,7 +284,6 @@ h1 {
     background: rgba(239, 68, 68, 0.1);
     color: var(--error);
     border: 1px solid rgba(239, 68, 68, 0.2);
-    box-shadow: none;
 }
 
 .btn-delete:hover:not(:disabled) {
@@ -411,16 +389,6 @@ h1 {
 
 .btn-download:hover {
     background: var(--success);
-    color: white;
-}
-
-.btn-delete {
-    background: rgba(239, 68, 68, 0.1);
-    color: var(--error);
-}
-
-.btn-delete:hover {
-    background: var(--error);
     color: white;
 }
 
@@ -555,6 +523,26 @@ h1 {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    position: relative;
+}
+
+.modal-back-btn {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-main);
+    padding: 10px 16px;
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.modal-back-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .modal-body {
@@ -584,66 +572,132 @@ h1 {
     }
 }
 
+/* AI Markdown Body - Premium Styling */
 .ai-markdown-body {
     line-height: 1.8;
     color: #e2e8f0;
+    font-size: 16px;
 }
 
-.ai-markdown-body h1,
-.ai-markdown-body h2,
-.ai-markdown-body h3 {
+.ai-markdown-body h1 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 28px;
     color: white;
-    margin-top: 24px;
-    margin-bottom: 16px;
+    margin-top: 40px;
+    margin-bottom: 24px;
+    text-align: center;
+    background: linear-gradient(135deg, #fff 0%, var(--primary) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.ai-markdown-body h2 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 22px;
+    color: var(--secondary);
+    margin-top: 48px;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(168, 85, 247, 0.3);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ai-markdown-body h2::before {
+    content: '💎';
+    font-size: 18px;
+}
+
+/* Friendly Stock Name Styling (H3) */
+.ai-markdown-body h3 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 26px;
+    color: #fff;
+    margin-top: 48px;
+    margin-bottom: 24px;
+    padding: 16px 24px;
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.15) 0%, transparent 100%);
+    border-radius: 16px;
+    border-left: 8px solid var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    word-break: break-all;
+}
+
+.ai-markdown-body h3::before {
+    content: '🚀';
+    font-size: 22px;
+    flex-shrink: 0;
 }
 
 .ai-markdown-body p {
-    margin-bottom: 16px;
+    margin-bottom: 20px;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+}
+
+.ai-markdown-body strong {
+    color: #fff;
+    font-weight: 700;
+    background: rgba(99, 102, 241, 0.2);
+    padding: 2px 6px;
+    border-radius: 4px;
 }
 
 .ai-markdown-body ul,
 .ai-markdown-body ol {
-    margin-bottom: 16px;
+    margin-bottom: 24px;
     padding-left: 24px;
 }
 
-.ai-markdown-body table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 24px;
-    font-size: 14px;
-    display: block;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    border-radius: 12px;
+.ai-markdown-body li {
+    margin-bottom: 12px;
+    word-break: break-all;
 }
 
-.ai-markdown-body th,
-.ai-markdown-body td {
-    padding: 12px 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    text-align: left;
-    vertical-align: middle;
-    word-break: keep-all;
+/* AI Report Table Styling */
+.ai-markdown-body table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 32px 0;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 20px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .ai-markdown-body th {
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--secondary);
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--primary);
     font-weight: 700;
+    text-align: left;
+    padding: 16px 20px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     white-space: nowrap;
 }
 
-/* Ensure Rank and Stock Name columns have enough width */
-.ai-markdown-body th:nth-child(1),
-.ai-markdown-body td:nth-child(1) {
-    min-width: 80px;
-    width: 80px;
+.ai-markdown-body td {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 15px;
+    color: #cbd5e1;
+    white-space: nowrap;
 }
 
-.ai-markdown-body th:nth-child(2),
-.ai-markdown-body td:nth-child(2) {
-    min-width: 180px;
+.ai-markdown-body tr:hover td {
+    background: rgba(255, 255, 255, 0.03);
 }
 
 /* Responsive & Mobile Optimization */
@@ -660,6 +714,7 @@ h1 {
 @media (max-width: 768px) {
     body {
         padding: 20px 12px;
+        overflow-x: hidden;
     }
 
     .container {
@@ -671,10 +726,8 @@ h1 {
     h1 {
         font-size: 32px;
         margin-bottom: 32px;
-        letter-spacing: -0.02em;
     }
 
-    /* Hide Collection UI on Mobile */
     .field-selector,
     .stock-count-selector,
     .action-buttons,
@@ -682,7 +735,6 @@ h1 {
         display: none !important;
     }
 
-    /* Results Section Adjustment */
     .results-section {
         margin-top: 0;
         padding-top: 0;
@@ -706,28 +758,31 @@ h1 {
         gap: 16px;
     }
 
-    .result-icon {
-        width: 40px;
-        height: 40px;
-        font-size: 18px;
-        border-radius: 12px;
-    }
-
-    .result-filename {
-        font-size: 16px;
-    }
-
     .result-actions {
-        gap: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .btn-download,
+    .download-section {
+        display: none !important;
     }
 
     .result-btn {
-        padding: 12px 8px;
-        font-size: 13px;
-        border-radius: 12px;
+        padding: 16px 8px;
+        font-size: 15px;
+        border-radius: 16px;
+        width: 100%;
     }
 
-    /* Modal Optimization */
+    .btn-ai {
+        order: 1;
+        padding: 18px;
+        font-size: 16px;
+        font-weight: 700;
+    }
+
     .modal {
         padding: 0;
     }
@@ -737,61 +792,58 @@ h1 {
         max-height: 100vh;
         border-radius: 0;
         border: none;
+        overflow-x: hidden;
     }
 
     .modal-header {
         padding: 16px 20px;
+        justify-content: space-between;
+    }
+
+    .modal-back-btn {
+        display: flex;
+    }
+
+    .close-modal {
+        display: none;
     }
 
     .modal-header h2 {
         font-size: 18px;
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        white-space: nowrap;
     }
 
     .modal-body {
-        padding: 20px;
+        padding: 16px;
+        overflow-x: hidden;
     }
 
-    .modal-footer {
-        padding: 12px 20px !important;
+    .ai-markdown-body {
+        font-size: 15px;
     }
 
-    /* Table in Markdown */
+    .ai-markdown-body h3 {
+        font-size: 19px;
+        padding: 12px 16px;
+        margin-top: 32px;
+        gap: 10px;
+    }
+
+    .ai-markdown-body h3::before {
+        font-size: 18px;
+    }
+
     .ai-markdown-body table {
-        font-size: 12px;
+        margin: 20px 0;
+        border-radius: 12px;
     }
 
     .ai-markdown-body th,
     .ai-markdown-body td {
-        padding: 8px 10px;
-    }
-
-    /* Toast */
-    .toast-container {
-        left: 20px;
-        right: 20px;
-        bottom: 20px;
-    }
-
-    .toast {
-        width: 100%;
-        padding: 14px 20px;
-        font-size: 14px;
-    }
-}
-
-@media (min-width: 769px) {
-    .mobile-quick-nav {
-        display: none;
-    }
-}
-
-@media (max-width: 480px) {
-    .count-options {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    .ai-markdown-body th:nth-child(2),
-    .ai-markdown-body td:nth-child(2) {
-        min-width: 120px;
+        padding: 12px 14px;
+        font-size: 13px;
     }
 }
