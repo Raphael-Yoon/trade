@@ -342,35 +342,68 @@ def sync_with_drive():
         service = get_drive_service()
         drive_files = list_files_in_folder()
         
-        # 1. 드라이브에 있는 파일을 기반으로 로컬 캐시 생성/업데이트
-        drive_ids = set()
+        # 1. 드라이브 파일 분류 (스프레드시트 vs AI 리포트)
+        spreadsheets = []
+        ai_reports = {} # {title: {id, link}}
+        
         for df in drive_files:
-            drive_ids.add(df['id'])
+            mime = df.get('mimeType', '')
+            name = df.get('name', '')
             
-            # 스프레드시트 파일만 결과 목록의 주 파일로 처리
-            if df['mimeType'] == 'application/vnd.google-apps.spreadsheet':
-                filename = df['name']
-                if not filename.endswith('.xlsx'):
-                    filename += '.xlsx'
-                
-                cache_filename = filename.replace('.xlsx', '.json')
-                cache_path = os.path.join(RESULTS_DIR, cache_filename)
-                
-                # 캐시가 없으면 생성
-                if not os.path.exists(cache_path):
-                    cache_data = {
-                        'filename': filename,
-                        'size': int(df.get('size', 0)) if df.get('size') else 0,
-                        'spreadsheet_id': df['id'],
-                        'drive_link': df.get('webViewLink'),
-                        'created_at': df.get('createdTime')
-                    }
-                    with open(cache_path, 'w', encoding='utf-8') as f:
-                        json.dump(cache_data, f, ensure_ascii=False, indent=4)
-                    added_count += 1
-                    print(f"동기화: 새로운 캐시 생성됨: {cache_filename}")
+            if mime == 'application/vnd.google-apps.spreadsheet':
+                spreadsheets.append(df)
+            elif mime == 'application/vnd.google-apps.document' and name.startswith('AI 분석 리포트 - '):
+                # 리포트 제목에서 파일명 추출
+                base_name = name.replace('AI 분석 리포트 - ', '')
+                ai_reports[base_name] = {
+                    'id': df['id'],
+                    'link': df.get('webViewLink')
+                }
 
-        # 2. 로컬 캐시 중 드라이브에 없는 것 삭제
+        # 2. 스프레드시트 기반으로 캐시 생성 및 업데이트
+        drive_ids = set()
+        for df in spreadsheets:
+            drive_ids.add(df['id'])
+            filename = df['name']
+            if not filename.endswith('.xlsx'):
+                filename += '.xlsx'
+            
+            cache_filename = filename.replace('.xlsx', '.json')
+            cache_path = os.path.join(RESULTS_DIR, cache_filename)
+            
+            base_name = df['name'] # 확장자 없는 이름
+            report_info = ai_reports.get(base_name)
+            
+            # 캐시 데이터 준비
+            cache_data = {
+                'filename': filename,
+                'size': int(df.get('size', 0)) if df.get('size') else 0,
+                'spreadsheet_id': df['id'],
+                'drive_link': df.get('webViewLink'),
+                'created_at': df.get('createdTime')
+            }
+            
+            # 매칭되는 AI 리포트가 있으면 추가
+            if report_info:
+                cache_data['report_id'] = report_info['id']
+            
+            # 기존 캐시가 있으면 업데이트, 없으면 새로 생성
+            if os.path.exists(cache_path):
+                try:
+                    with open(cache_path, 'r', encoding='utf-8') as f:
+                        old_data = json.load(f)
+                    # 기존의 result(분석 결과 텍스트)는 유지하면서 메타데이터만 업데이트
+                    old_data.update(cache_data)
+                    cache_data = old_data
+                except:
+                    pass
+            else:
+                added_count += 1
+
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=4)
+
+        # 3. 로컬 캐시 중 드라이브에 없는 것 삭제
         for filename in os.listdir(RESULTS_DIR):
             if filename.endswith('.json'):
                 cache_path = os.path.join(RESULTS_DIR, filename)
@@ -426,60 +459,84 @@ def ai_analyze(filename):
     file_path = os.path.join(RESULTS_DIR, filename)
     cache_path = os.path.join(RESULTS_DIR, filename.replace('.xlsx', '.json'))
     
-    # 1. 캐시된 결과가 있는지 확인 + 드라이브 실시간 확인
     cache_data = {}
     if os.path.exists(cache_path):
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
                 cache_data = json.load(f)
             
-            report_id = cache_data.get('report_id')
-            # result가 있고 report_id가 있으면 드라이브 확인
-            if cache_data.get('result') and report_id:
-                # 드라이브에 실제 리포트 파일이 있는지 확인
-                try:
-                    from drive_sync import get_drive_service
-                    service = get_drive_service()
-                    if service:
-                        file_info = service.files().get(fileId=report_id, fields='id, trashed').execute()
-                        
-                        if not file_info.get('trashed'):
-                            return jsonify({
-                                'success': True, 
-                                'result': cache_data.get('result'),
-                                'drive_link': cache_data.get('drive_link'),
-                                'cached': True
-                            })
-                        else:
-                            print(f"AI 리포트가 휴지통에 있음. 재분석 진행: {filename}")
-                    else:
-                        # 서비스 연결 실패 시 캐시 데이터라도 반환
-                        return jsonify({
-                            'success': True, 
-                            'result': cache_data.get('result'),
-                            'drive_link': cache_data.get('drive_link'),
-                            'cached': True
-                        })
-                except Exception as e:
-                    print(f"AI 리포트 드라이브 확인 실패 ({e}). 캐시 데이터 사용: {filename}")
-                    return jsonify({
-                        'success': True, 
-                        'result': cache_data.get('result'),
-                        'drive_link': cache_data.get('drive_link'),
-                        'cached': True
-                    })
-            # result는 있는데 report_id가 없는 경우 (이전 버전 캐시 등)
-            elif cache_data.get('result'):
+            # 1. 캐시된 결과가 있는지 확인 (속도를 위해 드라이브 확인은 나중에)
+            if cache_data.get('result'):
                 return jsonify({
                     'success': True, 
                     'result': cache_data.get('result'),
                     'drive_link': cache_data.get('drive_link'),
                     'cached': True
                 })
+
+            # 2. 결과는 없지만 리포트 ID가 있는 경우 (동기화로 ID만 가져온 경우 등)
+            report_id = cache_data.get('report_id')
+            if report_id:
+                try:
+                    from drive_sync import get_drive_service
+                    service = get_drive_service()
+                    if service:
+                        # 구글 문서 내용을 텍스트로 가져오기
+                        content = service.files().export(fileId=report_id, mimeType='text/plain').execute()
+                        if content:
+                            result = content.decode('utf-8')
+                            # 캐시 업데이트
+                            cache_data['result'] = result
+                            with open(cache_path, 'w', encoding='utf-8') as f:
+                                json.dump(cache_data, f, ensure_ascii=False, indent=4)
+                            
+                            return jsonify({
+                                'success': True, 
+                                'result': result,
+                                'drive_link': cache_data.get('drive_link'),
+                                'cached': True
+                            })
+                except Exception as e:
+                    print(f"기존 리포트 내용 가져오기 실패: {e}")
         except Exception as e:
             print(f"캐시 읽기 오류: {e}")
 
-    # 2. 로컬에 엑셀 파일이 없으면 드라이브에서 임시로 다운로드
+    # 3. 드라이브에서 직접 리포트 파일 찾아보기 (캐시에도 없는 경우)
+    try:
+        from drive_sync import get_drive_service
+        service = get_drive_service()
+        if service:
+            title = f"AI 분석 리포트 - {filename.replace('.xlsx', '')}"
+            query = f"name = '{title}' and mimeType = 'application/vnd.google-apps.document' and trashed = false"
+            results = service.files().list(q=query, fields="files(id, webViewLink)").execute()
+            items = results.get('files', [])
+            if items:
+                report_id = items[0]['id']
+                drive_link = items[0].get('webViewLink')
+                content = service.files().export(fileId=report_id, mimeType='text/plain').execute()
+                if content:
+                    result = content.decode('utf-8')
+                    # 캐시 생성/업데이트
+                    cache_data.update({
+                        'filename': filename,
+                        'result': result,
+                        'report_id': report_id,
+                        'drive_link': drive_link,
+                        'created_at': datetime.now().isoformat()
+                    })
+                    with open(cache_path, 'w', encoding='utf-8') as f:
+                        json.dump(cache_data, f, ensure_ascii=False, indent=4)
+                    
+                    return jsonify({
+                        'success': True, 
+                        'result': result,
+                        'drive_link': drive_link,
+                        'cached': True
+                    })
+    except Exception as e:
+        print(f"드라이브 리포트 검색 실패: {e}")
+
+    # 4. 로컬에 엑셀 파일이 없으면 드라이브에서 임시로 다운로드
     temp_file_created = False
     if not os.path.exists(file_path):
         spreadsheet_id = cache_data.get('spreadsheet_id')
@@ -494,24 +551,23 @@ def ai_analyze(filename):
                     f.write(content)
                 temp_file_created = True
             else:
-                # 드라이브에 파일이 없으면 캐시 삭제 (Self-healing)
+                # 드라이브에 파일이 없으면 캐시 삭제
                 if os.path.exists(cache_path):
                     os.remove(cache_path)
-                return jsonify({'success': False, 'message': '드라이브에서 파일을 찾을 수 없습니다. 목록에서 제거되었습니다.'})
+                return jsonify({'success': False, 'message': '드라이브에서 파일을 찾을 수 없습니다.'})
         except Exception as e:
             return jsonify({'success': False, 'message': f'파일 다운로드 중 오류: {e}'})
 
-    # 3. AI 분석 실행
+    # 5. AI 분석 실행 (진짜 없을 때만)
     result = analyze_stock_data(file_path)
     
-    # 분석 후 임시 파일 삭제
     if temp_file_created and os.path.exists(file_path):
         os.remove(file_path)
 
     if "오류" in result or "설정되지 않았습니다" in result:
         return jsonify({'success': False, 'message': result})
     
-    # 4. 구글 문서로 자동 저장 (마크다운 변환은 drive_sync에서 처리)
+    # 6. 구글 문서로 저장
     drive_data = None
     try:
         from drive_sync import create_google_doc
@@ -520,14 +576,8 @@ def ai_analyze(filename):
     except Exception as e:
         print(f"자동 구글 문서 저장 실패: {e}")
     
-    # 6. 결과 캐시 저장
+    # 7. 결과 캐시 저장
     try:
-        # 기존 캐시 데이터가 있으면 읽어옴 (spreadsheet_id 보존을 위해)
-        cache_data = {}
-        if os.path.exists(cache_path):
-            with open(cache_path, 'r', encoding='utf-8') as f:
-                cache_data = json.load(f)
-        
         cache_data.update({
             'filename': filename,
             'result': result,
@@ -535,10 +585,6 @@ def ai_analyze(filename):
             'drive_link': drive_data['link'] if drive_data else cache_data.get('drive_link'),
             'created_at': datetime.now().isoformat()
         })
-        
-        # spreadsheet_id가 없는데 로컬에 엑셀 파일이 있는 경우 (드라이브 업로드 전 등)
-        # 하지만 이 시점에서는 이미 spreadsheet_id가 있거나 새로 업로드된 상태여야 함
-        
         with open(cache_path, 'w', encoding='utf-8') as f:
             json.dump(cache_data, f, ensure_ascii=False, indent=4)
     except Exception as e:
