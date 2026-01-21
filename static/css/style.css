@@ -667,7 +667,7 @@ h1 {
     margin: 32px 0;
     background: rgba(255, 255, 255, 0.02);
     border-radius: 20px;
-    overflow: hidden;
+    overflow: visible;
     border: 1px solid rgba(255, 255, 255, 0.1);
     display: block;
     max-width: 100%;
@@ -685,7 +685,8 @@ h1 {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    word-break: keep-all;
+    word-break: break-all;
+    white-space: normal;
 }
 
 .ai-markdown-body td {
@@ -693,7 +694,8 @@ h1 {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     font-size: 15px;
     color: #cbd5e1;
-    word-break: keep-all;
+    word-break: break-all;
+    white-space: normal;
 }
 
 .ai-markdown-body tr:hover td {
@@ -765,6 +767,7 @@ h1 {
     }
 
     .btn-download,
+    .btn-delete,
     .download-section {
         display: none !important;
     }
@@ -839,11 +842,14 @@ h1 {
     .ai-markdown-body table {
         margin: 20px 0;
         border-radius: 12px;
+        overflow: visible;
     }
 
     .ai-markdown-body th,
     .ai-markdown-body td {
         padding: 12px 14px;
         font-size: 13px;
+        word-break: break-all;
+        white-space: normal;
     }
 }
