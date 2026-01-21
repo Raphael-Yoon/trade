@@ -879,6 +879,6 @@ h1 {
 
     .ai-markdown-body th:first-child,
     .ai-markdown-body td:first-child {
-        min-width: 50px;
+        min-width: 100px;
     }
 }
