@@ -46,15 +46,7 @@
     <div class="container">
         <h1>📊 종목 분석</h1>
 
-        <!-- Mobile Quick Nav -->
-        <div class="mobile-quick-nav">
-            <button onclick="document.querySelector('.results-section').scrollIntoView({behavior: 'smooth'})">
-                📁 분석 결과 목록 바로가기
-            </button>
-        </div>
-
         <div class="field-selector">
-            <span class="section-label">수집할 데이터 선택</span>
             <div class="select-all-container">
                 <label class="checkbox-label">
                     <input type="checkbox" id="selectAll" checked onclick="toggleSelectAll()">
@@ -666,18 +658,40 @@
 
                         let htmlResult = marked.parse(data.result);
 
-                        // Mobile Optimization: Hide "Sector" info on mobile
+                        // 모바일에서 섹터 정보 숨기기
                         if (window.innerWidth <= 768) {
                             const tempDiv = document.createElement('div');
                             tempDiv.innerHTML = htmlResult;
 
-                            // Remove list items or paragraphs that contain "섹터"
+                            // li, p 요소에서 섹터 숨기기
                             const elements = tempDiv.querySelectorAll('li, p');
                             elements.forEach(el => {
                                 if (el.textContent.includes('핵심 섹터') || el.textContent.includes('섹터:')) {
                                     el.style.display = 'none';
                                 }
                             });
+
+                            // 테이블에서 섹터 컬럼 숨기기
+                            const tables = tempDiv.querySelectorAll('table');
+                            tables.forEach(table => {
+                                const headers = table.querySelectorAll('th');
+                                let sectorColIndex = -1;
+                                headers.forEach((th, idx) => {
+                                    if (th.textContent.includes('섹터')) {
+                                        sectorColIndex = idx;
+                                        th.style.display = 'none';
+                                    }
+                                });
+                                if (sectorColIndex >= 0) {
+                                    table.querySelectorAll('tr').forEach(row => {
+                                        const cells = row.querySelectorAll('td');
+                                        if (cells[sectorColIndex]) {
+                                            cells[sectorColIndex].style.display = 'none';
+                                        }
+                                    });
+                                }
+                            });
+
                             htmlResult = tempDiv.innerHTML;
                         }
 
