@@ -685,7 +685,7 @@ h1 {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    white-space: nowrap;
+    word-break: keep-all;
 }
 
 .ai-markdown-body td {
@@ -693,7 +693,7 @@ h1 {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     font-size: 15px;
     color: #cbd5e1;
-    white-space: nowrap;
+    word-break: keep-all;
 }
 
 .ai-markdown-body tr:hover td {
