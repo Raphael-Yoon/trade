@@ -39,6 +39,13 @@
     <div class="container">
         <h1>📊 종목 분석</h1>
 
+        <!-- Mobile Quick Nav -->
+        <div class="mobile-quick-nav">
+            <button onclick="document.querySelector('.results-section').scrollIntoView({behavior: 'smooth'})">
+                📁 분석 결과 목록 바로가기
+            </button>
+        </div>
+
         <div class="field-selector">
             <span class="section-label">수집할 데이터 선택</span>
             <div class="select-all-container">
@@ -246,9 +253,10 @@
             <input type="hidden" id="stockCount" value="100">
         </div>
 
-        <div class="action-buttons" style="display: flex; gap: 16px; flex-direction: column;">
-            <button id="collectBtn" class="btn" style="flex: 1; {% if not is_local %}opacity: 0.6; cursor: not-allowed; filter: grayscale(1); background: #475569;{% endif %}" 
-                    onclick="startCollection()" {% if not is_local %}disabled{% endif %}>
+        <div class="action-buttons">
+            <button id="collectBtn" class="btn"
+                style="flex: 1; {% if not is_local %}opacity: 0.6; cursor: not-allowed; filter: grayscale(1); background: #475569;{% endif %}"
+                onclick="startCollection()" {% if not is_local %}disabled{% endif %}>
                 <div id="progressFill" class="btn-progress-fill"></div>
                 <span id="collectBtnText">
                     {% if is_local %}🚀 데이터 수집 시작{% else %}🔒 데이터 수집은 로컬에서만 가능합니다{% endif %}
@@ -272,8 +280,8 @@
                 <a id="downloadLink" href="#" class="download-btn">📥 엑셀 파일 다운로드</a>
             </div>
         </div>
-        <div class="results-section"
-            style="margin-top: 60px; padding-top: 60px; border-top: 1px solid rgba(255,255,255,0.1);">
+
+        <div class="results-section">
             <div class="section-header"
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
                 <h2 style="margin: 0; font-family: 'Outfit', sans-serif; font-size: 32px;">📁 분석 결과 목록</h2>
