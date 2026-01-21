@@ -674,63 +674,25 @@ h1 {
         letter-spacing: -0.02em;
     }
 
-    .section-label {
-        font-size: 18px;
-        margin-bottom: 16px;
+    /* Hide Collection UI on Mobile */
+    .field-selector,
+    .stock-count-selector,
+    .action-buttons,
+    .mobile-quick-nav {
+        display: none !important;
     }
 
-    /* Field Selector */
-    .field-checkboxes {
-        grid-template-columns: 1fr;
-        gap: 12px;
-    }
-
-    .field-group {
-        padding: 20px;
-        border-radius: 20px;
-    }
-
-    .field-group h4 {
-        margin-bottom: 16px;
-    }
-
-    /* Stock Count */
-    .count-options {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-    }
-
-    .count-btn {
-        padding: 14px 8px;
-        font-size: 14px;
-        border-radius: 12px;
-    }
-
-    /* Action Buttons */
-    .action-buttons {
-        flex-direction: column;
-        gap: 12px;
-    }
-
-    .btn {
-        padding: 18px 24px;
-        font-size: 18px;
-        border-radius: 18px;
-        width: 100% !important;
-    }
-
-    #cancelBtn {
-        width: 100% !important;
-    }
-
-    /* Results Section */
+    /* Results Section Adjustment */
     .results-section {
-        margin-top: 40px;
-        padding-top: 40px;
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none !important;
     }
 
     .section-header h2 {
         font-size: 24px !important;
+        text-align: center;
+        width: 100%;
     }
 
     .results-grid {
@@ -814,30 +776,6 @@ h1 {
         width: 100%;
         padding: 14px 20px;
         font-size: 14px;
-    }
-
-    /* Mobile Quick Nav */
-    .mobile-quick-nav {
-        display: block;
-        margin-bottom: 32px;
-    }
-
-    .mobile-quick-nav button {
-        width: 100%;
-        padding: 16px;
-        background: rgba(99, 102, 241, 0.1);
-        border: 1px solid var(--primary);
-        color: var(--primary);
-        border-radius: 16px;
-        font-weight: 700;
-        font-family: 'Outfit', sans-serif;
-        cursor: pointer;
-        transition: all 0.3s;
-    }
-
-    .mobile-quick-nav button:active {
-        background: var(--primary);
-        color: white;
     }
 }
 
