@@ -20,7 +20,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from concurrent.futures import ThreadPoolExecutor
-from ai_analysis import analyze_stock_data
+from ai_analysis import analyze_stock_data, analyze_portfolio
 
 app = Flask(__name__)
 
@@ -398,6 +398,202 @@ def cancel_collection(task_id):
             return jsonify({'success': False, 'message': str(e)}), 500
     return jsonify({'success': False, 'message': '취소할 수 없습니다.'})
 
+def get_portfolio_details(ticker):
+    """네이버 금융 및 추가 소스에서 정밀 분석용 데이터를 수집합니다."""
+    # 1. 메인 페이지 데이터 (가격, 목표주가, 재무지표)
+    main_url = f"https://finance.naver.com/item/main.naver?code={ticker}"
+    # 2. 투자자별 매매동향 (수급)
+    investor_url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    data = {
+        'code': ticker,
+        'current_price': 0,
+        'market_cap': 'N/A',
+        'opinion': 'N/A',
+        'target_price': 0,
+        'high_52w': 0,
+        'low_52w': 0,
+        'per': 0,
+        'pbr': 0,
+        'dividend_yield': 0,
+        'revenue_growth': 'N/A',
+        'profit_growth': 'N/A',
+        'foreign_net_buy': 0,
+        'inst_net_buy': 0,
+        'rsi': 0
+    }
+    
+    try:
+        # --- 메인 페이지 파싱 ---
+        response = requests.get(main_url, headers=headers, timeout=5)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 현재가
+        new_totalinfo = soup.find('div', class_='new_totalinfo')
+        if new_totalinfo:
+            blind = new_totalinfo.find('dl', class_='blind')
+            if blind:
+                dd_list = blind.find_all('dd')
+                if len(dd_list) >= 4:
+                    price_text = dd_list[3].text.split()[1].replace(',', '')
+                    data['current_price'] = int(price_text)
+                
+        # 시가총액, 투자의견, 목표주가
+        aside = soup.find('div', class_='aside')
+        if aside:
+            tab_con1 = aside.find('div', id='_market_sum')
+            if tab_con1:
+                data['market_cap'] = tab_con1.get_text(strip=True).replace(',', '').replace('조', '조 ').replace('억원', '억')
+            
+            # 투자의견/목표주가 테이블 (rwidth 또는 다른 클래스)
+            cns_table = aside.find('table', class_='rwidth') or aside.find('table', class_='tb_type1')
+            if cns_table:
+                trs = cns_table.find_all('tr')
+                for tr in trs:
+                    tr_text = tr.get_text()
+                    if '투자의견' in tr_text:
+                        opinion_td = tr.find('span', class_='f_up') or tr.find('em') or tr.find('td')
+                        if opinion_td: data['opinion'] = opinion_td.get_text(strip=True)
+                    if '목표주가' in tr_text:
+                        target_td = tr.find('em') or tr.find('td')
+                        if target_td:
+                            target_val = re.sub(r'[^0-9]', '', target_td.get_text(strip=True))
+                            if target_val: data['target_price'] = int(target_val)
+
+        # 재무 지표 (성장성 포함)
+        section = soup.find('div', class_='section cop_analysis')
+        if section:
+            table = section.find('table', class_='tb_type1 tb_num')
+            if table:
+                trs = table.find_all('tr')
+                
+                # 수집할 데이터 맵
+                finance_data = {
+                    '매출액': [],
+                    '영업이익': [],
+                    '매출액증가율': 'N/A',
+                    '영업이익증가율': 'N/A'
+                }
+                
+                for tr in trs:
+                    th = tr.find('th')
+                    if not th: continue
+                    th_text = th.get_text(strip=True)
+                    tds = tr.find_all('td')
+                    if not tds: continue
+                    
+                    # -2: 최근 확정 연도 실적, -1: 올해 전망치(보통)
+                    # 만약 전망치가 있으면 -2를 쓰고, 없으면 -1을 쓰는 유연함이 필요하지만 
+                    # 우선 -2를 기준으로 하되 N/A인 경우 앞쪽으로 탐색
+                    
+                    def get_last_valid_val(td_list):
+                        # 뒤에서부터 (전망치 제외하고) 유효한 값 찾기
+                        for i in range(len(td_list)-2, -1, -1):
+                            val = td_list[i].get_text(strip=True).replace(',', '')
+                            if val and val != '-' and val != 'N/A':
+                                return val
+                        return None
+
+                    if '매출액증가율' in th_text:
+                        val = get_last_valid_val(tds)
+                        if val: finance_data['매출액증가율'] = val
+                    elif '영업이익증가율' in th_text:
+                        val = get_last_valid_val(tds)
+                        if val: finance_data['영업이익증가율'] = val
+                    elif th_text == '매출액':
+                        finance_data['매출액'] = [t.get_text(strip=True).replace(',', '') for t in tds]
+                    elif th_text == '영업이익':
+                        finance_data['영업이익'] = [t.get_text(strip=True).replace(',', '') for t in tds]
+
+                # 직접 계산 (성장성 지표가 명시적으로 없는 경우)
+                if finance_data['매출액증가율'] == 'N/A' and len(finance_data['매출액']) >= 3:
+                    try:
+                        # 최근 2년 데이터 비교 (보통 인덱스 1, 2 또는 2, 3)
+                        # thead에서 확정 연도 위치를 파악하는 것이 정확하나 간이로 진행
+                        curr = float(finance_data['매출액'][-2]) # 최근 확정
+                        prev = float(finance_data['매출액'][-3]) # 전년
+                        if prev > 0:
+                            growth = round((curr - prev) / prev * 100, 1)
+                            finance_data['매출액증가율'] = str(growth)
+                    except: pass
+                
+                if finance_data['영업이익증가율'] == 'N/A' and len(finance_data['영업이익']) >= 3:
+                    try:
+                        curr = float(finance_data['영업이익'][-2])
+                        prev = float(finance_data['영업이익'][-3])
+                        if prev > 0:
+                            growth = round((curr - prev) / prev * 100, 1)
+                            finance_data['영업이익증가율'] = str(growth)
+                    except: pass
+                
+                data['revenue_growth'] = finance_data['매출액증가율']
+                data['profit_growth'] = finance_data['영업이익증가율']
+
+        # 52주 고점/저점 및 PER/PBR
+        tab_section = soup.find('div', class_='tab_con1')
+        if tab_section:
+            trs = tab_section.find_all('tr')
+            for tr in trs:
+                tr_text = tr.get_text()
+                if '52주 최고' in tr_text:
+                    v = tr.find_all('em')
+                    if len(v) >= 2:
+                        data['high_52w'] = int(v[0].get_text(strip=True).replace(',', ''))
+                        data['low_52w'] = int(v[1].get_text(strip=True).replace(',', ''))
+                if 'PER' in tr_text and '배당' not in tr_text:
+                    per_em = tr.find('em', id='_per')
+                    if per_em: 
+                        val = per_em.get_text(strip=True).replace(',', '')
+                        if val and val != '-': data['per'] = float(val)
+                if 'PBR' in tr_text:
+                    pbr_em = tr.find('em', id='_pbr')
+                    if pbr_em:
+                        val = pbr_em.get_text(strip=True).replace(',', '')
+                        if val and val != '-': data['pbr'] = float(val)
+                if '배당수익률' in tr_text:
+                    d_em = tr.find('em', id='_dvr')
+                    if d_em:
+                        val = d_em.get_text(strip=True).replace(',', '').replace('%', '')
+                        if val and val != '-': data['dividend_yield'] = float(val)
+
+        # --- 수급 현황 (일별 매매동향) 파싱 ---
+        frgn_response = requests.get(investor_url, headers=headers, timeout=5)
+        frgn_soup = BeautifulSoup(frgn_response.text, 'html.parser')
+        frgn_table = frgn_soup.find('table', class_='type2')
+        if frgn_table:
+            rows = frgn_table.find_all('tr')
+            f_total = 0
+            i_total = 0
+            count = 0
+            for r in rows:
+                if count >= 5: break # 최근 5일치 합산
+                tds = r.find_all('td')
+                # 날짜가 있는 데이터 행인지 확인 (클래스 tc 가 보통 날짜를 포함함)
+                if len(tds) >= 7 and '.' in tds[0].get_text():
+                    try:
+                        # 숫자와 부호만 추출
+                        i_text = re.sub(r'[^0-9\-]', '', tds[5].get_text(strip=True))
+                        f_text = re.sub(r'[^0-9\-]', '', tds[6].get_text(strip=True))
+                        if i_text: i_total += int(i_text)
+                        if f_text: f_total += int(f_text)
+                        count += 1
+                    except: continue
+            data['foreign_net_buy'] = f_total
+            data['inst_net_buy'] = i_total
+
+        # --- 기술적 지표 (RSI) 약식 계산 또는 외부 연동 ---
+        if data['high_52w'] > data['low_52w']:
+            data['rsi'] = round((data['current_price'] - data['low_52w']) / (data['high_52w'] - data['low_52w']) * 100, 1)
+
+        return data
+    except Exception as e:
+        print(f"Error collecting data for {ticker}: {e}")
+        return data
+
 def get_current_price(ticker):
     """네이버 금융에서 현재가를 가져옵니다."""
     try:
@@ -434,13 +630,14 @@ def get_my_stocks_status():
         stocks = [dict(row) for row in cursor.fetchall()]
         conn.close()
         
-        # 병렬로 현재가 가져오기
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            prices = list(executor.map(lambda s: get_current_price(s['code']), stocks))
+        # 상세 데이터 수집 (병렬 처리)
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            details = list(executor.map(lambda s: get_portfolio_details(s['code']), stocks))
         
         results = []
         for i, stock in enumerate(stocks):
-            price = prices[i]
+            detail = details[i] if details[i] else {}
+            price = detail.get('current_price', 0)
             purchase_price = stock['purchase_price'] or 0
             qty = stock['quantity'] or 0
             profit = (price - purchase_price) * qty if purchase_price > 0 else 0
@@ -453,7 +650,20 @@ def get_my_stocks_status():
                 'purchase_price': purchase_price,
                 'quantity': qty,
                 'profit': profit,
-                'profit_rate': round(profit_rate, 2)
+                'profit_rate': round(profit_rate, 2),
+                'market_cap': detail.get('market_cap', 'N/A'),
+                'opinion': detail.get('opinion', 'N/A'),
+                'target_price': detail.get('target_price', 0),
+                'high_52w': detail.get('high_52w', 0),
+                'low_52w': detail.get('low_52w', 0),
+                'per': detail.get('per', 0),
+                'pbr': detail.get('pbr', 0),
+                'dividend_yield': detail.get('dividend_yield', 0),
+                'revenue_growth': detail.get('revenue_growth', 'N/A'),
+                'profit_growth': detail.get('profit_growth', 'N/A'),
+                'foreign_net_buy': detail.get('foreign_net_buy', 0),
+                'inst_net_buy': detail.get('inst_net_buy', 0),
+                'rsi_pos': detail.get('rsi', 0) # 52주 고저점 대비 위치
             })
             
         return jsonify(results)
@@ -662,6 +872,21 @@ def ai_analyze(filename):
         conn.commit()
         conn.close()
         return jsonify({'success': True, 'result': result_text, 'cached': False})
+    except Exception as e:
+        if 'conn' in locals() and conn:
+            conn.close()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/ai_analyze_portfolio', methods=['POST'])
+def ai_analyze_portfolio():
+    try:
+        data = request.get_json() or {}
+        portfolio_data = data.get('portfolio_data', [])
+        if not portfolio_data:
+            return jsonify({'success': False, 'message': '분석할 데이터가 없습니다.'}), 400
+            
+        result_text = analyze_portfolio(portfolio_data)
+        return jsonify({'success': True, 'result': result_text})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 

@@ -15,19 +15,12 @@
 </head>
 
 <body>
-    
+
 
     <!-- AI Analysis Modal -->
     <div id="aiModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <button class="modal-back-btn" onclick="closeAiModal()">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                        stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M19 12H5M12 19l-7-7 7-7" />
-                    </svg>
-                    <span>뒤로</span>
-                </button>
                 <h2>🤖 AI 투자 리포트</h2>
                 <span class="close-modal" onclick="closeAiModal()">&times;</span>
             </div>
@@ -290,7 +283,8 @@
                     </button>
                 </div>
 
-                <div id="myStocksStatusResult" style="display: none; margin-top: 20px; padding: 32px; background: rgba(255,255,255,0.02); border-radius: 24px; border: 1px solid rgba(255,255,255,0.1);">
+                <div id="myStocksStatusResult"
+                    style="display: none; margin-top: 20px; padding: 32px; background: rgba(255,255,255,0.02); border-radius: 24px; border: 1px solid rgba(255,255,255,0.1);">
                 </div>
             </div>
         </div>
@@ -439,9 +433,8 @@
         function showMyStocksStatus() {
             const content = document.getElementById('myStocksStatusResult');
             content.style.display = 'block';
-            content.innerHTML = '<div class="loading-ai" style="padding: 40px 0;"><div class="ai-spinner"></div><p>최신 주가 정보를 가져오는 중입니다...</p></div>';
-            
-            // 결과 영역으로 부드럽게 스크롤
+            content.innerHTML = '<div class="loading-ai" style="padding: 40px 0;"><div class="ai-spinner"></div><p>최신 주가 및 전문 분석 정보를 수집 중입니다...</p></div>';
+
             content.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
             fetch('/api/my_stocks/status')
@@ -451,51 +444,84 @@
                         content.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 40px;">오류: ${data.error}</p>`;
                         return;
                     }
-                    
+
                     let totalProfit = 0;
                     let totalAssetValue = 0;
                     let totalInvested = 0;
 
                     let html = `
-                        <h4 style="margin-top: 0; margin-bottom: 24px; font-size: 20px; color: white; font-family: 'Outfit', sans-serif;">📈 실시간 분석 결과</h4>
-                        <div style="overflow-x: auto; margin-bottom: 32px;">
-                            <table style="width: 100%; border-collapse: collapse; color: white; font-size: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                            <h4 style="margin: 0; font-size: 20px; color: white; font-family: 'Outfit', sans-serif;">📊 포트폴리오 정밀 분석</h4>
+                            <span style="font-size: 12px; color: var(--text-muted);">실시간 데이터 반영 (실적/수급/기술적 지표 포함)</span>
+                        </div>
+
+                        <div style="overflow-x: auto; margin-bottom: 32px; background: rgba(0,0,0,0.2); border-radius: 16px;">
+                            <table style="width: 100%; border-collapse: collapse; color: white; font-size: 13px; min-width: 1000px;">
                                 <thead>
-                                    <tr style="border-bottom: 2px solid rgba(255,255,255,0.1); text-align: left;">
-                                        <th style="padding: 16px;">종목명</th>
-                                        <th style="padding: 16px;">현재가</th>
-                                        <th style="padding: 16px;">매입단가</th>
-                                        <th style="padding: 16px;">보유수량</th>
-                                        <th style="padding: 16px;">평가손익</th>
-                                        <th style="padding: 16px;">수익률</th>
+                                    <tr style="border-bottom: 2px solid rgba(255,255,255,0.1); text-align: left; background: rgba(255,255,255,0.02);">
+                                        <th style="padding: 16px;">종목</th>
+                                        <th style="padding: 16px;">수익 현황</th>
+                                        <th style="padding: 16px;">전문 분석(목표가)</th>
+                                        <th style="padding: 16px;">성장성(YoY)</th>
+                                        <th style="padding: 16px;">수급(5일)</th>
+                                        <th style="padding: 16px;">지표 / 위치</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                     `;
-                    
+
                     data.forEach(stock => {
                         totalProfit += stock.profit;
                         totalAssetValue += (stock.current_price * stock.quantity);
                         totalInvested += (stock.purchase_price * stock.quantity);
-                        
+
                         const profitColor = stock.profit > 0 ? '#ef4444' : (stock.profit < 0 ? '#3b82f6' : 'white');
                         const profitSign = stock.profit > 0 ? '+' : '';
-                        
+
+                        let opinionColor = 'var(--text-muted)';
+                        if (stock.opinion.includes('매수') || stock.opinion.includes('Buy')) opinionColor = '#10b981';
+                        else if (stock.opinion.includes('매도') || stock.opinion.includes('Sell')) opinionColor = '#ef4444';
+
+                        // 수급 색상
+                        const fBuyColor = stock.foreign_net_buy > 0 ? '#10b981' : (stock.foreign_net_buy < 0 ? '#ef4444' : 'white');
+                        const iBuyColor = stock.inst_net_buy > 0 ? '#10b981' : (stock.inst_net_buy < 0 ? '#ef4444' : 'white');
+
                         html += `
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
                                 <td style="padding: 16px;">
-                                    <div style="font-weight: 700;">${stock.name}</div>
-                                    <div style="font-size: 11px; color: var(--text-muted);">${stock.code}</div>
+                                    <div style="font-weight: 700; font-size: 15px;">${stock.name}</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">${stock.code} | 시총: ${stock.market_cap}</div>
                                 </td>
-                                <td style="padding: 16px;">${stock.current_price.toLocaleString()}원</td>
-                                <td style="padding: 16px;">${stock.purchase_price.toLocaleString()}원</td>
-                                <td style="padding: 16px;">${stock.quantity.toLocaleString()}주</td>
-                                <td style="padding: 16px; color: ${profitColor}; font-weight: 700;">${profitSign}${stock.profit.toLocaleString()}원</td>
-                                <td style="padding: 16px; color: ${profitColor}; font-weight: 700;">${profitSign}${stock.profit_rate}%</td>
+                                <td style="padding: 16px;">
+                                    <div style="color: ${profitColor}; font-weight: 800; font-size: 15px;">${profitSign}${stock.profit_rate}%</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">현재: ${stock.current_price.toLocaleString()}원</div>
+                                </td>
+                                <td style="padding: 16px;">
+                                    <span style="padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); color: ${opinionColor}; font-weight: 600; font-size: 11px;">${stock.opinion}</span>
+                                    <div style="font-weight: 600; margin-top: 4px;">${stock.target_price > 0 ? stock.target_price.toLocaleString() + '원' : '-'}</div>
+                                </td>
+                                <td style="padding: 16px;">
+                                    <div style="font-size: 12px;">매출: <span style="font-weight:600; color:${stock.revenue_growth.includes('-') ? '#3b82f6' : '#10b981'}">${stock.revenue_growth}%</span></div>
+                                    <div style="font-size: 12px;">이익: <span style="font-weight:600; color:${stock.profit_growth.includes('-') ? '#3b82f6' : '#10b981'}">${stock.profit_growth}%</span></div>
+                                </td>
+                                <td style="padding: 16px;">
+                                    <div style="font-size: 11px; color: ${fBuyColor};">외인: ${stock.foreign_net_buy.toLocaleString()}주</div>
+                                    <div style="font-size: 11px; color: ${iBuyColor};">기관: ${stock.inst_net_buy.toLocaleString()}주</div>
+                                </td>
+                                <td style="padding: 16px;">
+                                    <div style="font-size: 11px; color: var(--text-muted);">PBR ${stock.pbr} / PER ${stock.per}</div>
+                                    <div style="width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 6px; position: relative;" title="52주 고저점 내 주가 위치">
+                                        <div style="position: absolute; left: ${stock.rsi_pos}%; top: -3px; width: 10px; height: 10px; background: white; border-radius: 50%; box-shadow: 0 0 5px rgba(255,255,255,0.8);"></div>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: 4px;">
+                                        <span>52주 최저</span>
+                                        <span>52주 최고</span>
+                                    </div>
+                                </td>
                             </tr>
                         `;
                     });
-                    
+
                     const totalProfitColor = totalProfit > 0 ? '#ef4444' : (totalProfit < 0 ? '#3b82f6' : 'white');
                     const totalProfitRate = totalInvested > 0 ? ((totalAssetValue - totalInvested) / totalInvested * 100).toFixed(2) : '0.00';
 
@@ -519,14 +545,45 @@
                             </div>
                         </div>
                         
-                        <div style="margin-top: 32px; text-align: center;">
+                        <div style="margin-top: 32px; text-align: center; display: flex; justify-content: center; gap: 12px;">
+                            <button id="aiPortfolioReportBtn" class="btn" style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); color: white; border: none; padding: 12px 32px; font-weight: 700;" onclick="generateAiPortfolioReport()">🤖 AI 투자 의견 생성</button>
                             <button class="result-btn" style="background: rgba(255,255,255,0.1); color: var(--text-main); padding: 12px 32px;" onclick="document.getElementById('myStocksStatusResult').style.display='none'">결과 닫기</button>
                         </div>
                     `;
                     content.innerHTML = html;
+                    window.currentPortfolioData = data;
                 })
                 .catch(err => {
-                    content.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 40px;">서버 통신 오류가 발생했습니다.</p>`;
+                    content.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 40px;">서버 통신 오류가 발생했습니다. (상세: ${err})</p>`;
+                });
+        }
+
+        function generateAiPortfolioReport() {
+            if (!window.currentPortfolioData || window.currentPortfolioData.length === 0) {
+                showToast('분석할 데이터가 없습니다.', 'error');
+                return;
+            }
+
+            openAiModal();
+            const content = document.getElementById('aiResultContent');
+            content.innerHTML = '<div class="loading-ai"><div class="ai-spinner"></div><p>AI가 포트폴리오 정밀 진단 중입니다...<br><small style="color:#94a3b8">평단가, 수급, 실적을 종합 분석하고 있습니다.</small></p></div>';
+
+            fetch('/api/ai_analyze_portfolio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ portfolio_data: window.currentPortfolioData })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        marked.setOptions({ gfm: true, breaks: true });
+                        content.innerHTML = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
+                    } else {
+                        content.innerHTML = `<p style="color: #ef4444; padding: 20px;">분석 중 오류가 발생했습니다: ${data.message}</p>`;
+                    }
+                })
+                .catch(err => {
+                    content.innerHTML = `<p style="color: #ef4444; padding: 20px;">서버 연결 오류가 발생했습니다.</p>`;
                 });
         }
 
@@ -862,12 +919,12 @@
 
         window.onclick = function (event) {
             if (event.target == document.getElementById('aiModal')) closeAiModal();
-            
+
         }
         window.addEventListener('keydown', function (event) {
             if (event.key === 'Escape') {
                 closeAiModal();
-                
+
             }
         });
     </script>
