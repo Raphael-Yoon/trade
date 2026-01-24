@@ -249,6 +249,52 @@ def download_from_drive(file_id):
         print(f"구글 드라이브 다운로드 중 오류 발생: {e}")
         return None
 
+def sync_results_with_drive(results_dir, folder_name="Stock_Analysis_Results"):
+    """구글 드라이브와 로컬 파일 목록 동기화"""
+    try:
+        service = get_drive_service()
+        drive_files = list_files_in_folder(folder_name)
+        
+        added = 0
+        removed = 0
+        
+        # 드라이브에 있는 파일들을 로컬 메타데이터(.json)로 생성
+        drive_filenames = set()
+        for df in drive_files:
+            if df.get('mimeType') == 'application/vnd.google-apps.spreadsheet':
+                name = df['name']
+                if not name.endswith('.xlsx'):
+                    name += '.xlsx'
+                drive_filenames.add(name)
+                
+                json_path = os.path.join(results_dir, name.replace('.xlsx', '.json'))
+                # 로컬에 메타데이터가 없으면 생성
+                if not os.path.exists(json_path):
+                    import json
+                    from datetime import datetime
+                    
+                    # createdTime 파싱 (2024-01-24T08:14:56.000Z)
+                    created_at = df.get('createdTime', datetime.now().isoformat())
+                    
+                    metadata = {
+                        'filename': name,
+                        'size': int(df.get('size', 0)) if df.get('size') else 0,
+                        'spreadsheet_id': df['id'],
+                        'drive_link': df.get('webViewLink'),
+                        'created_at': created_at
+                    }
+                    with open(json_path, 'w', encoding='utf-8') as f:
+                        json.dump(metadata, f, ensure_ascii=False, indent=4)
+                    added += 1
+        
+        # 로컬에만 있고 드라이브에 없는 메타데이터 삭제 (선택 사항)
+        # 여기서는 안전을 위해 삭제하지 않거나, 명시적으로 드라이브 기반 동기화임을 알림
+        
+        return added, removed
+    except Exception as e:
+        print(f"동기화 중 오류 발생: {e}")
+        raise e
+
 def list_files_in_folder(folder_name="Stock_Analysis_Results"):
     """구글 드라이브 특정 폴더의 파일 목록 가져오기"""
     try:

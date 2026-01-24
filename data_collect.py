@@ -486,11 +486,16 @@ def get_audit_opinions(session, corp_code, year, api_key):
             
     return audit_opinion, internal_control, "N/A"
 
-def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None):
+def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None, tickers=None):
     try:
-        print("=" * 80)
-        print(f"{market} 데이터 수집 시작 (상위 {stock_count if stock_count > 0 else '전체'}개)")
-        print("=" * 80)
+        if tickers:
+            print("=" * 80)
+            print(f"지정된 {len(tickers)}개 종목 데이터 수집 시작")
+            print("=" * 80)
+        else:
+            print("=" * 80)
+            print(f"{market} 데이터 수집 시작 (상위 {stock_count if stock_count > 0 else '전체'}개)")
+            print("=" * 80)
 
         # 세션 초기화 및 재시도 전략 설정
         session = requests.Session()
@@ -515,7 +520,21 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
         session.get = timeout_get
 
         dart = OpenDartReader(API_KEY)
-        tickers_with_names = get_top_tickers_from_naver(session, market, stock_count if stock_count > 0 else 3000)
+        
+        if tickers:
+            # 지정된 티커 리스트가 있는 경우 (종목명은 네이버에서 가져옴)
+            tickers_with_names = []
+            for t in tickers:
+                try:
+                    res = session.get(f"https://finance.naver.com/item/main.naver?code={t}")
+                    soup = BeautifulSoup(res.text, 'html.parser')
+                    name_area = soup.select_one('.wrap_company h2 a')
+                    name = name_area.text.strip() if name_area else t
+                    tickers_with_names.append((t, name))
+                except:
+                    tickers_with_names.append((t, t))
+        else:
+            tickers_with_names = get_top_tickers_from_naver(session, market, stock_count if stock_count > 0 else 3000)
         
         now = datetime.now()
         # 단순히 2년을 빼는 게 아니라, 직전 연도를 기준으로 잡고 내부 로직에서 최신 보고서를 탐색하도록 변경
@@ -528,7 +547,20 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
 
         def process_stock(ticker_info):
             nonlocal processed_count
-            ticker, name = ticker_info
+            
+            # ticker_info가 'code:price:qty' 형식인 경우 파싱
+            ticker_meta = str(ticker_info[0]).split(':')
+            ticker = ticker_meta[0]
+            name = ticker_info[1]
+            
+            purchase_price = 0
+            quantity = 0
+            if len(ticker_meta) >= 2:
+                try: purchase_price = float(ticker_meta[1])
+                except: pass
+            if len(ticker_meta) >= 3:
+                try: quantity = int(ticker_meta[2])
+                except: pass
             
             try:
                 naver_data = get_naver_financials(session, ticker)
@@ -634,14 +666,14 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     '전전년동기영업이익': prev2_op,
                     '영업이익증가율(%)': op_growth,
                     '작년영업이익증가율(%)': prev_op_growth, # 추세 확인용
-
+ 
                     # 순이익 관련
                     '당기순이익': net_income,
                     '전년동기순이익': prev_ni,
                     '전전년동기순이익': prev2_ni,
                     '순이익증가율(%)': ni_growth,
                     '작년순이익증가율(%)': prev_ni_growth, # 추세 확인용
-
+ 
                     '영업이익률': naver_data.get('op_margin'),
                     '순이익률': naver_data.get('net_margin'),
                     '이익잉여금': re_val,
@@ -658,6 +690,14 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     '내년예상영업이익': naver_data.get('next_op'),
                     '목표주가': naver_data.get('target_price')
                 }
+
+                # 내 종목 분석인 경우 수익률 계산 추가
+                if purchase_price > 0:
+                    res_dict['현재가'] = price
+                    res_dict['매입단가'] = purchase_price
+                    res_dict['보유수량'] = quantity
+                    res_dict['평가손익'] = (price - purchase_price) * quantity
+                    res_dict['수익률(%)'] = round(((price - purchase_price) / purchase_price) * 100, 2)
                 
                 with lock:
                     processed_count += 1
@@ -679,6 +719,13 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
 
         df = pd.DataFrame(results)
         if selected_fields:
+            # 내 종목 분석인 경우 필수 필드 추가
+            if any('현재가' in r for r in results):
+                my_fields = ['현재가', '매입단가', '보유수량', '평가손익', '수익률(%)']
+                for f in my_fields:
+                    if f not in selected_fields:
+                        selected_fields.insert(2, f) # 종목명 뒤에 삽입
+
             # 전년 동기 데이터가 컬럼에 있다면 자동으로 선택 필드에 추가
             yoy_fields = ['전년동기매출액', '매출액증가율(%)', '전년동기영업이익', '영업이익증가율(%)', '전년동기순이익', '순이익증가율(%)']
             for f in yoy_fields:
@@ -702,7 +749,9 @@ if __name__ == "__main__":
     parser.add_argument('--market', type=str, default='KOSPI')
     parser.add_argument('--fields', type=str, default='')
     parser.add_argument('--output', type=str, default='')
+    parser.add_argument('--tickers', type=str, default='')
     args = parser.parse_args()
     
     fields = args.fields.split(',') if args.fields else None
-    main(args.count, fields, args.market, args.output)
+    tickers = args.tickers.split(',') if args.tickers else None
+    main(args.count, fields, args.market, args.output, tickers)

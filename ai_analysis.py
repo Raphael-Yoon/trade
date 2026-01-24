@@ -1,4 +1,4 @@
-import google.generativeai as genai
+from google import genai
 import pandas as pd
 import os
 from dotenv import load_dotenv
@@ -28,10 +28,8 @@ def analyze_stock_data(file_path):
         # 주요 지표 위주로 텍스트 변환
         data_summary = df.head(30).to_string(index=False)
         
-        # Gemini 설정
-        genai.configure(api_key=GEMINI_API_KEY)
-        # 무료 등급 할당량이 가장 넉넉한 gemini-flash-latest 사용
-        model = genai.GenerativeModel('gemini-flash-latest')
+        # Gemini 설정 (새로운 google-genai SDK 사용)
+        client = genai.Client(api_key=GEMINI_API_KEY)
         
         prompt = f"""
         너는 전문 주식 퀀트 투자 분석가이자 시장 전략가야. 
@@ -73,7 +71,11 @@ def analyze_stock_data(file_path):
         - 답변은 한국어로, 전문적이면서도 친절한 어조로 작성해줘.
         """
         
-        response = model.generate_content(prompt)
+        # 새로운 SDK 방식으로 호출 (gemini-2.0-flash 사용)
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt
+        )
         return response.text
 
     except Exception as e:

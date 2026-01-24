@@ -15,6 +15,8 @@
 </head>
 
 <body>
+    
+
     <!-- AI Analysis Modal -->
     <div id="aiModal" class="modal">
         <div class="modal-content">
@@ -44,255 +46,261 @@
     </div>
 
     <div class="container">
-        <h1>📊 종목 분석</h1>
+        <h1>📊 종목 분석 시스템</h1>
 
-        <div class="field-selector">
-            <div class="select-all-container">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="selectAll" checked onclick="toggleSelectAll()">
-                    <span>전체 선택/해제</span>
-                </label>
+        <!-- Tab Navigation -->
+        <div class="tabs-nav">
+            <button class="tab-btn active" onclick="switchTab('analysis')">📈 종목 분석</button>
+            <button class="tab-btn" onclick="switchTab('myStocks')">⭐ 내 종목 관리</button>
+        </div>
+
+        <!-- Tab 1: Stock Analysis -->
+        <div id="analysisTab" class="tab-content active">
+            <div class="field-selector">
+                <div class="select-all-container">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="selectAll" checked onclick="toggleSelectAll()">
+                        <span>전체 선택/해제</span>
+                    </label>
+                </div>
+                <div class="field-checkboxes">
+                    <div class="field-group">
+                        <h4>기본 정보</h4>
+                        <div class="market-selection-area"
+                            style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <label
+                                style="display:block; margin-bottom:10px; font-size:14px; color:var(--text-muted);">대상
+                                시장
+                                (하나 이상 선택)</label>
+                            <div style="display: flex; gap: 20px;">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="marketKospi" value="KOSPI" checked>
+                                    <span>KOSPI</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="marketKosdaq" value="KOSDAQ">
+                                    <span>KOSDAQ</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" class="field-checkbox" value="종목코드" checked disabled>
+                            <span>종목코드 (필수)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" class="field-checkbox" value="종목명" checked disabled>
+                            <span>종목명 (필수)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" class="field-checkbox" value="회계감사의견" checked disabled>
+                            <span>회계감사 의견 (필수)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" class="field-checkbox" value="내부통제의견" checked disabled>
+                            <span>내부통제 의견 (필수)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" class="field-checkbox" value="업종" checked disabled>
+                            <span>업종 (필수)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" class="field-checkbox" value="데이터기준" checked>
+                            <span>데이터 기준 (DART 보고서)</span>
+                        </label>
+                    </div>
+                    <div class="field-group">
+                        <h4>투자 지표</h4>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="PBR"
+                                checked><span>PBR</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="PER"
+                                checked><span>PER</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="ROE"
+                                checked><span>ROE</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="EPS"
+                                checked><span>EPS</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="BPS"
+                                checked><span>BPS</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="배당수익률"
+                                checked><span>배당수익률</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="업종평균PBR"
+                                checked><span>업종평균 PBR</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="업종평균PER"
+                                checked><span>업종평균 PER</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="영업이익률"
+                                checked><span>영업이익률</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="순이익률"
+                                checked><span>순이익률</span></label>
+                    </div>
+                    <div class="field-group">
+                        <h4>재무 정보</h4>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="매출액"
+                                checked><span>매출액</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="영업이익"
+                                checked><span>영업이익</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="당기순이익"
+                                checked><span>당기순이익</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="이익잉여금"
+                                checked><span>이익잉여금</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="현금및현금성자산"
+                                checked><span>현금및현금성자산</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="52주최고가"
+                                checked><span>52주 최고가</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="52주최저가"
+                                checked><span>52주 최저가</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="EBITDA"
+                                checked><span>EBITDA</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="FCF"
+                                checked><span>FCF</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="부채비율"
+                                checked><span>부채비율</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="유동비율"
+                                checked><span>유동비율</span></label>
+                    </div>
+                    <div class="field-group">
+                        <h4>성장성 지표 (YoY)</h4>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="매출액증가율(%)"
+                                checked><span>매출액 증가율(%)</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="영업이익증가율(%)"
+                                checked><span>영업이익 증가율(%)</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="순이익증가율(%)"
+                                checked><span>순이익 증가율(%)</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="전년동기매출액"
+                                checked><span>전년동기 매출액</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="전년동기영업이익"
+                                checked><span>전년동기 영업이익</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="전년동기순이익"
+                                checked><span>전년동기 순이익</span></label>
+                    </div>
+                    <div class="field-group">
+                        <h4>컨센서스 및 수급</h4>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="목표주가"
+                                checked><span>목표주가</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="내년예상영업이익"
+                                checked><span>내년 예상 영업이익</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="외국인순매수"
+                                checked><span>외국인 순매수 (20일)</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="기관순매수"
+                                checked><span>기관 순매수 (20일)</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="외국인보유율"
+                                checked><span>외국인 보유율</span></label>
+                    </div>
+                </div>
             </div>
-            <div class="field-checkboxes">
-                <div class="field-group">
-                    <h4>기본 정보</h4>
-                    <div class="market-selection-area"
-                        style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                        <label style="display:block; margin-bottom:10px; font-size:14px; color:var(--text-muted);">대상 시장
-                            (하나 이상 선택)</label>
-                        <div style="display: flex; gap: 20px;">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="marketKospi" value="KOSPI" checked>
-                                <span>KOSPI</span>
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="marketKosdaq" value="KOSDAQ">
-                                <span>KOSDAQ</span>
-                            </label>
+
+            <div class="stock-count-selector">
+                <span class="section-label">수집할 종목 수</span>
+                <div class="count-options">
+                    <button class="count-btn" onclick="selectCount(50)">50개</button>
+                    <button class="count-btn active" onclick="selectCount(100)">100개</button>
+                    <button class="count-btn" onclick="selectCount(200)">200개</button>
+                    <button class="count-btn" onclick="selectCount(500)">500개</button>
+                    <button class="count-btn" onclick="selectCount(0)">전체</button>
+                </div>
+                <input type="hidden" id="stockCount" value="100">
+            </div>
+
+            <div class="action-buttons" style="display: flex; gap: 16px;">
+                <button id="collectBtn" class="btn"
+                    style="flex: 1; {% if not is_local %}opacity: 0.6; cursor: not-allowed; filter: grayscale(1); background: #475569;{% endif %}"
+                    onclick="startCollection()" {% if not is_local %}disabled{% endif %}>
+                    <div id="progressFill" class="btn-progress-fill"></div>
+                    <span id="collectBtnText">
+                        {% if is_local %}🚀 데이터 수집 시작{% else %}🔒 데이터 수집은 로컬에서만 가능합니다{% endif %}
+                    </span>
+                </button>
+                <button id="cancelBtn" class="btn btn-delete" style="width: 160px; display: none; white-space: nowrap;"
+                    onclick="cancelCollection()">
+                    <span>⏹ 중단</span>
+                </button>
+            </div>
+
+            <div id="downloadSection" class="download-section">
+                <p class="success-msg">✨ 분석 완료!</p>
+                <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
+                    <a id="downloadLink" href="#" class="download-btn">📥 엑셀 파일 다운로드</a>
+                </div>
+            </div>
+
+            <div class="results-section">
+                <div class="section-header"
+                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+                    <h2 style="margin: 0; font-family: 'Outfit', sans-serif; font-size: 32px;">📁 분석 결과 목록</h2>
+                </div>
+                <div id="resultsList" class="results-grid">
+                    <div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">
+                        <div class="ai-spinner" style="margin: 0 auto 20px;"></div>
+                        <p>결과 목록을 불러오는 중...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: My Stocks Management -->
+        <div id="myStocksTab" class="tab-content">
+            <div class="my-stocks-section"
+                style="padding: 40px; background: rgba(255,255,255,0.03); border-radius: 32px; border: 1px solid rgba(255,255,255,0.1);">
+                <div class="section-header"
+                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+                    <h3 style="margin: 0; font-size: 28px; color: var(--text-main); font-family: 'Outfit', sans-serif;">
+                        ⭐ 내 종목 관리</h3>
+                    <button class="btn-sync" onclick="loadMyStocks()"
+                        style="padding: 10px 20px; font-size: 14px; background: rgba(255,255,255,0.1); border: none; border-radius: 12px; color: var(--text-main); cursor: pointer; font-weight: 600;">🔄
+                        새로고침</button>
+                </div>
+
+                <div class="my-stock-input-group"
+                    style="display: flex; gap: 16px; margin-bottom: 32px; position: relative; flex-wrap: wrap;">
+                    <div style="flex: 2; min-width: 200px; position: relative;">
+                        <input type="text" id="myStockName" placeholder="종목명 입력 (예: 삼성전자)" oninput="searchStockName()"
+                            autocomplete="off"
+                            style="width: 100%; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px;">
+                        <div id="searchDropdown" class="search-dropdown"
+                            style="display: none; position: absolute; top: 100%; left: 0; width: 100%; background: #1e293b; border: 1px solid var(--glass-border); border-radius: 12px; margin-top: 8px; z-index: 100; max-height: 250px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
                         </div>
                     </div>
+                    <input type="text" id="myStockCode" placeholder="코드"
+                        style="flex: 0.5; min-width: 80px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); font-size: 16px;"
+                        readonly>
+                    <input type="number" id="myStockPrice" placeholder="매입단가"
+                        style="flex: 1; min-width: 120px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px;">
+                    <input type="number" id="myStockQty" placeholder="보유수량"
+                        style="flex: 1; min-width: 100px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px;">
+                    <button class="btn" onclick="addMyStock()"
+                        style="padding: 0 40px; height: 60px; font-size: 16px;">추가</button>
+                </div>
 
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="종목코드" checked disabled>
-                        <span>종목코드 (필수)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="종목명" checked disabled>
-                        <span>종목명 (필수)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="회계감사의견" checked disabled>
-                        <span>회계감사 의견 (필수)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="내부통제의견" checked disabled>
-                        <span>내부통제 의견 (필수)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="업종" checked disabled>
-                        <span>업종 (필수)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="데이터기준" checked>
-                        <span>데이터 기준 (DART 보고서)</span>
-                    </label>
+                <div style="text-align: right; margin-top: -20px; margin-bottom: 30px;">
+                    <button onclick="triggerMasterUpdate()"
+                        style="background: none; border: none; color: var(--text-muted); font-size: 12px; cursor: pointer; text-decoration: underline;">종목
+                        리스트가 검색되지 않나요? (DB 업데이트)</button>
                 </div>
-                <div class="field-group">
-                    <h4>투자 지표</h4>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="PBR" checked>
-                        <span>PBR</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="PER" checked>
-                        <span>PER</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="ROE" checked>
-                        <span>ROE</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="EPS" checked>
-                        <span>EPS</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="BPS" checked>
-                        <span>BPS</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="배당수익률" checked>
-                        <span>배당수익률</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="업종평균PBR" checked>
-                        <span>업종평균 PBR</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="업종평균PER" checked>
-                        <span>업종평균 PER</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="영업이익률" checked>
-                        <span>영업이익률</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="순이익률" checked>
-                        <span>순이익률</span>
-                    </label>
+
+                <div id="myStocksList" class="my-stocks-list"
+                    style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 40px; min-height: 100px; padding: 32px; background: rgba(255,255,255,0.02); border-radius: 24px; border: 1px dashed rgba(255,255,255,0.1);">
+                    <p style="color: var(--text-muted); font-size: 16px; width: 100%; text-align: center; margin: 0;">
+                        등록된 내 종목이 없습니다.</p>
                 </div>
-                <div class="field-group">
-                    <h4>재무 정보</h4>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="매출액" checked>
-                        <span>매출액</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="영업이익" checked>
-                        <span>영업이익</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="당기순이익" checked>
-                        <span>당기순이익</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="이익잉여금" checked>
-                        <span>이익잉여금</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="현금및현금성자산" checked>
-                        <span>현금및현금성자산</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="52주최고가" checked>
-                        <span>52주 최고가</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="52주최저가" checked>
-                        <span>52주 최저가</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="EBITDA" checked>
-                        <span>EBITDA</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="FCF" checked>
-                        <span>FCF</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="부채비율" checked>
-                        <span>부채비율</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="유동비율" checked>
-                        <span>유동비율</span>
-                    </label>
+
+                <div style="display: flex; justify-content: center; gap: 20px;">
+                    <button id="analyzeMyStocksBtn" class="btn"
+                        style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); color: white; border: none; padding: 20px 40px; font-size: 18px; font-weight: 700;"
+                        onclick="showMyStocksStatus()">
+                        ✨ 내 종목 분석
+                    </button>
                 </div>
-                <div class="field-group">
-                    <h4>성장성 지표 (YoY)</h4>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="매출액증가율(%)" checked>
-                        <span>매출액 증가율(%)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="영업이익증가율(%)" checked>
-                        <span>영업이익 증가율(%)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="순이익증가율(%)" checked>
-                        <span>순이익 증가율(%)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="전년동기매출액" checked>
-                        <span>전년동기 매출액</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="전년동기영업이익" checked>
-                        <span>전년동기 영업이익</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="전년동기순이익" checked>
-                        <span>전년동기 순이익</span>
-                    </label>
-                </div>
-                <div class="field-group">
-                    <h4>컨센서스 및 수급</h4>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="목표주가" checked>
-                        <span>목표주가</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="내년예상영업이익" checked>
-                        <span>내년 예상 영업이익</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="외국인순매수" checked>
-                        <span>외국인 순매수 (20일)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="기관순매수" checked>
-                        <span>기관 순매수 (20일)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" class="field-checkbox" value="외국인보유율" checked>
-                        <span>외국인 보유율</span>
-                    </label>
+
+                <div id="myStocksStatusResult" style="display: none; margin-top: 20px; padding: 32px; background: rgba(255,255,255,0.02); border-radius: 24px; border: 1px solid rgba(255,255,255,0.1);">
                 </div>
             </div>
         </div>
 
-        <div class="stock-count-selector">
-            <span class="section-label">수집할 종목 수</span>
-            <div class="count-options">
-                <button class="count-btn" onclick="selectCount(50)">50개</button>
-                <button class="count-btn active" onclick="selectCount(100)">100개</button>
-                <button class="count-btn" onclick="selectCount(200)">200개</button>
-                <button class="count-btn" onclick="selectCount(500)">500개</button>
-                <button class="count-btn" onclick="selectCount(0)">전체</button>
-            </div>
-            <input type="hidden" id="stockCount" value="100">
-        </div>
-
-        <div class="action-buttons" style="display: flex; gap: 16px;">
-            <button id="collectBtn" class="btn"
-                style="flex: 1; {% if not is_local %}opacity: 0.6; cursor: not-allowed; filter: grayscale(1); background: #475569;{% endif %}"
-                onclick="startCollection()" {% if not is_local %}disabled{% endif %}>
-                <div id="progressFill" class="btn-progress-fill"></div>
-                <span id="collectBtnText">
-                    {% if is_local %}🚀 데이터 수집 시작{% else %}🔒 데이터 수집은 로컬에서만 가능합니다{% endif %}
-                </span>
-            </button>
-            <button id="cancelBtn" class="btn btn-delete" style="width: 160px; display: none; white-space: nowrap;"
-                onclick="cancelCollection()">
-                <span>⏹ 중단</span>
-            </button>
-        </div>
         {% if not is_local %}
-        <p style="text-align: center; color: #94a3b8; font-size: 13px; margin-top: 16px;">
+        <p style="text-align: center; color: #94a3b8; font-size: 13px; margin-top: 32px;">
             ⚠️ 운영 서버에서는 보안 및 성능상의 이유로 데이터 수집 기능이 제한됩니다.<br>
             로컬 환경에서 데이터를 수집한 후 <b>구글 드라이브 동기화</b>를 통해 서버에서 확인하실 수 있습니다.
         </p>
         {% endif %}
-
-        <div id="downloadSection" class="download-section">
-            <p class="success-msg">✨ 분석 완료!</p>
-            <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
-                <a id="downloadLink" href="#" class="download-btn">📥 엑셀 파일 다운로드</a>
-            </div>
-        </div>
-
-        <div class="results-section">
-            <div class="section-header"
-                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-                <h2 style="margin: 0; font-family: 'Outfit', sans-serif; font-size: 32px;">📁 분석 결과 목록</h2>
-            </div>
-            <div id="resultsList" class="results-grid">
-                <!-- 결과 카드가 여기에 동적으로 추가됨 -->
-                <div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">
-                    <div class="ai-spinner" style="margin: 0 auto 20px;"></div>
-                    <p>결과 목록을 불러오는 중...</p>
-                </div>
-            </div>
-        </div>
     </div>
 
     <div id="toastContainer" class="toast-container"></div>
@@ -303,18 +311,28 @@
         let currentAiResult = "";
         let currentAiFilename = "";
         let isAiAnalyzing = false;
+        let myStocks = [];
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.textContent.includes(tabId === 'analysis' ? '종목 분석' : '내 종목 관리')) {
+                    btn.classList.add('active');
+                }
+            });
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(tabId + 'Tab').classList.add('active');
+        }
 
         function showToast(message, type = 'success') {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
-
             const icon = type === 'success' ? '✅' : '❌';
             toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
-
             container.appendChild(toast);
-
-            // 3초 후 제거
             setTimeout(() => {
                 toast.style.animation = 'toastFadeOut 0.5s forwards';
                 setTimeout(() => toast.remove(), 500);
@@ -322,17 +340,271 @@
         }
 
         window.onload = function () {
-            // 초기 로드 시 드라이브와 동기화 수행
             fetch('/api/sync', { method: 'POST' })
                 .then(() => loadResults())
                 .catch(() => loadResults());
+            loadMyStocks();
         };
+
+        function triggerMasterUpdate() {
+            showToast('종목 리스트 업데이트를 시작합니다. 잠시만 기다려주세요...', 'success');
+            fetch('/api/update_master', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('업데이트가 백그라운드에서 시작되었습니다.');
+                    }
+                });
+        }
+
+        function searchStockName() {
+            const query = document.getElementById('myStockName').value.trim();
+            const dropdown = document.getElementById('searchDropdown');
+            if (query.length < 2) {
+                dropdown.style.display = 'none';
+                return;
+            }
+            fetch(`/api/search_stock?q=${encodeURIComponent(query)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.length > 0) {
+                        dropdown.innerHTML = data.map(stock => `
+                            <div class="search-item" onclick="selectStock('${stock.code}', '${stock.name}')" style="padding: 12px 20px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;">
+                                <span style="color: white; font-weight: 600;">${stock.name}</span>
+                                <span style="color: var(--text-muted); font-size: 13px; margin-left: 8px;">${stock.code}</span>
+                            </div>
+                        `).join('');
+                        dropdown.style.display = 'block';
+                    } else {
+                        dropdown.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">검색 결과가 없습니다.</div>';
+                        dropdown.style.display = 'block';
+                    }
+                });
+        }
+
+        function selectStock(code, name) {
+            document.getElementById('myStockName').value = name;
+            document.getElementById('myStockCode').value = code;
+            document.getElementById('searchDropdown').style.display = 'none';
+        }
+
+        window.addEventListener('click', function (e) {
+            if (!document.getElementById('myStockName').contains(e.target)) {
+                document.getElementById('searchDropdown').style.display = 'none';
+            }
+        });
+
+        function loadMyStocks() {
+            fetch('/api/my_stocks')
+                .then(response => response.json())
+                .then(data => {
+                    myStocks = data;
+                    const list = document.getElementById('myStocksList');
+                    if (!data || data.length === 0) {
+                        list.innerHTML = '<p style="color: var(--text-muted); font-size: 16px; width: 100%; text-align: center; margin: 0;">등록된 내 종목이 없습니다.</p>';
+                        document.getElementById('analyzeMyStocksBtn').disabled = true;
+                        document.getElementById('analyzeMyStocksBtn').style.opacity = '0.5';
+                        return;
+                    }
+                    document.getElementById('analyzeMyStocksBtn').disabled = false;
+                    document.getElementById('analyzeMyStocksBtn').style.opacity = '1';
+                    list.innerHTML = data.map(stock => {
+                        return `
+                        <div class="stock-tag" style="display: flex; flex-direction: column; gap: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); padding: 16px 24px; border-radius: 24px; color: #e2e8f0; min-width: 240px; position: relative;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                <span style="font-size: 16px; font-weight: 700; color: white;">${stock.name || stock.code}</span>
+                                <span onclick="deleteMyStock('${stock.code}')" style="cursor: pointer; color: #ef4444; font-weight: bold; font-size: 20px; line-height: 1; margin-left: 10px;">&times;</span>
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">${stock.code}</div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; margin-top: 4px;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <span style="font-size: 11px; color: var(--text-muted);">평단(원)</span>
+                                    <input type="number" value="${stock.purchase_price || 0}" 
+                                        onchange="updateStockDetail('${stock.code}', 'price', this.value)"
+                                        style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #94a3b8; font-weight: 600; padding: 4px 8px; font-size: 13px;">
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <span style="font-size: 11px; color: var(--text-muted);">수량(주)</span>
+                                    <input type="number" value="${stock.quantity || 0}" 
+                                        onchange="updateStockDetail('${stock.code}', 'qty', this.value)"
+                                        style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #94a3b8; font-weight: 600; padding: 4px 8px; font-size: 13px;">
+                                </div>
+                            </div>
+                        </div>
+                        `;
+                    }).join('');
+                });
+        }
+
+        function showMyStocksStatus() {
+            const content = document.getElementById('myStocksStatusResult');
+            content.style.display = 'block';
+            content.innerHTML = '<div class="loading-ai" style="padding: 40px 0;"><div class="ai-spinner"></div><p>최신 주가 정보를 가져오는 중입니다...</p></div>';
+            
+            // 결과 영역으로 부드럽게 스크롤
+            content.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            fetch('/api/my_stocks/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        content.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 40px;">오류: ${data.error}</p>`;
+                        return;
+                    }
+                    
+                    let totalProfit = 0;
+                    let totalAssetValue = 0;
+                    let totalInvested = 0;
+
+                    let html = `
+                        <h4 style="margin-top: 0; margin-bottom: 24px; font-size: 20px; color: white; font-family: 'Outfit', sans-serif;">📈 실시간 분석 결과</h4>
+                        <div style="overflow-x: auto; margin-bottom: 32px;">
+                            <table style="width: 100%; border-collapse: collapse; color: white; font-size: 14px;">
+                                <thead>
+                                    <tr style="border-bottom: 2px solid rgba(255,255,255,0.1); text-align: left;">
+                                        <th style="padding: 16px;">종목명</th>
+                                        <th style="padding: 16px;">현재가</th>
+                                        <th style="padding: 16px;">매입단가</th>
+                                        <th style="padding: 16px;">보유수량</th>
+                                        <th style="padding: 16px;">평가손익</th>
+                                        <th style="padding: 16px;">수익률</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                    `;
+                    
+                    data.forEach(stock => {
+                        totalProfit += stock.profit;
+                        totalAssetValue += (stock.current_price * stock.quantity);
+                        totalInvested += (stock.purchase_price * stock.quantity);
+                        
+                        const profitColor = stock.profit > 0 ? '#ef4444' : (stock.profit < 0 ? '#3b82f6' : 'white');
+                        const profitSign = stock.profit > 0 ? '+' : '';
+                        
+                        html += `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 16px;">
+                                    <div style="font-weight: 700;">${stock.name}</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">${stock.code}</div>
+                                </td>
+                                <td style="padding: 16px;">${stock.current_price.toLocaleString()}원</td>
+                                <td style="padding: 16px;">${stock.purchase_price.toLocaleString()}원</td>
+                                <td style="padding: 16px;">${stock.quantity.toLocaleString()}주</td>
+                                <td style="padding: 16px; color: ${profitColor}; font-weight: 700;">${profitSign}${stock.profit.toLocaleString()}원</td>
+                                <td style="padding: 16px; color: ${profitColor}; font-weight: 700;">${profitSign}${stock.profit_rate}%</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    const totalProfitColor = totalProfit > 0 ? '#ef4444' : (totalProfit < 0 ? '#3b82f6' : 'white');
+                    const totalProfitRate = totalInvested > 0 ? ((totalAssetValue - totalInvested) / totalInvested * 100).toFixed(2) : '0.00';
+
+                    html += `
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                            <div style="padding: 24px; background: rgba(255,255,255,0.03); border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">총 자산 가치</div>
+                                <div style="font-size: 24px; font-weight: 800; color: white;">${totalAssetValue.toLocaleString()}원</div>
+                            </div>
+                            <div style="padding: 24px; background: rgba(255,255,255,0.03); border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">총 평가손익</div>
+                                <div style="font-size: 24px; font-weight: 800; color: ${totalProfitColor};">${totalProfit > 0 ? '+' : ''}${totalProfit.toLocaleString()}원</div>
+                            </div>
+                            <div style="padding: 24px; background: rgba(255,255,255,0.03); border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">총 수익률</div>
+                                <div style="font-size: 24px; font-weight: 800; color: ${totalProfitColor};">${totalProfit > 0 ? '+' : ''}${totalProfitRate}%</div>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 32px; text-align: center;">
+                            <button class="result-btn" style="background: rgba(255,255,255,0.1); color: var(--text-main); padding: 12px 32px;" onclick="document.getElementById('myStocksStatusResult').style.display='none'">결과 닫기</button>
+                        </div>
+                    `;
+                    content.innerHTML = html;
+                })
+                .catch(err => {
+                    content.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 40px;">서버 통신 오류가 발생했습니다.</p>`;
+                });
+        }
+
+        function addMyStock() {
+            const codeInput = document.getElementById('myStockCode');
+            const nameInput = document.getElementById('myStockName');
+            const priceInput = document.getElementById('myStockPrice');
+            const qtyInput = document.getElementById('myStockQty');
+            const code = codeInput.value.trim();
+            const name = nameInput.value.trim();
+            const price = parseFloat(priceInput.value) || 0;
+            const qty = parseInt(qtyInput.value) || 0;
+            if (!code) {
+                showToast('종목을 선택하거나 코드를 입력해주세요.', 'error');
+                return;
+            }
+            fetch('/api/my_stocks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code, name, purchase_price: price, quantity: qty })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('종목이 추가되었습니다.');
+                        codeInput.value = '';
+                        nameInput.value = '';
+                        priceInput.value = '';
+                        qtyInput.value = '';
+                        loadMyStocks();
+                    } else {
+                        showToast(data.message, 'error');
+                    }
+                });
+        }
+
+        function deleteMyStock(code) {
+            if (!confirm('이 종목을 관심 리스트에서 삭제하시겠습니까?')) return;
+            fetch(`/api/my_stocks/${code}`, { method: 'DELETE' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('종목이 삭제되었습니다.');
+                        loadMyStocks();
+                    } else {
+                        showToast(data.message, 'error');
+                    }
+                });
+        }
+
+        function updateStockDetail(code, type, value) {
+            const payload = {};
+            if (type === 'price') payload.purchase_price = parseFloat(value) || 0;
+            if (type === 'qty') payload.quantity = parseInt(value) || 0;
+
+            fetch(`/api/my_stocks/${code}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('정보가 업데이트되었습니다.');
+                        const stock = myStocks.find(s => s.code === code);
+                        if (stock) {
+                            if (type === 'price') stock.purchase_price = payload.purchase_price;
+                            if (type === 'qty') stock.quantity = payload.quantity;
+                        }
+                    } else {
+                        showToast('업데이트 실패: ' + data.message, 'error');
+                    }
+                });
+        }
 
         function selectCount(count) {
             const buttons = document.querySelectorAll('.stock-count-selector .count-btn');
-            buttons.forEach(btn => {
-                btn.classList.remove('active');
-            });
+            buttons.forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
             document.getElementById('stockCount').value = count;
         }
@@ -340,9 +612,7 @@
         function toggleSelectAll() {
             const selectAll = document.getElementById('selectAll');
             const checkboxes = document.querySelectorAll('.field-checkbox:not(:disabled)');
-            checkboxes.forEach(checkbox => {
-                checkbox.checked = selectAll.checked;
-            });
+            checkboxes.forEach(checkbox => checkbox.checked = selectAll.checked);
         }
 
         function getSelectedFields() {
@@ -350,28 +620,29 @@
             return Array.from(checkboxes).map(cb => cb.value);
         }
 
-        function startCollection() {
+        function startCollection(mode = 'MARKET') {
             const stockCount = parseInt(document.getElementById('stockCount').value);
             const selectedFields = getSelectedFields();
-
             const useKospi = document.getElementById('marketKospi').checked;
             const useKosdaq = document.getElementById('marketKosdaq').checked;
-
-            if (!useKospi && !useKosdaq) {
-                showToast('최소한 하나의 시장(KOSPI, KOSDAQ)을 선택해야 합니다.', 'error');
-                return;
-            }
-
             let market = 'KOSPI';
-            if (useKospi && useKosdaq) {
-                market = 'ALL';
-            } else if (useKosdaq) {
-                market = 'KOSDAQ';
-            }
+            let tickers = [];
 
-            if (isNaN(stockCount) || stockCount < 0 || stockCount > 10000) {
-                showToast('종목 수는 0(전체) 또는 1~10000 사이의 숫자여야 합니다.', 'error');
-                return;
+            if (mode === 'MY_STOCKS') {
+                market = 'MY_STOCKS';
+                tickers = myStocks.map(s => `${s.code}:${s.purchase_price || 0}:${s.quantity || 0}`);
+                if (tickers.length === 0) {
+                    showToast('분석할 내 종목이 없습니다.', 'error');
+                    return;
+                }
+                switchTab('analysis');
+            } else {
+                if (!useKospi && !useKosdaq) {
+                    showToast('최소한 하나의 시장(KOSPI, KOSDAQ)을 선택해야 합니다.', 'error');
+                    return;
+                }
+                if (useKospi && useKosdaq) market = 'ALL';
+                else if (useKosdaq) market = 'KOSDAQ';
             }
 
             if (selectedFields.length < 2) {
@@ -383,7 +654,6 @@
             const btnText = document.getElementById('collectBtnText');
             const progressFill = document.getElementById('progressFill');
             const downloadSection = document.getElementById('downloadSection');
-
             btn.disabled = true;
             progressFill.style.width = '0%';
             btnText.textContent = '⚡ 분석 엔진 가동 중... (0%)';
@@ -391,14 +661,8 @@
 
             fetch('/api/collect', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    stock_count: stockCount,
-                    fields: selectedFields,
-                    market: market
-                })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stock_count: stockCount, fields: selectedFields, market: market, tickers: tickers })
             })
                 .then(response => response.json())
                 .then(data => {
@@ -407,7 +671,7 @@
                         document.getElementById('cancelBtn').style.display = 'block';
                         checkStatus();
                     } else {
-                        showToast('데이터 수집 시작에 실패했습니다.', 'error');
+                        showToast(data.message || '데이터 수집 시작에 실패했습니다.', 'error');
                         resetButton();
                     }
                 })
@@ -419,13 +683,11 @@
 
         function checkStatus() {
             if (!currentTaskId) return;
-
             statusCheckInterval = setInterval(() => {
                 fetch(`/api/status/${currentTaskId}`)
                     .then(response => response.json())
                     .then(data => {
                         updateProgress(data);
-
                         if (data.status === 'completed') {
                             clearInterval(statusCheckInterval);
                             showDownload(data.result_file, data.drive_link);
@@ -457,35 +719,25 @@
             const downloadSection = document.getElementById('downloadSection');
             const downloadLink = document.getElementById('downloadLink');
             downloadLink.href = `/api/download/${filename}`;
-
-            // 구글 드라이브 링크 추가
             const existingDriveLink = document.getElementById('driveDownloadLink');
             if (existingDriveLink) existingDriveLink.remove();
-
             if (driveLink) {
                 const driveBtn = document.createElement('a');
                 driveBtn.id = 'driveDownloadLink';
                 driveBtn.href = driveLink;
                 driveBtn.target = '_blank';
                 driveBtn.className = 'download-btn';
-                driveBtn.style.background = '#4285F4'; // Google Blue
+                driveBtn.style.background = '#4285F4';
                 driveBtn.textContent = '📂 구글 드라이브에서 보기';
                 downloadLink.parentNode.appendChild(driveBtn);
             }
-
             downloadSection.classList.add('active');
         }
 
         function cancelCollection() {
             if (!currentTaskId) return;
-
-            if (!confirm('현재 진행 중인 수집 작업을 취소하시겠습니까?')) {
-                return;
-            }
-
-            fetch(`/api/cancel/${currentTaskId}`, {
-                method: 'POST'
-            })
+            if (!confirm('현재 진행 중인 수집 작업을 취소하시겠습니까?')) return;
+            fetch(`/api/cancel/${currentTaskId}`, { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
@@ -495,9 +747,6 @@
                     } else {
                         showToast('취소 실패: ' + data.message, 'error');
                     }
-                })
-                .catch(error => {
-                    showToast('서버 오류: ' + error, 'error');
                 });
         }
 
@@ -507,37 +756,9 @@
             const progressFill = document.getElementById('progressFill');
             const cancelBtn = document.getElementById('cancelBtn');
             btn.disabled = false;
-            btn.style.height = '';
             progressFill.style.width = '100%';
             btnText.textContent = '🚀 데이터 수집 시작';
             cancelBtn.style.display = 'none';
-        }
-
-        function syncWithDrive() {
-            const btn = event.currentTarget;
-            const originalText = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<span>⏳ 동기화 중...</span>';
-
-            fetch('/api/sync', {
-                method: 'POST'
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast(`동기화 완료! ${data.added}개 추가, ${data.removed}개 제거되었습니다.`);
-                        loadResults();
-                    } else {
-                        showToast('동기화 실패: ' + data.message, 'error');
-                    }
-                })
-                .catch(error => {
-                    showToast('서버 오류: ' + error, 'error');
-                })
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.innerHTML = originalText;
-                });
         }
 
         function loadResults() {
@@ -545,46 +766,26 @@
                 .then(response => response.json())
                 .then(files => {
                     const resultsList = document.getElementById('resultsList');
-                    if (files.length === 0) {
+                    if (!files || files.length === 0) {
                         resultsList.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">저장된 결과가 없습니다.</p>';
                         return;
                     }
                     resultsList.innerHTML = files.map(file => {
-
-                        // 파일명 파싱: {market}_{count}_{timestamp}.xlsx
-                        const fileNameParts = file.filename.replace('.xlsx', '').split('_');
-                        let marketLabel = '';
+                        const market = file.market || 'UNKNOWN';
+                        const count = file.stock_count || '0';
+                        const created_at = file.created_at || '';
+                        let marketLabel = market;
+                        if (market === 'KOSPI') marketLabel = 'KOSPI';
+                        else if (market === 'KOSDAQ') marketLabel = 'KOSDAQ';
+                        else if (market === 'ALL') marketLabel = '전체시장';
+                        else if (market === 'MY_STOCKS' || market === 'MYSTOCKS') marketLabel = '내 종목';
                         let countLabel = '';
-                        let displayTitle = file.filename;
-
-                        if (fileNameParts.length >= 2) {
-                            const market = fileNameParts[0].toUpperCase();
-                            const count = fileNameParts[1];
-
-                            if (market === 'KOSPI') marketLabel = 'KOSPI';
-                            else if (market === 'KOSDAQ') marketLabel = 'KOSDAQ';
-                            else if (market === 'ALL') marketLabel = '전체시장';
-
-                            if (count === 'all') countLabel = '전체 종목';
-                            else if (count.startsWith('top')) {
-                                const num = count.replace('top', '');
-                                countLabel = `상위 ${num}개`;
-                            }
-
-                            if (marketLabel && countLabel) {
-                                displayTitle = `${marketLabel} ${countLabel} 분석`;
-                            }
-                        }
-
-                        let formattedDate = '';
-                        if (fileNameParts.length >= 3) {
-                            const datePart = fileNameParts[2];
-                            formattedDate = `${datePart.substring(0, 4)}-${datePart.substring(4, 6)}-${datePart.substring(6, 8)}`;
-                        }
-
-                        const isKospi = file.filename.toLowerCase().includes('kospi');
-                        const icon = isKospi ? '📈' : '📉';
-
+                        if (count === 'all') countLabel = '전체';
+                        else if (count.startsWith('top')) countLabel = `상위 ${count.replace('top', '')}개`;
+                        else if (count !== '0') countLabel = `${count}개`;
+                        const displayTitle = `${marketLabel} ${countLabel} 분석`.trim();
+                        const formattedDate = created_at ? created_at.substring(0, 10) : '날짜 없음';
+                        const icon = market.includes('KOSPI') ? '📈' : '📉';
                         return `
                         <div class="result-card">
                             <div class="result-header">
@@ -605,19 +806,15 @@
                         `;
                     }).join('');
                 })
-                .catch(error => {
-                    console.error('결과 목록 로드 실패:', error);
+                .catch(err => {
+                    console.error('Error loading results:', err);
+                    document.getElementById('resultsList').innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 40px;">결과를 불러오는 중 오류가 발생했습니다.</p>';
                 });
         }
 
         function deleteResult(filename) {
-            if (!confirm(`'${filename}' 파일을 삭제하시겠습니까?`)) {
-                return;
-            }
-
-            fetch(`/api/delete/${filename}`, {
-                method: 'DELETE'
-            })
+            if (!confirm(`'${filename}' 파일을 삭제하시겠습니까?`)) return;
+            fetch(`/api/delete/${filename}`, { method: 'DELETE' })
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
@@ -626,130 +823,51 @@
                     } else {
                         showToast('삭제 실패: ' + data.message, 'error');
                     }
-                })
-                .catch(error => {
-                    showToast('서버 오류: ' + error, 'error');
                 });
         }
 
-        // AI Analysis Functions
         function runAiAnalysis(filename) {
             currentAiFilename = filename;
             isAiAnalyzing = true;
             openAiModal();
-
-            fetch(`/api/ai_analyze/${filename}`, {
-                method: 'POST'
-            })
+            fetch(`/api/ai_analyze/${filename}`, { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
                     isAiAnalyzing = false;
                     if (data.success) {
                         currentAiResult = data.result;
                         const content = document.getElementById('aiResultContent');
-
-                        // Marked.js options for better rendering
-                        marked.setOptions({
-                            gfm: true,
-                            breaks: true,
-                            headerIds: false,
-                            mangle: false
-                        });
-
-                        let htmlResult = marked.parse(data.result);
-
-                        // 모바일에서 섹터 정보 숨기기
-                        if (window.innerWidth <= 768) {
-                            const tempDiv = document.createElement('div');
-                            tempDiv.innerHTML = htmlResult;
-
-                            // li, p 요소에서 섹터 숨기기
-                            const elements = tempDiv.querySelectorAll('li, p');
-                            elements.forEach(el => {
-                                if (el.textContent.includes('핵심 섹터') || el.textContent.includes('섹터:')) {
-                                    el.style.display = 'none';
-                                }
-                            });
-
-                            // 테이블에서 섹터 컬럼 숨기기
-                            const tables = tempDiv.querySelectorAll('table');
-                            tables.forEach(table => {
-                                const headers = table.querySelectorAll('th');
-                                let sectorColIndex = -1;
-                                headers.forEach((th, idx) => {
-                                    if (th.textContent.includes('섹터')) {
-                                        sectorColIndex = idx;
-                                        th.style.display = 'none';
-                                    }
-                                });
-                                if (sectorColIndex >= 0) {
-                                    table.querySelectorAll('tr').forEach(row => {
-                                        const cells = row.querySelectorAll('td');
-                                        if (cells[sectorColIndex]) {
-                                            cells[sectorColIndex].style.display = 'none';
-                                        }
-                                    });
-                                }
-                            });
-
-                            htmlResult = tempDiv.innerHTML;
-                        }
-
-                        content.innerHTML = `<div class="ai-markdown-body">${htmlResult}</div>`;
-
-                        if (data.cached) {
-                            showToast('기존에 분석된 리포트를 불러왔습니다.');
-                        } else {
-                            showToast('새로운 AI 분석 리포트가 생성되었습니다.');
-                        }
+                        marked.setOptions({ gfm: true, breaks: true });
+                        content.innerHTML = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
+                        showToast(data.cached ? '기존 리포트를 불러왔습니다.' : '새 리포트가 생성되었습니다.');
                     } else {
                         showToast('AI 분석 실패: ' + data.message, 'error');
                         closeAiModal();
                     }
-                })
-                .catch(error => {
-                    isAiAnalyzing = false;
-                    showToast('서버 오류: ' + error, 'error');
-                    closeAiModal();
                 });
         }
 
         function openAiModal() {
             const modal = document.getElementById('aiModal');
-            const content = document.getElementById('aiResultContent');
-
-            content.innerHTML = `
-                <div class="loading-ai">
-                    <div class="ai-spinner"></div>
-                    <p>AI가 분석 중입니다...</p>
-                </div>
-            `;
+            document.getElementById('aiResultContent').innerHTML = '<div class="loading-ai"><div class="ai-spinner"></div><p>AI가 분석 중입니다...</p></div>';
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
         }
 
         function closeAiModal() {
-            if (isAiAnalyzing) {
-                showToast('AI 분석 중입니다. 잠시만 기다려주세요.', 'error');
-                return;
-            }
-            const modal = document.getElementById('aiModal');
-            modal.style.display = 'none';
+            if (isAiAnalyzing) return;
+            document.getElementById('aiModal').style.display = 'none';
             document.body.style.overflow = 'auto';
         }
 
-        // Close modal when clicking outside
         window.onclick = function (event) {
-            const modal = document.getElementById('aiModal');
-            if (event.target == modal) {
-                closeAiModal();
-            }
+            if (event.target == document.getElementById('aiModal')) closeAiModal();
+            
         }
-
-        // Close modal when pressing ESC key
         window.addEventListener('keydown', function (event) {
             if (event.key === 'Escape') {
                 closeAiModal();
+                
             }
         });
     </script>

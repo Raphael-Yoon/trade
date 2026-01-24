@@ -99,6 +99,72 @@ h1 {
     filter: drop-shadow(0 10px 20px rgba(99, 102, 241, 0.3));
 }
 
+/* Premium Tabs Styling */
+.tabs-nav {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 60px;
+    background: rgba(15, 23, 42, 0.6);
+    padding: 8px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    width: fit-content;
+    margin-left: auto;
+    margin-right: auto;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    position: relative;
+}
+
+.tab-btn {
+    padding: 16px 40px;
+    border-radius: 18px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    z-index: 1;
+}
+
+.tab-btn:hover {
+    color: var(--text-main);
+}
+
+.tab-btn.active {
+    color: white;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
+}
+
+.tab-content {
+    display: none;
+    animation: tabSlideUp 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.tab-content.active {
+    display: block;
+}
+
+@keyframes tabSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 .section-label {
     display: block;
     font-family: 'Outfit', sans-serif;
@@ -134,11 +200,6 @@ h1 {
     transition: all 0.3s ease;
 }
 
-.select-all-container:hover {
-    background: rgba(99, 102, 241, 0.15);
-    border-color: var(--primary);
-}
-
 .field-checkboxes {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -151,8 +212,6 @@ h1 {
     padding: 32px;
     border-radius: 28px;
     transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    position: relative;
-    overflow: hidden;
 }
 
 .field-group:hover {
@@ -181,10 +240,6 @@ h1 {
     transition: all 0.2s;
 }
 
-.checkbox-label:hover {
-    color: var(--text-main);
-}
-
 .checkbox-label input[type="checkbox"] {
     appearance: none;
     width: 22px;
@@ -201,7 +256,6 @@ h1 {
 .checkbox-label input[type="checkbox"]:checked {
     background: var(--primary);
     border-color: var(--primary);
-    box-shadow: 0 0 15px rgba(99, 102, 241, 0.5);
 }
 
 .checkbox-label input[type="checkbox"]:checked::after {
@@ -215,7 +269,6 @@ h1 {
     transform: translate(-50%, -50%);
 }
 
-/* Stock Count Buttons */
 .stock-count-selector {
     margin-bottom: 60px;
 }
@@ -235,25 +288,13 @@ h1 {
     cursor: pointer;
     font-weight: 700;
     font-family: 'Outfit', sans-serif;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.count-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--text-main);
-    transform: translateY(-2px);
+    transition: all 0.3s;
 }
 
 .count-btn.active {
     background: linear-gradient(135deg, var(--primary), var(--secondary));
     color: white;
-    border-color: rgba(255, 255, 255, 0.3);
     box-shadow: 0 10px 20px rgba(99, 102, 241, 0.4);
-}
-
-/* Action Buttons */
-.action-buttons {
-    margin-bottom: 60px;
 }
 
 .btn {
@@ -263,37 +304,11 @@ h1 {
     font-weight: 700;
     font-size: 20px;
     cursor: pointer;
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: all 0.4s;
     border: none;
-    position: relative;
-    overflow: hidden;
     background: linear-gradient(135deg, var(--primary), var(--secondary));
     color: white;
     box-shadow: 0 20px 40px -10px rgba(99, 102, 241, 0.5);
-}
-
-.btn:hover:not(:disabled) {
-    transform: translateY(-5px) scale(1.02);
-    box-shadow: 0 30px 60px -15px rgba(99, 102, 241, 0.6);
-}
-
-.btn:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-    background: #475569;
-    box-shadow: none;
-}
-
-.btn-delete {
-    background: rgba(239, 68, 68, 0.1);
-    color: var(--error);
-    border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-.btn-delete:hover:not(:disabled) {
-    background: var(--error);
-    color: white;
-    box-shadow: 0 15px 30px rgba(239, 68, 68, 0.4);
 }
 
 .btn-progress-fill {
@@ -306,7 +321,6 @@ h1 {
     transition: width 0.3s ease;
 }
 
-/* Results Grid */
 .results-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -329,7 +343,6 @@ h1 {
     transform: translateY(-8px);
     border-color: var(--primary);
     background: rgba(30, 41, 59, 0.8);
-    box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5);
 }
 
 .result-header {
@@ -349,23 +362,11 @@ h1 {
     font-size: 22px;
 }
 
-.result-info {
-    flex: 1;
-}
-
 .result-filename {
     font-weight: 700;
     font-size: 18px;
     margin-bottom: 6px;
     color: var(--text-main);
-    word-break: break-all;
-}
-
-.result-meta {
-    display: flex;
-    gap: 16px;
-    font-size: 13px;
-    color: var(--text-muted);
 }
 
 .result-actions {
@@ -407,7 +408,6 @@ h1 {
     color: white;
 }
 
-/* Download Section */
 .download-section {
     margin-top: 50px;
     padding: 40px;
@@ -420,45 +420,8 @@ h1 {
 
 .download-section.active {
     display: block;
-    animation: slideUp 0.5s ease;
 }
 
-@keyframes slideUp {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.success-msg {
-    color: var(--success);
-    font-weight: 700;
-    font-size: 24px;
-    margin-bottom: 24px;
-}
-
-.download-btn {
-    display: inline-block;
-    padding: 18px 36px;
-    background: var(--success);
-    color: white;
-    border-radius: 18px;
-    text-decoration: none;
-    font-weight: 700;
-    transition: all 0.3s;
-}
-
-.download-btn:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 20px rgba(16, 185, 129, 0.3);
-}
-
-/* Toast */
 .toast-container {
     position: fixed;
     bottom: 40px;
@@ -478,22 +441,8 @@ h1 {
     align-items: center;
     gap: 16px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-    animation: toastSlideIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-@keyframes toastSlideIn {
-    from {
-        transform: translateX(100%);
-        opacity: 0;
-    }
-
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
-
-/* AI Modal */
 .modal {
     display: none;
     position: fixed;
@@ -518,7 +467,6 @@ h1 {
     max-height: 90vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 50px 100px rgba(0, 0, 0, 0.5);
 }
 
 .modal-header {
@@ -527,38 +475,12 @@ h1 {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    position: relative;
-}
-
-.modal-back-btn {
-    display: none;
-    align-items: center;
-    gap: 8px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: var(--text-main);
-    padding: 10px 16px;
-    border-radius: 14px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.modal-back-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
 }
 
 .modal-body {
     padding: 32px;
     overflow-y: auto;
     flex: 1;
-}
-
-.close-modal {
-    font-size: 32px;
-    cursor: pointer;
-    color: var(--text-muted);
 }
 
 .ai-spinner {
@@ -576,7 +498,6 @@ h1 {
     }
 }
 
-/* AI Markdown Body - Premium Styling */
 .ai-markdown-body {
     line-height: 1.8;
     color: #e2e8f0;
@@ -609,12 +530,6 @@ h1 {
     gap: 10px;
 }
 
-.ai-markdown-body h2::before {
-    content: '💎';
-    font-size: 18px;
-}
-
-/* Friendly Stock Name Styling (H3) */
 .ai-markdown-body h3 {
     font-family: 'Outfit', sans-serif;
     font-size: 26px;
@@ -628,42 +543,8 @@ h1 {
     display: flex;
     align-items: center;
     gap: 14px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-    word-break: break-all;
 }
 
-.ai-markdown-body h3::before {
-    content: '🚀';
-    font-size: 22px;
-    flex-shrink: 0;
-}
-
-.ai-markdown-body p {
-    margin-bottom: 20px;
-    word-break: keep-all;
-    overflow-wrap: break-word;
-}
-
-.ai-markdown-body strong {
-    color: #fff;
-    font-weight: 700;
-    background: rgba(99, 102, 241, 0.2);
-    padding: 2px 6px;
-    border-radius: 4px;
-}
-
-.ai-markdown-body ul,
-.ai-markdown-body ol {
-    margin-bottom: 24px;
-    padding-left: 24px;
-}
-
-.ai-markdown-body li {
-    margin-bottom: 12px;
-    word-break: break-all;
-}
-
-/* AI Report Table Styling */
 .ai-markdown-body table {
     width: 100%;
     border-collapse: separate;
@@ -671,26 +552,17 @@ h1 {
     margin: 32px 0;
     background: rgba(255, 255, 255, 0.02);
     border-radius: 20px;
-    overflow: visible;
     border: 1px solid rgba(255, 255, 255, 0.1);
     display: block;
-    max-width: 100%;
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
 }
 
 .ai-markdown-body th {
     background: rgba(99, 102, 241, 0.1);
     color: var(--primary);
-    font-weight: 700;
-    text-align: left;
     padding: 16px 20px;
     font-size: 14px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    word-break: break-all;
-    white-space: normal;
 }
 
 .ai-markdown-body td {
@@ -698,15 +570,8 @@ h1 {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     font-size: 15px;
     color: #cbd5e1;
-    word-break: break-all;
-    white-space: normal;
 }
 
-.ai-markdown-body tr:hover td {
-    background: rgba(255, 255, 255, 0.03);
-}
-
-/* Responsive & Mobile Optimization */
 @media (max-width: 1024px) {
     .field-checkboxes {
         grid-template-columns: repeat(2, 1fr);
@@ -720,18 +585,15 @@ h1 {
 @media (max-width: 768px) {
     body {
         padding: 20px 12px;
-        overflow-x: hidden;
     }
 
     .container {
         padding: 24px 16px;
         border-radius: 28px;
-        margin-bottom: 20px;
     }
 
     h1 {
         font-size: 32px;
-        margin-bottom: 20px;
     }
 
     .field-selector,
@@ -740,149 +602,45 @@ h1 {
         display: none !important;
     }
 
-    .results-section {
-        margin-top: 0;
-        padding-top: 0;
-        border-top: none !important;
-    }
-
-    .section-header h2 {
-        font-size: 22px !important;
-        text-align: center;
-        width: 100%;
-        margin-bottom: 16px !important;
-    }
-
     .results-grid {
         grid-template-columns: 1fr;
-        gap: 16px;
     }
 
     .result-card {
         padding: 16px;
-        border-radius: 20px;
-        gap: 16px;
     }
 
     .result-actions {
         display: flex;
         flex-direction: column;
-        gap: 10px;
-    }
-
-    .btn-download,
-    .btn-delete,
-    .download-section {
-        display: none !important;
-    }
-
-    .result-btn {
-        padding: 16px 8px;
-        font-size: 15px;
-        border-radius: 16px;
-        width: 100%;
-    }
-
-    .btn-ai {
-        order: 1;
-        padding: 18px;
-        font-size: 16px;
-        font-weight: 700;
-    }
-
-    .modal {
-        padding: 0;
     }
 
     .modal-content {
         height: 100%;
         max-height: 100vh;
         border-radius: 0;
-        border: none;
-        overflow-x: hidden;
     }
+}
 
-    .modal-header {
-        padding: 16px 20px;
-        justify-content: space-between;
-    }
+/* Search Dropdown Styles */
+.search-dropdown {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
 
-    .modal-back-btn {
-        display: flex;
-    }
+.search-dropdown::-webkit-scrollbar {
+    width: 6px;
+}
 
-    .close-modal {
-        display: none;
-    }
+.search-dropdown::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+}
 
-    .modal-header h2 {
-        font-size: 18px;
-        position: absolute;
-        left: 50%;
-        transform: translateX(-50%);
-        white-space: nowrap;
-    }
+.search-item:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+}
 
-    .modal-body {
-        padding: 16px;
-        overflow-x: hidden;
-    }
-
-    .ai-markdown-body {
-        font-size: 15px;
-        line-height: 1.9;
-    }
-
-    .ai-markdown-body h2 {
-        font-size: 18px;
-        margin-top: 36px;
-        margin-bottom: 16px;
-    }
-
-    .ai-markdown-body h3 {
-        font-size: 17px;
-        padding: 12px 14px;
-        margin-top: 28px;
-        margin-bottom: 16px;
-        gap: 10px;
-    }
-
-    .ai-markdown-body h3::before {
-        font-size: 16px;
-    }
-
-    .ai-markdown-body p {
-        margin-bottom: 16px;
-    }
-
-    .ai-markdown-body ul,
-    .ai-markdown-body ol {
-        margin-bottom: 20px;
-        padding-left: 20px;
-    }
-
-    .ai-markdown-body li {
-        margin-bottom: 10px;
-        line-height: 1.7;
-    }
-
-    .ai-markdown-body table {
-        margin: 24px 0;
-        border-radius: 12px;
-        overflow: visible;
-    }
-
-    .ai-markdown-body th,
-    .ai-markdown-body td {
-        padding: 10px 12px;
-        font-size: 13px;
-        word-break: break-all;
-        white-space: normal;
-        min-width: 70px;
-    }
-
-    .ai-markdown-body th:first-child,
-    .ai-markdown-body td:first-child {
-        min-width: 100px;
-    }
+.search-item:last-child {
+    border-bottom: none !important;
 }
