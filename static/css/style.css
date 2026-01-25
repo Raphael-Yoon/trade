@@ -99,7 +99,6 @@ h1 {
     filter: drop-shadow(0 10px 20px rgba(99, 102, 241, 0.3));
 }
 
-/* Premium Tabs Styling */
 .tabs-nav {
     display: flex;
     gap: 8px;
@@ -130,12 +129,6 @@ h1 {
     display: flex;
     align-items: center;
     gap: 10px;
-    position: relative;
-    z-index: 1;
-}
-
-.tab-btn:hover {
-    color: var(--text-main);
 }
 
 .tab-btn.active {
@@ -185,7 +178,6 @@ h1 {
     border-radius: 3px;
 }
 
-/* Field Selector Grid */
 .field-selector {
     margin-bottom: 60px;
 }
@@ -197,7 +189,6 @@ h1 {
     border: 1px solid rgba(99, 102, 241, 0.2);
     border-radius: 16px;
     display: inline-block;
-    transition: all 0.3s ease;
 }
 
 .field-checkboxes {
@@ -237,7 +228,6 @@ h1 {
     cursor: pointer;
     font-size: 15px;
     color: var(--text-muted);
-    transition: all 0.2s;
 }
 
 .checkbox-label input[type="checkbox"] {
@@ -249,7 +239,6 @@ h1 {
     margin-right: 14px;
     cursor: pointer;
     position: relative;
-    transition: all 0.3s;
     background: rgba(255, 255, 255, 0.05);
 }
 
@@ -295,6 +284,35 @@ h1 {
     background: linear-gradient(135deg, var(--primary), var(--secondary));
     color: white;
     box-shadow: 0 10px 20px rgba(99, 102, 241, 0.4);
+}
+
+.report-footer-actions {
+    margin-top: 32px;
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+
+.report-footer-actions .btn {
+    margin-bottom: 0 !important;
+    padding: 16px 32px;
+}
+
+.report-footer-actions .result-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-main);
+    padding: 16px 32px;
+    border-radius: 24px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.report-footer-actions .result-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
 }
 
 .btn {
@@ -422,6 +440,160 @@ h1 {
 
 .download-section.active {
     display: block;
+}
+
+/* Analysis Report Styles */
+.report-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.report-title {
+    margin: 0;
+    font-size: 24px;
+    color: white;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+
+.news-section {
+    margin-bottom: 32px;
+    padding: 24px;
+    background: rgba(99, 102, 241, 0.05);
+    border-radius: 24px;
+    border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.news-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+}
+
+.news-card {
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: all 0.2s;
+}
+
+.news-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(99, 102, 241, 0.3);
+}
+
+.portfolio-table-container {
+    overflow-x: auto;
+    margin-bottom: 32px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+}
+
+.portfolio-table {
+    width: 100%;
+    border-collapse: collapse;
+    color: white;
+    font-size: 13px;
+    min-width: 1200px;
+}
+
+.portfolio-table th {
+    padding: 20px 16px;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+    text-align: left;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.portfolio-table td {
+    padding: 20px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    transition: all 0.2s;
+}
+
+.portfolio-table tr:hover td {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.summary-container {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 32px;
+    margin-bottom: 32px;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+}
+
+.summary-item {
+    text-align: center;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.accordion {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    overflow: hidden;
+    margin-bottom: 24px;
+}
+
+.accordion-header {
+    padding: 20px 24px;
+    background: rgba(99, 102, 241, 0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.accordion-header:hover {
+    background: rgba(99, 102, 241, 0.2);
+}
+
+.accordion-header h5 {
+    margin: 0;
+    font-size: 16px;
+    color: white;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.accordion-icon {
+    transition: transform 0.3s;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.accordion.active .accordion-icon {
+    transform: rotate(180deg);
+}
+
+.accordion-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out, padding 0.3s;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.accordion.active .accordion-content {
+    max-height: 1000px;
+    padding: 24px;
 }
 
 .toast-container {
@@ -631,15 +803,32 @@ h1 {
         padding: 18px 24px;
         font-size: 16px;
         border-radius: 18px;
+        margin-bottom: 24px !important;
     }
 
+    /* Hide management UI on mobile (View-only mode) */
     .field-selector,
     .stock-count-selector,
     .action-buttons,
     #collectionLogArea,
     .my-stock-input-group,
-    .my-stock-input-group + div {
+    .my-stock-input-group+div,
+    .stock-tag span[onclick^="deleteMyStock"] {
         display: none !important;
+    }
+
+    .stock-tag input {
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+        color: white !important;
+        pointer-events: none;
+        text-align: right !important;
+    }
+
+    .my-stocks-section {
+        padding: 24px 16px !important;
+        border-radius: 24px !important;
     }
 
     .section-header {
@@ -647,6 +836,34 @@ h1 {
         align-items: flex-start !important;
         gap: 16px;
         margin-bottom: 24px !important;
+    }
+
+    /* Analysis Report Mobile Layout */
+    .report-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .report-title {
+        font-size: 20px;
+    }
+
+    .news-section {
+        padding: 16px;
+    }
+
+    .news-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .summary-container {
+        padding: 20px;
+    }
+
+    .summary-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
     }
 
     .results-grid {
@@ -660,6 +877,19 @@ h1 {
     .result-actions {
         display: flex;
         flex-direction: column;
+    }
+
+    .report-footer-actions {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .report-footer-actions .btn,
+    .report-footer-actions .result-btn {
+        width: 100%;
+        padding: 18px;
+        font-size: 16px;
     }
 
     .modal-content {
@@ -722,10 +952,8 @@ h1 {
         letter-spacing: 0.05em;
     }
 
-    .portfolio-table td[data-label="종목 정보"]::before { display: none; }
-    
-    .summary-grid {
-        grid-template-columns: 1fr !important;
+    .portfolio-table td[data-label="종목 정보"]::before {
+        display: none;
     }
 
     .my-stocks-list {
@@ -737,6 +965,14 @@ h1 {
         width: 100% !important;
         min-width: 0 !important;
         padding: 16px !important;
+    }
+
+    /* Reduce data on mobile */
+    .stock-market-cap,
+    .portfolio-table td[data-label="실적/성장"],
+    .portfolio-table td[data-label="재무/배당"],
+    .portfolio-table td[data-label="수급/외인"] {
+        display: none !important;
     }
 }
 
