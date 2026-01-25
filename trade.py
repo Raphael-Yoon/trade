@@ -21,6 +21,7 @@ from bs4 import BeautifulSoup
 import re
 from concurrent.futures import ThreadPoolExecutor
 from ai_analysis import analyze_stock_data, analyze_portfolio
+from get_all_naver_data import get_all_naver_data
 
 app = Flask(__name__)
 
@@ -399,7 +400,92 @@ def cancel_collection(task_id):
     return jsonify({'success': False, 'message': '취소할 수 없습니다.'})
 
 def get_portfolio_details(ticker):
-    """네이버 금융 및 추가 소스에서 정밀 분석용 데이터를 수집합니다."""
+    """
+    네이버 금융에서 모든 가능한 데이터를 수집합니다.
+
+    get_all_naver_data 함수를 래핑하여 기존 인터페이스 유지 + 추가 데이터 제공
+    """
+    # 새로운 전체 데이터 수집 함수 사용
+    all_data = get_all_naver_data(ticker)
+
+    # 기존 코드 호환성을 위한 필드 매핑
+    data = {
+        'code': all_data.get('code', ticker),
+        'name': all_data.get('name', ''),
+        'current_price': all_data.get('current_price', 0),
+        'market_cap': all_data.get('market_cap', 'N/A'),
+        'opinion': all_data.get('opinion', 'N/A'),
+        'target_price': all_data.get('target_price', 0),
+        'high_52w': all_data.get('high_52w', 0),
+        'low_52w': all_data.get('low_52w', 0),
+        'per': all_data.get('per', 0),
+        'pbr': all_data.get('pbr', 0),
+        'dividend_yield': all_data.get('dividend_yield', 0),
+        'revenue_growth': all_data.get('revenue_growth', 'N/A'),
+        'profit_growth': all_data.get('profit_growth', 'N/A'),
+        'foreign_net_buy': all_data.get('foreign_net_buy_today', 0),
+        'inst_net_buy': all_data.get('inst_net_buy_today', 0),
+        'rsi': all_data.get('rsi', 0),
+    }
+
+    # 새로 추가된 데이터도 포함
+    data.update({
+        # 기본 시세
+        'prev_price': all_data.get('prev_price', 0),
+        'open_price': all_data.get('open_price', 0),
+        'high_price': all_data.get('high_price', 0),
+        'low_price': all_data.get('low_price', 0),
+        'volume': all_data.get('volume', 0),
+        'trading_value': all_data.get('trading_value', 0),
+
+        # 시가총액 상세
+        'market_cap_rank': all_data.get('market_cap_rank', 'N/A'),
+        'outstanding_shares': all_data.get('outstanding_shares', 0),
+
+        # 외국인
+        'foreign_ownership_ratio': all_data.get('foreign_ownership_ratio', 0),
+        'foreign_exhaustion_ratio': all_data.get('foreign_exhaustion_ratio', 0),
+
+        # 투자의견 상세
+        'opinion_score': all_data.get('opinion_score', 0),
+
+        # PER/PBR 상세
+        'eps': all_data.get('eps', 0),
+        'estimated_per': all_data.get('estimated_per', 0),
+        'estimated_eps': all_data.get('estimated_eps', 0),
+        'bps': all_data.get('bps', 0),
+
+        # 업종 비교
+        'sector_per': all_data.get('sector_per', 0),
+        'sector_change_rate': all_data.get('sector_change_rate', 0),
+
+        # 재무 상세
+        'revenue': all_data.get('revenue', 'N/A'),
+        'operating_profit': all_data.get('operating_profit', 'N/A'),
+        'net_profit': all_data.get('net_profit', 'N/A'),
+        'roe': all_data.get('roe', 0),
+        'debt_ratio': all_data.get('debt_ratio', 0),
+        'current_ratio': all_data.get('current_ratio', 0),
+
+        # 기술적
+         'price_position_52w': all_data.get('price_position_52w', 0),
+         
+         # 추가 데이터 (뉴스, 수급 추세)
+         'news': all_data.get('news', []),
+         'foreign_5d_net': all_data.get('foreign_5d_net', 0),
+         'foreign_20d_net': all_data.get('foreign_20d_net', 0),
+         'inst_5d_net': all_data.get('inst_5d_net', 0),
+         'inst_20d_net': all_data.get('inst_20d_net', 0),
+         'ma5': all_data.get('ma5', 0),
+         'ma20': all_data.get('ma20', 0),
+     })
+
+    return data
+
+
+# ===== 기존 get_portfolio_details 함수는 주석 처리 (백업용) =====
+def get_portfolio_details_old(ticker):
+    """[DEPRECATED] 기존 함수 - get_all_naver_data로 대체됨"""
     # 1. 메인 페이지 데이터 (가격, 목표주가, 재무지표)
     main_url = f"https://finance.naver.com/item/main.naver?code={ticker}"
     # 2. 투자자별 매매동향 (수급)
@@ -442,32 +528,47 @@ def get_portfolio_details(ticker):
                     price_text = dd_list[3].text.split()[1].replace(',', '')
                     data['current_price'] = int(price_text)
                 
-        # 시가총액, 투자의견, 목표주가
-        aside = soup.find('div', class_='aside')
-        if aside:
-            tab_con1 = aside.find('div', id='_market_sum')
-            if tab_con1:
-                data['market_cap'] = tab_con1.get_text(strip=True).replace(',', '').replace('조', '조 ').replace('억원', '억')
-            
-            # 투자의견/목표주가 테이블 (rwidth 또는 다른 클래스)
-            cns_table = aside.find('table', class_='rwidth') or aside.find('table', class_='tb_type1')
-            if cns_table:
-                trs = cns_table.find_all('tr')
-                for tr in trs:
-                    tr_text = tr.get_text()
-                    if '투자의견' in tr_text:
-                        opinion_td = tr.find('span', class_='f_up') or tr.find('em') or tr.find('td')
-                        if opinion_td: data['opinion'] = opinion_td.get_text(strip=True)
-                    if '목표주가' in tr_text:
-                        target_td = tr.find('em') or tr.find('td')
-                        if target_td:
-                            target_val = re.sub(r'[^0-9]', '', target_td.get_text(strip=True))
-                            if target_val: data['target_price'] = int(target_val)
+        # 시가총액 (첫 번째 테이블에서 찾기)
+        first_tbody = soup.find('table', class_='tb_type1')
+        if first_tbody:
+            tbody = first_tbody.find('tbody')
+            if tbody:
+                for tr in tbody.find_all('tr'):
+                    th = tr.find('th')
+                    if th and '시가총액' in th.get_text():
+                        td = tr.find('td')
+                        if td:
+                            data['market_cap'] = td.get_text(strip=True)
+
+        # 투자의견/목표주가 (전체 페이지에서 검색 - HTML 구조 변경에 대응)
+        # 새로운 네이버 금융 구조: <th>투자의견l목표주가</th> <td><span>매수</span><em>166,385</em></td>
+        for tr in soup.find_all('tr'):
+            th = tr.find('th')
+            if th and '투자의견' in th.get_text() and '목표주가' in th.get_text():
+                td = tr.find('td')
+                if td:
+                    # 투자의견 (span 태그에서)
+                    opinion_span = td.find('span', class_='f_up') or td.find('span')
+                    if opinion_span:
+                        opinion_text = opinion_span.get_text(strip=True)
+                        # 숫자 제거 (예: "4.00매수" -> "매수")
+                        data['opinion'] = re.sub(r'^[\d.]+', '', opinion_text).strip()
+
+                    # 목표주가 (em 태그에서)
+                    ems = td.find_all('em')
+                    for em in ems:
+                        text = em.get_text(strip=True).replace(',', '')
+                        # 숫자만 있는 em 태그 찾기 (목표주가)
+                        if text.isdigit() and len(text) >= 4:  # 최소 4자리 (만원 이상)
+                            data['target_price'] = int(text)
+                            break
+                break
 
         # 재무 지표 (성장성 포함)
         section = soup.find('div', class_='section cop_analysis')
         if section:
-            table = section.find('table', class_='tb_type1 tb_num')
+            # 클래스가 tb_type1과 tb_num을 포함하는 테이블 찾기 (HTML 구조 변경 대응)
+            table = section.find('table', class_=lambda c: c and 'tb_type1' in c and 'tb_num' in c)
             if table:
                 trs = table.find_all('tr')
                 
@@ -533,32 +634,56 @@ def get_portfolio_details(ticker):
                 data['revenue_growth'] = finance_data['매출액증가율']
                 data['profit_growth'] = finance_data['영업이익증가율']
 
-        # 52주 고점/저점 및 PER/PBR
-        tab_section = soup.find('div', class_='tab_con1')
-        if tab_section:
-            trs = tab_section.find_all('tr')
-            for tr in trs:
-                tr_text = tr.get_text()
-                if '52주 최고' in tr_text:
-                    v = tr.find_all('em')
-                    if len(v) >= 2:
-                        data['high_52w'] = int(v[0].get_text(strip=True).replace(',', ''))
-                        data['low_52w'] = int(v[1].get_text(strip=True).replace(',', ''))
-                if 'PER' in tr_text and '배당' not in tr_text:
-                    per_em = tr.find('em', id='_per')
-                    if per_em: 
-                        val = per_em.get_text(strip=True).replace(',', '')
-                        if val and val != '-': data['per'] = float(val)
-                if 'PBR' in tr_text:
-                    pbr_em = tr.find('em', id='_pbr')
-                    if pbr_em:
-                        val = pbr_em.get_text(strip=True).replace(',', '')
-                        if val and val != '-': data['pbr'] = float(val)
-                if '배당수익률' in tr_text:
-                    d_em = tr.find('em', id='_dvr')
-                    if d_em:
-                        val = d_em.get_text(strip=True).replace(',', '').replace('%', '')
-                        if val and val != '-': data['dividend_yield'] = float(val)
+        # 52주 고점/저점 및 PER/PBR (전체 페이지에서 검색 - 구조 변경 대응)
+        all_trs = soup.find_all('tr')
+        for tr in all_trs:
+            tr_text = tr.get_text()
+            # 52주 고/저
+            if '52주' in tr_text and ('최고' in tr_text or '고가' in tr_text):
+                ems = tr.find_all('em')
+                if len(ems) >= 2:
+                    try:
+                        high_text = ems[0].get_text(strip=True).replace(',', '')
+                        low_text = ems[1].get_text(strip=True).replace(',', '')
+                        if high_text.isdigit():
+                            data['high_52w'] = int(high_text)
+                        if low_text.isdigit():
+                            data['low_52w'] = int(low_text)
+                    except:
+                        pass
+
+            # PER (ID 기반 검색이 더 안정적)
+            if 'PER' in tr_text and '배당' not in tr_text:
+                per_em = tr.find('em', id='_per')
+                if per_em:
+                    val = per_em.get_text(strip=True).replace(',', '')
+                    if val and val != '-' and val != 'N/A':
+                        try:
+                            data['per'] = float(val)
+                        except:
+                            pass
+
+            # PBR
+            if 'PBR' in tr_text:
+                pbr_em = tr.find('em', id='_pbr')
+                if pbr_em:
+                    val = pbr_em.get_text(strip=True).replace(',', '')
+                    if val and val != '-' and val != 'N/A':
+                        try:
+                            data['pbr'] = float(val)
+                        except:
+                            pass
+
+            # 배당수익률
+            if '배당수익률' in tr_text:
+                d_em = tr.find('em', id='_dvr')
+                if d_em:
+                    val = d_em.get_text(strip=True).replace(',', '').replace('%', '')
+                    if val and val != '-' and val != 'N/A':
+                        try:
+                            data['dividend_yield'] = float(val)
+                        except:
+                            pass
 
         # --- 수급 현황 (일별 매매동향) 파싱 ---
         frgn_response = requests.get(investor_url, headers=headers, timeout=5)
@@ -658,12 +783,30 @@ def get_my_stocks_status():
                 'low_52w': detail.get('low_52w', 0),
                 'per': detail.get('per', 0),
                 'pbr': detail.get('pbr', 0),
+                'eps': detail.get('eps', 0),
+                'bps': detail.get('bps', 0),
+                'sector_per': detail.get('sector_per', 0),
                 'dividend_yield': detail.get('dividend_yield', 0),
                 'revenue_growth': detail.get('revenue_growth', 'N/A'),
                 'profit_growth': detail.get('profit_growth', 'N/A'),
+                'roe': detail.get('roe', 0),
+                'debt_ratio': detail.get('debt_ratio', 0),
+                'revenue': detail.get('revenue', 'N/A'),
+                'operating_profit': detail.get('operating_profit', 'N/A'),
+                'net_profit': detail.get('net_profit', 'N/A'),
                 'foreign_net_buy': detail.get('foreign_net_buy', 0),
                 'inst_net_buy': detail.get('inst_net_buy', 0),
-                'rsi_pos': detail.get('rsi', 0) # 52주 고저점 대비 위치
+                'foreign_5d_net': detail.get('foreign_5d_net', 0),
+                'foreign_20d_net': detail.get('foreign_20d_net', 0),
+                'inst_5d_net': detail.get('inst_5d_net', 0),
+                'inst_20d_net': detail.get('inst_20d_net', 0),
+                'foreign_ownership_ratio': detail.get('foreign_ownership_ratio', 0),
+                'rsi_pos': detail.get('rsi', 0), # 52주 고저점 대비 위치
+                'news': detail.get('news', []),
+                'ma5': detail.get('ma5', 0),
+                'ma20': detail.get('ma20', 0),
+                'ma5_diff': detail.get('ma5_diff', 0),
+                'ma20_diff': detail.get('ma20_diff', 0)
             })
             
         return jsonify(results)
@@ -889,6 +1032,70 @@ def ai_analyze_portfolio():
         return jsonify({'success': True, 'result': result_text})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/news_search', methods=['GET'])
+def news_search():
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify([])
+    
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        import urllib.parse
+        
+        encoded_query = urllib.parse.quote(query.encode('euc-kr'))
+        url = f"https://finance.naver.com/news/news_search.naver?q={encoded_query}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        # Naver news search uses euc-kr
+        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        
+        news_list = []
+        # Naver Finance news search result structure
+        items = soup.select('.newsList dt.articleSubject, .newsList dd.articleSubject')
+        # Sometimes it's just .newsList dl
+        if not items:
+            items = soup.select('.newsList dl dt a')
+            
+        # Let's try a more robust selector
+        articles = soup.select('.newsList dl')
+        for art in articles:
+            subject_a = art.select_one('dt.articleSubject a, dd.articleSubject a, dt a')
+            if not subject_a: continue
+            
+            title = subject_a.get_text(strip=True)
+            link = "https://finance.naver.com" + subject_a['href']
+            
+            summary = ""
+            summary_el = art.select_one('dd.articleSummary')
+            if summary_el:
+                # Remove span (source/date) from summary
+                for span in summary_el.find_all('span'):
+                    span.decompose()
+                summary = summary_el.get_text(strip=True)
+            
+            source = ""
+            date = ""
+            info_el = art.select_one('.press, .wdate')
+            # Naver search results have press and date in different spans usually
+            press_el = art.select_one('.press')
+            date_el = art.select_one('.wdate')
+            if press_el: source = press_el.get_text(strip=True)
+            if date_el: date = date_el.get_text(strip=True)
+            
+            news_list.append({
+                'title': title,
+                'link': link,
+                'summary': summary,
+                'source': source,
+                'date': date
+            })
+            
+        return jsonify(news_list[:20])
+    except Exception as e:
+        print(f"News search error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/sync', methods=['POST'])
 def sync_data():

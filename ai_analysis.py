@@ -29,27 +29,19 @@ def format_ai_error(e):
         match = re.search(r"(?:retry after|try again in) ([\d\.]+s|[\d\.]+ms|[\d\.]+초|[\d\.]+ (?:seconds|second|minutes|minute))", err_msg, re.IGNORECASE)
         if match:
             delay = match.group(1).replace('seconds', '초').replace('second', '초').replace('minutes', '분').replace('minute', '분')
-            return f"현재 사용량이 초과되었습니다. {delay} 후에 다시 시도해 주세요. (429 Resource Exhausted)"
+            return f"구글 AI 서비스의 일시적인 요청 제한(Rate Limit)이 발생했습니다. 약 {delay} 정도 여유를 두고 다시 시도해 주세요. (429 Resource Exhausted)"
         
-        # 2. JSON 구조 내 retryDelay 패턴: 'retryDelay': '13s'
+        # 2. JSON 구조 내 retryDelay 패턴
         delay_match = re.search(r"['\"]retryDelay['\"]\s*:\s*['\"]([\d\.]+s|[\d\.]+ms)['\"]", err_msg)
         if delay_match:
             delay = delay_match.group(1)
-            if delay.endswith('s'):
-                try:
-                    num_sec = float(delay[:-1])
-                    delay = f"{num_sec:.1f}초"
-                except:
-                    delay = delay.replace('s', '초')
-            elif delay.endswith('ms'):
-                delay = delay.replace('ms', '밀리초')
-            return f"현재 사용량이 초과되었습니다. {delay} 후에 다시 시도해 주세요. (429 Resource Exhausted)"
+            return f"구글 AI 서비스의 일시적인 요청 제한이 발생했습니다. 약 {delay} 후에 다시 시도해 주세요. (429 Resource Exhausted)"
         
         # 3. 모델 할당량 초과 메시지 패턴
         if "Quota exceeded" in err_msg:
-            return f"현재 모델의 분당 요청 제한(RPM) 또는 토큰 제한(TPM)에 도달했습니다. 약 1분 후 다시 시도해 주세요. (429 Resource Exhausted)"
+            return f"현재 AI 모델의 분당 요청 제한(RPM)에 도달했습니다. 무료 버전의 제한으로 인해 약 1분 후 다시 시도해 주시기 바랍니다."
             
-        return f"현재 AI 서비스 할당량을 모두 사용했습니다. 잠시 후(1~2분) 다시 시도해 주세요. ({err_msg})"
+        return f"현재 AI 서비스의 일시적인 사용량 제한이 발생했습니다. 잠시 후(1~2분) 다시 시도해 주세요. ({err_msg})"
         
     return f"오류가 발생했습니다: {err_msg}"
 
@@ -66,15 +58,10 @@ def analyze_stock_data(file_path):
     try:
         # 엑셀 데이터 로드
         df = pd.read_excel(file_path)
-        
-        # 데이터 요약 (너무 많으면 API 토큰 제한에 걸릴 수 있으므로 상위 30개 정도만 요약)
-        # 주요 지표 위주로 텍스트 변환
         data_summary = df.head(30).to_string(index=False)
         
-        # Gemini 설정 (새로운 google-genai SDK 사용)
         client = genai.Client(api_key=GEMINI_API_KEY)
-        # 무료 등급 할당량이 가장 넉넉한 gemini-2.0-flash 사용
-        model_id = 'gemini-2.0-flash'
+        model_id = 'gemini-2.5-flash'  # 2.0-flash 무료 티어 비활성화로 변경
         
         prompt = f"""
         너는 전문 주식 퀀트 투자 분석가이자 시장 전략가야. 
@@ -98,54 +85,113 @@ def analyze_stock_data(file_path):
            - 각 종목별로 **추천 이유**, **핵심 섹터**, **투자 포인트**를 명확하게 구분해서 작성해줘.
            - 현재 시장 트렌드와 데이터상의 수치를 결합하여 왜 이 종목이 선정되었는지 논리적으로 설명해줘.
 
-        2. **종목별 상세 수치 데이터 분석 (표 형식 필수)**:
-           - 선정된 5개 종목 각각에 대해, **데이터가 존재하는 주요 지표들만** 선별하여 **마크다운 표(Table) 형식**으로 정리해줘.
-           - 성장성 지표(매출/영업이익/순이익 증가율)가 있다면 반드시 포함하여 전년 대비 실적 추이를 보여줘.
-           - 특히 PBR, PER의 경우 업종평균 수치와 비교하여 해당 종목이 저평가 상태인지 분석해줘.
+        2. **시장 트렌드 분석**:
+           - 현재 데이터에서 보이는 주요 업종별 흐름이나 특징적인 지표 변화를 분석해줘.
+           - 투자자들이 유의해야 할 리스크 요인이나 기회 요인을 짚어줘.
 
-        3. **산업 테마 및 최신 동향 분석**:
-           - 현재 시장을 주도하는 테마와 선정된 종목들의 연관성을 분석해줘.
-
-        4. **시장 전망 및 투자 전략**:
-           - 향후 대응 전략과 리스크 요인을 전문가의 시각에서 조언해줘.
-
-        **작성 가이드라인:**
-        - **친절한 디자인**: 종목명이 크게 보일 수 있도록 `###` 헤더를 절대 잊지 마.
-        - **가독성**: 문단과 문단 사이, 섹션과 섹션 사이에는 빈 줄을 2개 이상 넣어 여유 있게 배치해줘.
-        - **이모지**: 적절한 이모지를 사용하여 리포트가 딱딱하지 않고 친절하게 느껴지도록 해줘.
-        - 답변은 한국어로, 전문적이면서도 친절한 어조로 작성해줘.
+        3. **결론 및 투자 전략**:
+           - 향후 시장 대응을 위한 구체적인 전략을 제안해줘.
         """
-        
-        # 새로운 SDK 방식으로 호출
-        response = client.models.generate_content(
-            model=model_id,
-            contents=prompt
-        )
-        return response.text
+
+        import time
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=model_id,
+                    contents=prompt
+                )
+                return response.text
+            except Exception as e:
+                err_msg = str(e)
+                if ("429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg) and attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 5
+                    print(f"AI 분석 제한 발생 (시도 {attempt+1}/{max_retries}). {wait_time}초 후 재시도합니다...")
+                    time.sleep(wait_time)
+                    continue
+                raise e
 
     except Exception as e:
-        raise AIAnalysisError(format_ai_error(e))
+        return format_ai_error(e)
 
 def analyze_portfolio(portfolio_data):
     """
-    수집된 포트폴리오 데이터를 바탕으로 AI에게 매수/보유/매도 의견을 요청합니다.
+    사용자의 포트폴리오 데이터를 분석하여 투자 의견을 생성합니다.
     """
     if not GEMINI_API_KEY:
-        return "Gemini API 키가 설정되지 않았습니다."
+        raise AIAnalysisError("Gemini API 키가 설정되지 않았습니다.")
 
     try:
-        # 데이터 요약
         data_str = ""
         for s in portfolio_data:
-            data_str += f"- 종목: {s['name']}({s['code']})\n"
-            data_str += f"  현재가: {s['current_price']}원, 평단가: {s['purchase_price']}원, 수익률: {s['profit_rate']}%\n"
-            data_str += f"  투자의견: {s['opinion']}, 목표가: {s['target_price']}원\n"
-            data_str += f"  실적성장: 매출 {s['revenue_growth']}%, 이익 {s['profit_growth']}%\n"
-            data_str += f"  수급(5일): 외인 {s['foreign_net_buy']}주, 기관 {s['inst_net_buy']}주\n"
-            data_str += f"  지표: PBR {s['pbr']}, PER {s['per']}, 52주내 위치: {s['rsi_pos']}%\n\n"
+            name = s.get('name', s.get('code', ''))
+            data_str += f"- 종목: {name}({s.get('code', '')})\n"
+
+            # 기본 정보
+            data_str += f"  현재가: {s.get('current_price', 0):,}원, 평단가: {s.get('purchase_price', 0):,}원, 수익률: {s.get('profit_rate', 0)}%\n"
+
+            # 투자의견 상세
+            opinion = s.get('opinion', 'N/A')
+            opinion_score = s.get('opinion_score', 0)
+            target_price = s.get('target_price', 0)
+            if opinion_score > 0:
+                data_str += f"  투자의견: {opinion} (점수: {opinion_score}/5.0), 목표가: {target_price:,}원\n"
+            else:
+                data_str += f"  투자의견: {opinion}, 목표가: {target_price:,}원\n"
+
+            # 밸류에이션
+            per = s.get('per', 0)
+            pbr = s.get('pbr', 0)
+            sector_per = s.get('sector_per', 0)
+            if sector_per > 0:
+                data_str += f"  밸류: PER {per} (업종 {sector_per}), PBR {pbr}\n"
+            else:
+                data_str += f"  밸류: PER {per}, PBR {pbr}\n"
+
+            # 성장성
+            rev_growth = s.get('revenue_growth', 'N/A')
+            prof_growth = s.get('profit_growth', 'N/A')
+            data_str += f"  성장성: 매출 {rev_growth}%, 영업이익 {prof_growth}%\n"
+
+            # 재무 건전성
+            roe = s.get('roe', 0)
+            debt_ratio = s.get('debt_ratio', 0)
+            if roe > 0 or debt_ratio > 0:
+                data_str += f"  재무: ROE {roe}%, 부채비율 {debt_ratio}%\n"
+
+            # 외국인 정보
+            foreign_ratio = s.get('foreign_ownership_ratio', 0)
+            if foreign_ratio > 0:
+                data_str += f"  외국인 보유율: {foreign_ratio}%\n"
+
+            # 기술적 지표
+            price_pos = s.get('price_position_52w', s.get('rsi_pos', 0))
+            ma5_diff = s.get('ma5_diff', 0)
+            ma20_diff = s.get('ma20_diff', 0)
+            data_str += f"  기술적 지표: 52주 위치 {price_pos}%, MA5 이격도 {ma5_diff}%, MA20 이격도 {ma20_diff}%\n"
+
+            # 시가총액
+            market_cap_rank = s.get('market_cap_rank', '')
+            if market_cap_rank and market_cap_rank != 'N/A':
+                data_str += f"  시총 순위: {market_cap_rank}\n"
+
+            # 수급 정보
+            f_5d = s.get('foreign_5d_net', 0)
+            i_5d = s.get('inst_5d_net', 0)
+            f_20d = s.get('foreign_20d_net', 0)
+            i_20d = s.get('inst_20d_net', 0)
+            data_str += f"  수급: 외인(5일) {f_5d:,}, 기관(5일) {i_5d:,} / 외인(20일) {f_20d:,}, 기관(20일) {i_20d:,}\n"
+
+            # 최신 뉴스
+            news_list = s.get('news', [])
+            if news_list:
+                news_titles = [n.get('title', '') for n in news_list[:3]]
+                data_str += f"  최신 뉴스: {', '.join(news_titles)}\n"
+
+            data_str += "\n"
 
         client = genai.Client(api_key=GEMINI_API_KEY)
-        model_id = 'gemini-2.0-flash'
+        model_id = 'gemini-2.5-flash'  # 2.0-flash 무료 티어 비활성화로 변경
 
         prompt = f"""
         너는 대한민국 주식 시장의 베테랑 펀드매니저이자 투자 전략가야. 
@@ -158,7 +204,9 @@ def analyze_portfolio(portfolio_data):
         1. **종합 총평**: 현재 포트폴리오의 건강 상태(수익성, 리스크, 섹터 집중도 등)를 먼저 짧게 요약해줘.
         2. **종목별 진단 (### 종목명 형식 필수)**:
            - **결론**: 명확하게 [매수/보유/매도/비중축소] 의견 제시.
-           - **상세 분석**: 평단가 대비 수익률, 전문가 목표가와의 괴리율, 실적 성장성, 최근 수급 상황을 종합적으로 분석해줘. 
+           - **상세 분석**: 평단가 대비 수익률, 전문가 목표가와의 괴리율, 실적 성장성, 최근 수급 상황을 종합적으로 분석해줘.
+           - **기술적 분석**: 제공된 이동평균선(MA5, MA20) 이격도를 바탕으로 현재 주가가 단기/중기적으로 과열권인지, 혹은 반등 구간인지 진단해줘.
+           - **뉴스 및 심리 분석**: 최신 뉴스 제목들을 바탕으로 현재 시장의 심리(긍정/부정/중립)를 파악하고, 이것이 향후 주가에 미칠 영향을 분석해줘.
            - **대응 전략**: 언제 팔아야 할지(익절가), 혹은 언제 더 사야 할지 구체적인 가이드를 줘.
         3. **시장 대응 제언**: 현재 시장 상황에서 유의해야 할 리스크나 기회 요인을 조언해줘.
 
@@ -167,13 +215,26 @@ def analyze_portfolio(portfolio_data):
         - 수치를 적극적으로 활용하여 논리적인 근거를 제시해줘.
         - 마크다운 형식을 사용하여 가독성 있게 작성해줘 (표, 불렛포인트 등 활용).
         - 답변은 한국어로 작성해줘.
+        - **주의**: '몇 초 후에 실행하라'와 같은 비현실적인 시간 기반 조언은 배제하고, 가격대나 지표 기반의 전략을 제시해줘.
         """
 
-        response = client.models.generate_content(
-            model=model_id,
-            contents=prompt
-        )
-        return response.text
+        import time
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=model_id,
+                    contents=prompt
+                )
+                return response.text
+            except Exception as e:
+                err_msg = str(e)
+                if ("429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg) and attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 5
+                    print(f"포트폴리오 AI 분석 제한 발생 (시도 {attempt+1}/{max_retries}). {wait_time}초 후 재시도합니다...")
+                    time.sleep(wait_time)
+                    continue
+                raise e
 
     except Exception as e:
         raise AIAnalysisError(format_ai_error(e))

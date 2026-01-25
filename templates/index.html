@@ -255,10 +255,11 @@
                     <input type="text" id="myStockCode" placeholder="코드"
                         style="flex: 0.5; min-width: 80px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); font-size: 16px;"
                         readonly>
-                    <input type="number" id="myStockPrice" placeholder="매입단가"
-                        style="flex: 1; min-width: 120px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px;">
+                    <input type="text" id="myStockPrice" placeholder="매입단가"
+                        oninput="this.value = formatNumber(this.value)"
+                        style="flex: 1; min-width: 120px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px; text-align: right;">
                     <input type="number" id="myStockQty" placeholder="보유수량"
-                        style="flex: 1; min-width: 100px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px;">
+                        style="flex: 1; min-width: 100px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px; text-align: right;">
                     <button class="btn" onclick="addMyStock()"
                         style="padding: 0 40px; height: 60px; font-size: 16px;">추가</button>
                 </div>
@@ -289,6 +290,8 @@
             </div>
         </div>
 
+        
+
         {% if not is_local %}
         <p style="text-align: center; color: #94a3b8; font-size: 13px; margin-top: 32px;">
             ⚠️ 운영 서버에서는 보안 및 성능상의 이유로 데이터 수집 기능이 제한됩니다.<br>
@@ -300,6 +303,13 @@
     <div id="toastContainer" class="toast-container"></div>
 
     <script>
+        function formatNumber(n) {
+            return n.toString().replace(/\D/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+        function unformatNumber(s) {
+            return s.toString().replace(/,/g, "");
+        }
+
         let currentTaskId = null;
         let statusCheckInterval = null;
         let currentAiResult = "";
@@ -310,7 +320,8 @@
         function switchTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(btn => {
                 btn.classList.remove('active');
-                if (btn.textContent.includes(tabId === 'analysis' ? '종목 분석' : '내 종목 관리')) {
+                const label = tabId === 'analysis' ? '종목 분석' : '내 종목 관리';
+                if (btn.textContent.includes(label)) {
                     btn.classList.add('active');
                 }
             });
@@ -413,15 +424,16 @@
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; margin-top: 4px;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <span style="font-size: 11px; color: var(--text-muted);">평단(원)</span>
-                                    <input type="number" value="${stock.purchase_price || 0}" 
+                                    <input type="text" value="${(stock.purchase_price || 0).toLocaleString()}" 
+                                        oninput="this.value = formatNumber(this.value)"
                                         onchange="updateStockDetail('${stock.code}', 'price', this.value)"
-                                        style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #94a3b8; font-weight: 600; padding: 4px 8px; font-size: 13px;">
+                                        style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #94a3b8; font-weight: 600; padding: 4px 8px; font-size: 13px; text-align: right;">
                                 </div>
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <span style="font-size: 11px; color: var(--text-muted);">수량(주)</span>
                                     <input type="number" value="${stock.quantity || 0}" 
                                         onchange="updateStockDetail('${stock.code}', 'qty', this.value)"
-                                        style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #94a3b8; font-weight: 600; padding: 4px 8px; font-size: 13px;">
+                                        style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #94a3b8; font-weight: 600; padding: 4px 8px; font-size: 13px; text-align: right;">
                                 </div>
                             </div>
                         </div>
@@ -449,22 +461,61 @@
                     let totalAssetValue = 0;
                     let totalInvested = 0;
 
+                    // 모든 종목의 뉴스 수집 및 정렬
+                    let allNews = [];
+                    data.forEach(stock => {
+                        if (stock.news && Array.isArray(stock.news)) {
+                            stock.news.forEach(n => {
+                                n.stockName = stock.name;
+                                allNews.push(n);
+                            });
+                        }
+                    });
+                    allNews.sort((a, b) => b.date.localeCompare(a.date));
+
                     let html = `
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-                            <h4 style="margin: 0; font-size: 20px; color: white; font-family: 'Outfit', sans-serif;">📊 포트폴리오 정밀 분석</h4>
-                            <span style="font-size: 12px; color: var(--text-muted);">실시간 데이터 반영 (실적/수급/기술적 지표 포함)</span>
+                            <h4 style="margin: 0; font-size: 24px; color: white; font-family: 'Outfit', sans-serif; font-weight: 800; letter-spacing: -0.5px;">📊 포트폴리오 정밀 분석 리포트</h4>
+                            <div style="text-align: right;">
+                                <div style="font-size: 12px; color: var(--text-muted);">실시간 데이터 반영 완료</div>
+                                <div style="font-size: 10px; color: #6366f1; font-weight: 600;">수급/실적/기술적 지표 종합 분석</div>
+                            </div>
                         </div>
 
-                        <div style="overflow-x: auto; margin-bottom: 32px; background: rgba(0,0,0,0.2); border-radius: 16px;">
-                            <table style="width: 100%; border-collapse: collapse; color: white; font-size: 13px; min-width: 1000px;">
+                        ${allNews.length > 0 ? `
+                        <div style="margin-bottom: 32px; padding: 24px; background: rgba(99, 102, 241, 0.05); border-radius: 24px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
+                                <span style="font-size: 20px;">📰</span>
+                                <h5 style="margin: 0; font-size: 18px; color: white; font-weight: 700;">내 종목 주요 뉴스 및 공시</h5>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
+                                ${allNews.slice(0, 6).map(news => `
+                                    <div style="padding: 16px; background: rgba(255,255,255,0.03); border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.06)'; this.style.borderColor='rgba(99, 102, 241, 0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'; this.style.borderColor='rgba(255,255,255,0.05)'">
+                                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center;">
+                                            <span style="font-size: 11px; color: #10b981; font-weight: 800; background: rgba(16, 185, 129, 0.1); padding: 2px 8px; border-radius: 6px;">${news.stockName}</span>
+                                            <span style="font-size: 11px; color: var(--text-muted);">${news.date}</span>
+                                        </div>
+                                        <div style="font-size: 14px; font-weight: 600; line-height: 1.5; margin-bottom: 8px;">
+                                            <a href="${news.link}" target="_blank" style="color: #e2e8f0; text-decoration: none;">${news.title}</a>
+                                        </div>
+                                        <div style="font-size: 11px; color: #6366f1; font-weight: 600;">${news.source}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <div style="overflow-x: auto; margin-bottom: 32px; background: rgba(0,0,0,0.3); border-radius: 24px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 20px 50px rgba(0,0,0,0.3);">
+                            <table style="width: 100%; border-collapse: collapse; color: white; font-size: 13px; min-width: 1200px;">
                                 <thead>
-                                    <tr style="border-bottom: 2px solid rgba(255,255,255,0.1); text-align: left; background: rgba(255,255,255,0.02);">
-                                        <th style="padding: 16px;">종목</th>
-                                        <th style="padding: 16px;">수익 현황</th>
-                                        <th style="padding: 16px;">전문 분석(목표가)</th>
-                                        <th style="padding: 16px;">성장성(YoY)</th>
-                                        <th style="padding: 16px;">수급(5일)</th>
-                                        <th style="padding: 16px;">지표 / 위치</th>
+                                    <tr style="border-bottom: 2px solid rgba(255,255,255,0.1); text-align: left; background: rgba(255,255,255,0.03);">
+                                        <th style="padding: 20px 16px;">종목 정보</th>
+                                        <th style="padding: 20px 16px;">수익/평가</th>
+                                        <th style="padding: 20px 16px;">투자 의견</th>
+                                        <th style="padding: 20px 16px;">실적/성장</th>
+                                        <th style="padding: 20px 16px;">재무/배당</th>
+                                        <th style="padding: 20px 16px;">수급/외인</th>
+                                        <th style="padding: 20px 16px;">밸류/위치</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -483,39 +534,105 @@
                         else if (stock.opinion.includes('매도') || stock.opinion.includes('Sell')) opinionColor = '#ef4444';
 
                         // 수급 색상
-                        const fBuyColor = stock.foreign_net_buy > 0 ? '#10b981' : (stock.foreign_net_buy < 0 ? '#ef4444' : 'white');
-                        const iBuyColor = stock.inst_net_buy > 0 ? '#10b981' : (stock.inst_net_buy < 0 ? '#ef4444' : 'white');
+                        const fBuyColor = stock.foreign_5d_net > 0 ? '#10b981' : (stock.foreign_5d_net < 0 ? '#ef4444' : 'white');
+                        const iBuyColor = stock.inst_5d_net > 0 ? '#10b981' : (stock.inst_5d_net < 0 ? '#ef4444' : 'white');
 
                         html += `
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
-                                <td style="padding: 16px;">
-                                    <div style="font-weight: 700; font-size: 15px;">${stock.name}</div>
-                                    <div style="font-size: 11px; color: var(--text-muted);">${stock.code} | 시총: ${stock.market_cap}</div>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='transparent'">
+                                <td style="padding: 20px 16px;">
+                                    <div style="font-weight: 800; font-size: 16px; color: white; margin-bottom: 4px;">${stock.name}</div>
+                                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">${stock.code} | ${stock.market_cap}</div>
+                                    ${stock.news && stock.news.length > 0 ? `
+                                        <div style="margin-top: 10px; padding: 10px; background: rgba(99, 102, 241, 0.05); border-radius: 10px; border: 1px solid rgba(99, 102, 241, 0.1);">
+                                            <div style="color: #818cf8; font-size: 10px; font-weight: 800; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                                                <span>📰</span> 최신 뉴스
+                                            </div>
+                                            ${stock.news.slice(0, 2).map(n => `
+                                                <div style="margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
+                                                    <a href="${n.link}" target="_blank" style="color: #94a3b8; text-decoration: none;">• ${n.title}</a>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    ` : ''}
                                 </td>
-                                <td style="padding: 16px;">
-                                    <div style="color: ${profitColor}; font-weight: 800; font-size: 15px;">${profitSign}${stock.profit_rate}%</div>
-                                    <div style="font-size: 11px; color: var(--text-muted);">현재: ${stock.current_price.toLocaleString()}원</div>
+                                <td style="padding: 20px 16px;">
+                                    <div style="color: ${profitColor}; font-weight: 900; font-size: 18px; margin-bottom: 4px;">${profitSign}${stock.profit_rate}%</div>
+                                    <div style="font-size: 12px; color: white; font-weight: 600;">${(stock.current_price || 0).toLocaleString()}원</div>
+                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">평단: ${(stock.purchase_price || 0).toLocaleString()}원</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">보유: ${stock.quantity}주</div>
                                 </td>
-                                <td style="padding: 16px;">
-                                    <span style="padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); color: ${opinionColor}; font-weight: 600; font-size: 11px;">${stock.opinion}</span>
-                                    <div style="font-weight: 600; margin-top: 4px;">${stock.target_price > 0 ? stock.target_price.toLocaleString() + '원' : '-'}</div>
-                                </td>
-                                <td style="padding: 16px;">
-                                    <div style="font-size: 12px;">매출: <span style="font-weight:600; color:${stock.revenue_growth.includes('-') ? '#3b82f6' : '#10b981'}">${stock.revenue_growth}%</span></div>
-                                    <div style="font-size: 12px;">이익: <span style="font-weight:600; color:${stock.profit_growth.includes('-') ? '#3b82f6' : '#10b981'}">${stock.profit_growth}%</span></div>
-                                </td>
-                                <td style="padding: 16px;">
-                                    <div style="font-size: 11px; color: ${fBuyColor};">외인: ${stock.foreign_net_buy.toLocaleString()}주</div>
-                                    <div style="font-size: 11px; color: ${iBuyColor};">기관: ${stock.inst_net_buy.toLocaleString()}주</div>
-                                </td>
-                                <td style="padding: 16px;">
-                                    <div style="font-size: 11px; color: var(--text-muted);">PBR ${stock.pbr} / PER ${stock.per}</div>
-                                    <div style="width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 6px; position: relative;" title="52주 고저점 내 주가 위치">
-                                        <div style="position: absolute; left: ${stock.rsi_pos}%; top: -3px; width: 10px; height: 10px; background: white; border-radius: 50%; box-shadow: 0 0 5px rgba(255,255,255,0.8);"></div>
+                                <td style="padding: 20px 16px;">
+                                    <div style="margin-bottom: 8px;">
+                                        <span style="padding: 4px 10px; border-radius: 8px; background: ${opinionColor}20; color: ${opinionColor}; font-weight: 800; font-size: 12px; border: 1px solid ${opinionColor}40;">${stock.opinion}</span>
                                     </div>
-                                    <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: 4px;">
-                                        <span>52주 최저</span>
-                                        <span>52주 최고</span>
+                                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">목표가</div>
+                                    <div style="font-weight: 800; font-size: 15px; color: white;">${stock.target_price > 0 ? (stock.target_price || 0).toLocaleString() + '원' : '-'}</div>
+                                    ${stock.target_price > 0 ? `
+                                        <div style="font-size: 11px; color: #10b981; font-weight: 700; margin-top: 4px;">
+                                            상승여력: ${Math.round((stock.target_price - stock.current_price) / stock.current_price * 100)}%
+                                        </div>
+                                    ` : ''}
+                                </td>
+                                <td style="padding: 20px 16px;">
+                                    <div style="margin-bottom: 10px;">
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">매출액</div>
+                                        <div style="font-weight: 700; color: white;">${stock.revenue}</div>
+                                        <div style="font-size: 11px; color: ${stock.revenue_growth.includes('-') ? '#3b82f6' : '#10b981'}; font-weight: 700;">(YoY ${stock.revenue_growth}%)</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">영업이익</div>
+                                        <div style="font-weight: 700; color: white;">${stock.operating_profit}</div>
+                                        <div style="font-size: 11px; color: ${stock.profit_growth.includes('-') ? '#3b82f6' : '#10b981'}; font-weight: 700;">(YoY ${stock.profit_growth}%)</div>
+                                    </div>
+                                </td>
+                                <td style="padding: 20px 16px;">
+                                    <div style="margin-bottom: 8px;">
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">ROE / 부채비율</div>
+                                        <div style="font-weight: 700; color: white;">${stock.roe}% / ${stock.debt_ratio}%</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">배당수익률</div>
+                                        <div style="font-weight: 700; color: #f59e0b;">${stock.dividend_yield}%</div>
+                                    </div>
+                                </td>
+                                <td style="padding: 20px 16px;">
+                                    <div style="margin-bottom: 8px;">
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">외인 지분율</div>
+                                        <div style="font-weight: 700; color: white;">${stock.foreign_ownership_ratio}%</div>
+                                    </div>
+                                    <div style="font-size: 11px; color: ${fBuyColor}; font-weight: 600;">외인(5일): ${stock.foreign_5d_net > 0 ? '+' : ''}${(stock.foreign_5d_net || 0).toLocaleString()}</div>
+                                    <div style="font-size: 11px; color: ${iBuyColor}; font-weight: 600;">기관(5일): ${stock.inst_5d_net > 0 ? '+' : ''}${(stock.inst_5d_net || 0).toLocaleString()}</div>
+                                    <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
+                                        20일: ${stock.foreign_20d_net > 0 ? '+' : ''}${(stock.foreign_20d_net || 0).toLocaleString()} / ${stock.inst_20d_net > 0 ? '+' : ''}${(stock.inst_20d_net || 0).toLocaleString()}
+                                    </div>
+                                </td>
+                                <td style="padding: 20px 16px;">
+                                    <div style="margin-bottom: 12px;">
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">PER / PBR</div>
+                                        <div style="font-weight: 700; color: white;">${stock.per}배 / ${stock.pbr}배</div>
+                                        <div style="font-size: 10px; color: #94a3b8;">(업종 PER: ${stock.sector_per}배)</div>
+                                    </div>
+                                    <div style="margin-bottom: 12px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05);">
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">기술적 지표 (이평선)</div>
+                                        <div style="display: flex; gap: 8px; font-size: 11px;">
+                                            <div style="flex: 1; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                                                <div style="color: #94a3b8; font-size: 9px;">MA5</div>
+                                                <div style="color: ${stock.ma5_diff >= 0 ? '#ef4444' : '#3b82f6'}; font-weight: 700;">${stock.ma5_diff > 0 ? '+' : ''}${stock.ma5_diff}%</div>
+                                            </div>
+                                            <div style="flex: 1; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                                                <div style="color: #94a3b8; font-size: 9px;">MA20</div>
+                                                <div style="color: ${stock.ma20_diff >= 0 ? '#ef4444' : '#3b82f6'}; font-weight: 700;">${stock.ma20_diff > 0 ? '+' : ''}${stock.ma20_diff}%</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">52주 가격 위치</div>
+                                    <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; position: relative;" title="52주 고저점 내 주가 위치">
+                                        <div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981, #ef4444); opacity: 0.2; border-radius: 3px;"></div>
+                                        <div style="position: absolute; left: ${stock.rsi_pos}%; top: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px; background: white; border-radius: 50%; box-shadow: 0 0 10px rgba(255,255,255,0.8); border: 2px solid #6366f1; z-index: 2;"></div>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: 6px; font-weight: 600;">
+                                        <span>LOW</span>
+                                        <span>HIGH</span>
                                     </div>
                                 </td>
                             </tr>
@@ -594,7 +711,7 @@
             const qtyInput = document.getElementById('myStockQty');
             const code = codeInput.value.trim();
             const name = nameInput.value.trim();
-            const price = parseFloat(priceInput.value) || 0;
+            const price = parseFloat(unformatNumber(priceInput.value)) || 0;
             const qty = parseInt(qtyInput.value) || 0;
             if (!code) {
                 showToast('종목을 선택하거나 코드를 입력해주세요.', 'error');
@@ -636,7 +753,7 @@
 
         function updateStockDetail(code, type, value) {
             const payload = {};
-            if (type === 'price') payload.purchase_price = parseFloat(value) || 0;
+            if (type === 'price') payload.purchase_price = parseFloat(unformatNumber(value)) || 0;
             if (type === 'qty') payload.quantity = parseInt(value) || 0;
 
             fetch(`/api/my_stocks/${code}`, {
@@ -916,6 +1033,10 @@
             document.getElementById('aiModal').style.display = 'none';
             document.body.style.overflow = 'auto';
         }
+
+        
+
+            
 
         window.onclick = function (event) {
             if (event.target == document.getElementById('aiModal')) closeAiModal();
