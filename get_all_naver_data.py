@@ -483,20 +483,6 @@ def get_all_naver_data(ticker):
         traceback.print_exc()
         return data
 
-def get_extra_stock_data(ticker, name, headers):
-    """뉴스 및 수급 추세 데이터를 추가로 수집합니다."""
-    extra = {
-        'news': [],
-        'foreign_5d_net': 0,
-        'foreign_20d_net': 0,
-        'inst_5d_net': 0,
-        'inst_20d_net': 0,
-        'ma5': 0,
-        'ma20': 0,
-        'ma60': 0,
-        'ma120': 0
-    }
-    
 def get_moving_averages(ticker, headers):
     """
     네이버 금융 일별 시세 페이지에서 최근 20일 종가를 가져와 5일, 20일 이동평균선을 계산합니다.
@@ -591,29 +577,46 @@ def get_extra_stock_data(ticker, name, headers):
         news_url = f"https://finance.naver.com/news/news_search.naver?q={encoded_query}"
         res = requests.get(news_url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
-        
-        articles = soup.select('.newsList dl')
-        for art in articles:
-            subject_a = art.select_one('dt.articleSubject a, dd.articleSubject a, dt a')
-            if not subject_a: continue
-            
-            title = subject_a.get_text(strip=True)
-            link = "https://finance.naver.com" + subject_a['href']
-            
-            source = ""
-            date = ""
-            press_el = art.select_one('.press')
-            date_el = art.select_one('.wdate')
-            if press_el: source = press_el.get_text(strip=True)
-            if date_el: date = date_el.get_text(strip=True)
-            
-            extra['news'].append({
-                'title': title,
-                'link': link,
-                'source': source,
-                'date': date
-            })
-            if len(extra['news']) >= 5: break
+
+        # newsList는 dl 요소 자체이며, 내부에 dt/dd 쌍으로 기사가 나열됨
+        news_dl = soup.select_one('dl.newsList')
+        if news_dl:
+            # articleSubject를 가진 모든 요소 찾기 (dt 또는 dd)
+            subject_elements = news_dl.select('dt.articleSubject, dd.articleSubject')
+            for subj_el in subject_elements:
+                if len(extra['news']) >= 5:
+                    break
+
+                link_el = subj_el.select_one('a')
+                if not link_el:
+                    continue
+
+                title = link_el.get_text(strip=True)
+                href = link_el.get('href', '')
+                link = "https://finance.naver.com" + href if href.startswith('/') else href
+
+                # 다음 형제 요소에서 press/date 찾기
+                source = ""
+                date = ""
+
+                # articleSummary는 보통 바로 다음 dd 형제에 있음
+                next_sibling = subj_el.find_next_sibling()
+                if next_sibling and 'articleSummary' in next_sibling.get('class', []):
+                    press_el = next_sibling.select_one('.press')
+                    date_el = next_sibling.select_one('.wdate')
+                    if press_el:
+                        source = press_el.get_text(strip=True)
+                    if date_el:
+                        # 날짜 텍스트 정리 (내부 공백/줄바꿈 제거)
+                        date = ' '.join(date_el.get_text(strip=True).split())
+
+                if title:  # 제목이 있는 경우만 추가
+                    extra['news'].append({
+                        'title': title,
+                        'link': link,
+                        'source': source,
+                        'date': date
+                    })
 
         # 3. 이동평균선 계산
         ma_data = get_moving_averages(ticker, headers)
