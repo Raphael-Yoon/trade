@@ -50,58 +50,33 @@
         <!-- Tab 1: Stock Analysis -->
         <div id="analysisTab" class="tab-content active">
             <div class="field-selector">
-                <div class="select-all-container">
-                    <label class="checkbox-label">
+                <div class="select-all-container" style="display: flex; align-items: center; gap: 40px;">
+                    <label class="checkbox-label" style="margin-bottom: 0;">
                         <input type="checkbox" id="selectAll" checked onclick="toggleSelectAll()">
                         <span>전체 선택/해제</span>
                     </label>
-                </div>
-                <div class="field-checkboxes">
-                    <div class="field-group">
-                        <h4>기본 정보</h4>
-                        <div class="market-selection-area"
-                            style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                            <label
-                                style="display:block; margin-bottom:10px; font-size:14px; color:var(--text-muted);">대상
-                                시장
-                                (하나 이상 선택)</label>
-                            <div style="display: flex; gap: 20px;">
-                                <label class="checkbox-label">
-                                    <input type="checkbox" id="marketKospi" value="KOSPI" checked>
-                                    <span>KOSPI</span>
-                                </label>
-                                <label class="checkbox-label">
-                                    <input type="checkbox" id="marketKosdaq" value="KOSDAQ">
-                                    <span>KOSDAQ</span>
-                                </label>
-                            </div>
-                        </div>
-
-                        <label class="checkbox-label">
-                            <input type="checkbox" class="field-checkbox" value="종목코드" checked disabled>
-                            <span>종목코드 (필수)</span>
+                    <div class="market-selection-area" style="display: flex; align-items: center; gap: 12px;">
+                        <span style="font-size: 14px; color: var(--text-muted); line-height: 22px;">대상 시장:</span>
+                        <label class="checkbox-label" style="margin-bottom: 0;">
+                            <input type="checkbox" id="marketKospi" value="KOSPI" checked>
+                            <span>KOSPI</span>
                         </label>
-                        <label class="checkbox-label">
-                            <input type="checkbox" class="field-checkbox" value="종목명" checked disabled>
-                            <span>종목명 (필수)</span>
-                        </label>
-                        <label class="checkbox-label">
-                            <input type="checkbox" class="field-checkbox" value="회계감사의견" checked disabled>
-                            <span>회계감사 의견 (필수)</span>
-                        </label>
-                        <label class="checkbox-label">
-                            <input type="checkbox" class="field-checkbox" value="내부통제의견" checked disabled>
-                            <span>내부통제 의견 (필수)</span>
-                        </label>
-                        <label class="checkbox-label">
-                            <input type="checkbox" class="field-checkbox" value="업종" checked disabled>
-                            <span>업종 (필수)</span>
-                        </label>
-                        <label class="checkbox-label">
-                            <input type="checkbox" class="field-checkbox" value="데이터기준" checked>
-                            <span>데이터 기준 (DART 보고서)</span>
+                        <label class="checkbox-label" style="margin-bottom: 0;">
+                            <input type="checkbox" id="marketKosdaq" value="KOSDAQ">
+                            <span>KOSDAQ</span>
                         </label>
                     </div>
+                </div>
+                <!-- 필수 항목들 (숨김 처리) -->
+                <div style="display: none;">
+                    <input type="checkbox" class="field-checkbox" value="종목코드" checked disabled>
+                    <input type="checkbox" class="field-checkbox" value="종목명" checked disabled>
+                    <input type="checkbox" class="field-checkbox" value="회계감사의견" checked disabled>
+                    <input type="checkbox" class="field-checkbox" value="내부통제의견" checked disabled>
+                    <input type="checkbox" class="field-checkbox" value="업종" checked disabled>
+                    <input type="checkbox" class="field-checkbox" value="데이터기준" checked>
+                </div>
+                <div class="field-checkboxes">
                     <div class="field-group">
                         <h4>투자 지표</h4>
                         <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="PBR"

@@ -584,7 +584,7 @@ def get_extra_stock_data(ticker, name, headers):
             # articleSubject를 가진 모든 요소 찾기 (dt 또는 dd)
             subject_elements = news_dl.select('dt.articleSubject, dd.articleSubject')
             for subj_el in subject_elements:
-                if len(extra['news']) >= 5:
+                if len(extra['news']) >= 4:
                     break
 
                 link_el = subj_el.select_one('a')
