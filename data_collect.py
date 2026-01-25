@@ -26,8 +26,14 @@ if os.name == 'nt':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
-# API 키 설정
-API_KEY = '08e04530eea4ba322907021334794e4164002525'
+from dotenv import load_dotenv
+
+# .env 파일에서 환경 변수 로드
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(env_path)
+
+# API 키 설정 (환경 변수에서 읽어옴)
+API_KEY = os.getenv("DART_API_KEY")
 
 # 캐시 디렉토리 설정
 CACHE_DIR = os.path.join(os.path.dirname(__file__), 'docs_cache')

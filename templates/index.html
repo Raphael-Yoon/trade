@@ -43,8 +43,8 @@
 
         <!-- Tab Navigation -->
         <div class="tabs-nav">
-            <button class="tab-btn active" onclick="switchTab('analysis')">📈 종목 분석</button>
-            <button class="tab-btn" onclick="switchTab('myStocks')">⭐ 내 종목 관리</button>
+            <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 분석</button>
+            <button class="tab-btn" data-tab="myStocks" onclick="switchTab('myStocks')">⭐ 내 종목 관리</button>
         </div>
 
         <!-- Tab 1: Stock Analysis -->
@@ -183,6 +183,16 @@
                 </button>
             </div>
 
+            <div id="collectionLogArea" style="display: none; margin-top: 20px; padding: 20px; background: rgba(0,0,0,0.2); border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); font-family: 'Consolas', monospace; font-size: 13px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
+                    <span style="color: #6366f1; font-weight: 700;">📡 실시간 수집 로그</span>
+                    <span id="logStatus" style="color: #10b981; font-size: 11px;">● 연결됨</span>
+                </div>
+                <div id="collectionLog" style="color: #94a3b8; max-height: 100px; overflow-y: auto; line-height: 1.6;">
+                    대기 중...
+                </div>
+            </div>
+
             <div id="downloadSection" class="download-section">
                 <p class="success-msg">✨ 분석 완료!</p>
                 <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
@@ -295,8 +305,7 @@
         function switchTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(btn => {
                 btn.classList.remove('active');
-                const label = tabId === 'analysis' ? '종목 분석' : '내 종목 관리';
-                if (btn.textContent.includes(label)) {
+                if (btn.getAttribute('data-tab') === tabId) {
                     btn.classList.add('active');
                 }
             });
@@ -807,6 +816,8 @@
             progressFill.style.width = '0%';
             btnText.textContent = '⚡ 분석 엔진 가동 중... (0%)';
             downloadSection.classList.remove('active');
+            document.getElementById('collectionLogArea').style.display = 'block';
+            document.getElementById('collectionLog').innerHTML = '분석 엔진 초기화 중...';
 
             fetch('/api/collect', {
                 method: 'POST',
@@ -862,6 +873,12 @@
             const progress = data.progress || 0;
             progressFill.style.width = progress + '%';
             btnText.textContent = `⚡ 분석 중... ${progress}% 완료`;
+            
+            if (data.logs && data.logs.length > 0) {
+                const logDiv = document.getElementById('collectionLog');
+                logDiv.innerHTML = data.logs.map(log => `<div>${log}</div>`).join('');
+                logDiv.scrollTop = logDiv.scrollHeight;
+            }
         }
 
         function showDownload(filename, driveLink = null) {

@@ -309,6 +309,8 @@ h1 {
     background: linear-gradient(135deg, var(--primary), var(--secondary));
     color: white;
     box-shadow: 0 20px 40px -10px rgba(99, 102, 241, 0.5);
+    position: relative;
+    overflow: hidden;
 }
 
 .btn-progress-fill {
@@ -594,12 +596,57 @@ h1 {
 
     h1 {
         font-size: 32px;
+        margin-bottom: 30px;
+    }
+
+    .tabs-nav {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        margin-bottom: 30px;
+    }
+
+    .tab-btn {
+        padding: 12px 10px;
+        font-size: 14px;
+        justify-content: center;
+        border-radius: 14px;
+    }
+
+    .field-checkboxes {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .field-group {
+        padding: 20px;
+    }
+
+    .count-options {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .btn {
+        padding: 18px 24px;
+        font-size: 16px;
+        border-radius: 18px;
     }
 
     .field-selector,
     .stock-count-selector,
-    .action-buttons {
+    .action-buttons,
+    #collectionLogArea,
+    .my-stock-input-group,
+    .my-stock-input-group + div {
         display: none !important;
+    }
+
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 16px;
+        margin-bottom: 24px !important;
     }
 
     .results-grid {
@@ -619,6 +666,77 @@ h1 {
         height: 100%;
         max-height: 100vh;
         border-radius: 0;
+    }
+
+    /* Portfolio Analysis Mobile Layout */
+    .portfolio-table-container {
+        overflow-x: visible !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    .portfolio-table {
+        display: block !important;
+        min-width: 0 !important;
+    }
+
+    .portfolio-table thead {
+        display: none;
+    }
+
+    .portfolio-table tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .portfolio-table tr {
+        display: flex !important;
+        flex-direction: column;
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 24px !important;
+        padding: 20px !important;
+        margin-bottom: 0 !important;
+    }
+
+    .portfolio-table td {
+        display: block !important;
+        padding: 12px 0 !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    }
+
+    .portfolio-table td:last-child {
+        border-bottom: none !important;
+    }
+
+    .portfolio-table td::before {
+        content: attr(data-label);
+        display: block;
+        font-size: 11px;
+        color: var(--text-muted);
+        font-weight: 600;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .portfolio-table td[data-label="종목 정보"]::before { display: none; }
+    
+    .summary-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .my-stocks-list {
+        padding: 16px !important;
+        gap: 12px !important;
+    }
+
+    .stock-tag {
+        width: 100% !important;
+        min-width: 0 !important;
+        padding: 16px !important;
     }
 }
 

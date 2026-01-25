@@ -8,7 +8,7 @@ if os.name == 'nt':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
-from flask import Flask, render_template, jsonify, send_file, request
+from flask import Flask, render_template, jsonify, send_file, request, g
 import threading
 import uuid
 from datetime import datetime
@@ -35,6 +35,20 @@ if not os.path.exists(RESULTS_DIR):
 
 # 데이터베이스 파일
 DB_FILE = os.path.join(os.path.dirname(__file__), 'trade.db')
+
+def get_db():
+    """요청별 DB 연결 관리"""
+    if 'db' not in g:
+        g.db = sqlite3.connect(DB_FILE)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+@app.teardown_appcontext
+def close_db(e=None):
+    """요청 종료 시 DB 연결 닫기"""
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 def init_db():
     """데이터베이스 초기화 및 테이블 생성"""
@@ -216,6 +230,7 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
         tasks[task_id]['status'] = 'running'
         tasks[task_id]['progress'] = 0
         tasks[task_id]['message'] = f'{market} 데이터 수집 시작...'
+        tasks[task_id]['logs'] = []
 
         script_path = os.path.join(os.path.dirname(__file__), 'data_collect.py')
         python_cmd = sys.executable
@@ -253,6 +268,10 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
             line = line.strip()
             if line:
                 tasks[task_id]['message'] = line
+                tasks[task_id]['logs'].append(line)
+                if len(tasks[task_id]['logs']) > 100:
+                    tasks[task_id]['logs'].pop(0)
+                
                 if '진행률:' in line:
                     try:
                         start_idx = line.find('[')
@@ -735,12 +754,10 @@ def get_current_price(ticker):
 @app.route('/api/my_stocks', methods=['GET'])
 def get_my_stocks():
     try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        db = get_db()
+        cursor = db.cursor()
         cursor.execute("SELECT code, name, added_at, purchase_price, quantity FROM my_stocks ORDER BY added_at DESC")
         stocks = [dict(row) for row in cursor.fetchall()]
-        conn.close()
         return jsonify(stocks)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -748,12 +765,10 @@ def get_my_stocks():
 @app.route('/api/my_stocks/status', methods=['GET'])
 def get_my_stocks_status():
     try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        db = get_db()
+        cursor = db.cursor()
         cursor.execute("SELECT code, name, purchase_price, quantity FROM my_stocks")
         stocks = [dict(row) for row in cursor.fetchall()]
-        conn.close()
         
         # 상세 데이터 수집 (병렬 처리)
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -823,12 +838,11 @@ def add_my_stock():
     if not code:
         return jsonify({'success': False, 'message': '종목 코드가 필요합니다.'}), 400
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
+        db = get_db()
+        cursor = db.cursor()
         cursor.execute("INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity) VALUES (?, ?, ?, ?, ?)", 
                        (code, name, datetime.now().isoformat(), purchase_price, quantity))
-        conn.commit()
-        conn.close()
+        db.commit()
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -836,11 +850,10 @@ def add_my_stock():
 @app.route('/api/my_stocks/<code_val>', methods=['DELETE'])
 def delete_my_stock(code_val):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
+        db = get_db()
+        cursor = db.cursor()
         cursor.execute("DELETE FROM my_stocks WHERE code = ?", (code_val,))
-        conn.commit()
-        conn.close()
+        db.commit()
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -852,8 +865,8 @@ def update_my_stock(code_val):
     quantity = data.get('quantity')
     
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
+        db = get_db()
+        cursor = db.cursor()
         if purchase_price is not None and quantity is not None:
             cursor.execute("UPDATE my_stocks SET purchase_price = ?, quantity = ? WHERE code = ?", 
                            (purchase_price, quantity, code_val))
@@ -864,8 +877,7 @@ def update_my_stock(code_val):
             cursor.execute("UPDATE my_stocks SET quantity = ? WHERE code = ?", 
                            (quantity, code_val))
         
-        conn.commit()
-        conn.close()
+        db.commit()
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -877,13 +889,11 @@ def search_stock():
         return jsonify([])
     
     try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        db = get_db()
+        cursor = db.cursor()
         # 이름으로 검색 (부분 일치)
         cursor.execute("SELECT code, name FROM stocks_master WHERE name LIKE ? LIMIT 10", (f'%{query}%',))
         results = [dict(row) for row in cursor.fetchall()]
-        conn.close()
         return jsonify(results)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -936,12 +946,10 @@ def update_master():
 @app.route('/api/results', methods=['GET'])
 def get_results():
     try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        db = get_db()
+        cursor = db.cursor()
         cursor.execute("SELECT * FROM analysis_results ORDER BY created_at DESC")
         results = [dict(row) for row in cursor.fetchall()]
-        conn.close()
         return jsonify(results)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -954,11 +962,10 @@ def download_file(filename):
     
     # 드라이브에서 다운로드 시도
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
+        db = get_db()
+        cursor = db.cursor()
         cursor.execute("SELECT spreadsheet_id FROM analysis_results WHERE filename = ?", (filename,))
         row = cursor.fetchone()
-        conn.close()
         if row and row[0]:
             from drive_sync import download_from_drive
             content = download_from_drive(row[0])
@@ -971,11 +978,10 @@ def download_file(filename):
 @app.route('/api/delete/<filename>', methods=['DELETE'])
 def delete_result(filename):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
+        db = get_db()
+        cursor = db.cursor()
         cursor.execute("DELETE FROM analysis_results WHERE filename = ?", (filename,))
-        conn.commit()
-        conn.close()
+        db.commit()
         file_path = os.path.join(RESULTS_DIR, filename)
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -986,12 +992,11 @@ def delete_result(filename):
 @app.route('/api/ai_analyze/<filename>', methods=['POST'])
 def ai_analyze(filename):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
+        db = get_db()
+        cursor = db.cursor()
         cursor.execute("SELECT ai_result FROM analysis_results WHERE filename = ?", (filename,))
         row = cursor.fetchone()
         if row and row[0]:
-            conn.close()
             return jsonify({'success': True, 'result': row[0], 'cached': True})
             
         file_path = os.path.join(RESULTS_DIR, filename)
@@ -1012,12 +1017,9 @@ def ai_analyze(filename):
             
         result_text = analyze_stock_data(file_path)
         cursor.execute("UPDATE analysis_results SET ai_result = ? WHERE filename = ?", (result_text, filename))
-        conn.commit()
-        conn.close()
+        db.commit()
         return jsonify({'success': True, 'result': result_text, 'cached': False})
     except Exception as e:
-        if 'conn' in locals() and conn:
-            conn.close()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/ai_analyze_portfolio', methods=['POST'])
