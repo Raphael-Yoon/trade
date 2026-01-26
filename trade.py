@@ -991,27 +991,45 @@ def delete_result(filename):
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+@app.route('/api/ai_report_check/<filename>', methods=['GET'])
+def ai_report_check(filename):
+    """기존 AI 리포트가 있는지 확인만 (캐시 체크용)"""
+    try:
+        from drive_sync import find_ai_report, get_doc_content
+        base_name = os.path.splitext(filename)[0]
+        existing_report = find_ai_report(base_name)
+        if existing_report:
+            cached_content = get_doc_content(existing_report['id'])
+            if cached_content and len(cached_content.strip()) > 100:
+                return jsonify({'success': True, 'result': cached_content, 'cached': True})
+        return jsonify({'success': True, 'cached': False})
+    except Exception as e:
+        return jsonify({'success': False, 'cached': False, 'message': str(e)})
+
 @app.route('/api/ai_analyze/<filename>', methods=['POST'])
 def ai_analyze(filename):
     try:
-        db = get_db()
-        cursor = db.cursor()
-        
-        # 1. 기존 캐시 확인
-        cursor.execute("SELECT ai_result FROM analysis_results WHERE filename = ?", (filename,))
-        row = cursor.fetchone()
-        
-        if row and row['ai_result'] and len(row['ai_result'].strip()) > 100:
-            # 에러 메시지(짧음)가 아닌 유효한 리포트인 경우만 캐시 사용
-            return jsonify({'success': True, 'result': row['ai_result'], 'cached': True})
-            
+        from drive_sync import find_ai_report, get_doc_content, create_google_doc, download_from_drive
+
+        # 파일명에서 확장자 제거 (AI 리포트 검색용)
+        base_name = os.path.splitext(filename)[0]
+
+        # 1. 구글 드라이브에서 기존 AI 리포트 확인 (혹시 직접 호출된 경우 대비)
+        existing_report = find_ai_report(base_name)
+        if existing_report:
+            cached_content = get_doc_content(existing_report['id'])
+            if cached_content and len(cached_content.strip()) > 100:
+                return jsonify({'success': True, 'result': cached_content, 'cached': True})
+
+        # 2. 원본 데이터 파일 확인
         file_path = os.path.join(RESULTS_DIR, filename)
         if not os.path.exists(file_path):
             # 드라이브에서 임시 다운로드 시도
+            db = get_db()
+            cursor = db.cursor()
             cursor.execute("SELECT spreadsheet_id FROM analysis_results WHERE filename = ?", (filename,))
             row_id = cursor.fetchone()
             if row_id and row_id['spreadsheet_id']:
-                from drive_sync import download_from_drive
                 content = download_from_drive(row_id['spreadsheet_id'])
                 if content:
                     with open(file_path, 'wb') as f:
@@ -1020,20 +1038,15 @@ def ai_analyze(filename):
                     return jsonify({'success': False, 'message': '파일을 찾을 수 없습니다.'}), 404
             else:
                 return jsonify({'success': False, 'message': '파일을 찾을 수 없습니다.'}), 404
-            
-        # 2. AI 분석 수행
+
+        # 3. AI 분석 수행
         result_text = analyze_stock_data(file_path)
-        
-        # 3. 결과 저장 (에러가 아닌 경우에만 저장하거나, 에러도 일단 저장해서 중복 호출 방지)
-        # 여기서는 유효한 결과인 경우만 저장하도록 함 (에러면 다음에 다시 시도할 수 있게)
+
+        # 4. 결과를 구글 문서로 저장 (유효한 경우만)
         if "오류" not in result_text and "제한" not in result_text:
-            cursor.execute("UPDATE analysis_results SET ai_result = ? WHERE filename = ?", (result_text, filename))
-            if cursor.rowcount == 0:
-                # 만약 행이 없으면 (그럴 리 없지만) 새로 삽입
-                cursor.execute("INSERT OR REPLACE INTO analysis_results (filename, ai_result, created_at) VALUES (?, ?, ?)", 
-                               (filename, result_text, datetime.now().isoformat()))
-            db.commit()
-            
+            report_title = f"AI 분석 리포트 - {base_name}"
+            create_google_doc(report_title, result_text)
+
         return jsonify({'success': True, 'result': result_text, 'cached': False})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500

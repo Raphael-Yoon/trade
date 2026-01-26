@@ -1039,27 +1039,49 @@
         function runAiAnalysis(filename) {
             currentAiFilename = filename;
             isAiAnalyzing = true;
-            openAiModal();
-            fetch(`/api/ai_analyze/${filename}`, { method: 'POST' })
+            openAiModal('기존 리포트 확인 중...');
+
+            // 1단계: 캐시 확인
+            fetch(`/api/ai_report_check/${filename}`)
                 .then(response => response.json())
                 .then(data => {
-                    isAiAnalyzing = false;
-                    if (data.success) {
+                    if (data.success && data.cached && data.result) {
+                        // 캐시에서 바로 표시 (HTML로 저장되어 있음)
+                        isAiAnalyzing = false;
                         currentAiResult = data.result;
                         const content = document.getElementById('aiResultContent');
-                        marked.setOptions({ gfm: true, breaks: true });
-                        content.innerHTML = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
-                        showToast(data.cached ? '기존 리포트를 불러왔습니다.' : '새 리포트가 생성되었습니다.');
+                        content.innerHTML = `<div class="ai-markdown-body">${data.result}</div>`;
+                        showToast('기존 리포트를 불러왔습니다.');
                     } else {
-                        showToast('AI 분석 실패: ' + data.message, 'error');
-                        closeAiModal();
+                        // 2단계: AI 분석 실행
+                        document.getElementById('aiResultContent').innerHTML = '<div class="loading-ai"><div class="ai-spinner"></div><p>AI가 분석 중입니다...</p></div>';
+                        return fetch(`/api/ai_analyze/${filename}`, { method: 'POST' })
+                            .then(response => response.json())
+                            .then(data => {
+                                isAiAnalyzing = false;
+                                if (data.success) {
+                                    currentAiResult = data.result;
+                                    const content = document.getElementById('aiResultContent');
+                                    marked.setOptions({ gfm: true, breaks: true });
+                                    content.innerHTML = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
+                                    showToast('새 리포트가 생성되었습니다.');
+                                } else {
+                                    showToast('AI 분석 실패: ' + data.message, 'error');
+                                    closeAiModal();
+                                }
+                            });
                     }
+                })
+                .catch(err => {
+                    isAiAnalyzing = false;
+                    showToast('오류 발생: ' + err, 'error');
+                    closeAiModal();
                 });
         }
 
-        function openAiModal() {
+        function openAiModal(message = 'AI가 분석 중입니다...') {
             const modal = document.getElementById('aiModal');
-            document.getElementById('aiResultContent').innerHTML = '<div class="loading-ai"><div class="ai-spinner"></div><p>AI가 분석 중입니다...</p></div>';
+            document.getElementById('aiResultContent').innerHTML = `<div class="loading-ai"><div class="ai-spinner"></div><p>${message}</p></div>`;
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
         }

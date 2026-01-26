@@ -734,93 +734,194 @@ h1 {
     color: #64748b;
 }
 
+/* AI 마크다운 본문 - snowball link10 스타일 참조 */
 .ai-markdown-body {
     line-height: 1.8;
-    color: #334155;
-    font-size: 16px;
-    font-family: 'Inter', -apple-system, sans-serif;
+    color: #1f2937;
+    font-size: 15px;
 }
 
-.ai-markdown-body h1 {
-    font-family: 'Outfit', sans-serif;
-    font-size: 32px;
-    font-weight: 800;
+.ai-markdown-body * {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans KR', sans-serif !important;
+}
+
+.ai-markdown-body h1,
+.ai-markdown-body h2,
+.ai-markdown-body h3,
+.ai-markdown-body h4,
+.ai-markdown-body p.title,
+.ai-markdown-body p.subtitle {
     color: #1e293b;
+    margin-top: 24px;
+    margin-bottom: 16px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.ai-markdown-body h1,
+.ai-markdown-body p.title {
+    font-size: 1.75rem;
     margin-top: 0;
-    margin-bottom: 32px;
-    text-align: left;
-    background: none;
-    -webkit-text-fill-color: initial;
+    color: #4338ca;
     letter-spacing: -0.03em;
 }
 
-.ai-markdown-body h2 {
-    font-family: 'Outfit', sans-serif;
-    font-size: 24px;
-    font-weight: 700;
-    color: #4f46e5;
-    margin-top: 48px;
-    margin-bottom: 24px;
-    padding-bottom: 12px;
-    border-bottom: 2px solid #e2e8f0;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    background: none;
-    -webkit-text-fill-color: initial;
+.ai-markdown-body h2,
+.ai-markdown-body p.subtitle {
+    font-size: 1.4rem;
+    margin-top: 32px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #e5e7eb;
+    color: #4338ca;
+    letter-spacing: -0.02em;
 }
 
 .ai-markdown-body h3 {
-    font-family: 'Outfit', sans-serif;
-    font-size: 20px;
-    font-weight: 700;
-    color: #1e293b;
-    margin-top: 32px;
-    margin-bottom: 16px;
-    padding: 0;
-    background: none;
-    border: none;
-    border-left: 4px solid #6366f1;
-    padding-left: 16px;
+    font-size: 1.2rem;
+    color: #6366f1;
+    letter-spacing: -0.02em;
 }
 
+.ai-markdown-body h4 {
+    font-size: 1.05rem;
+    letter-spacing: -0.01em;
+}
+
+.ai-markdown-body p {
+    margin-bottom: 16px;
+    line-height: 1.8;
+}
+
+.ai-markdown-body ul,
+.ai-markdown-body ol {
+    margin-bottom: 16px;
+    padding-left: 24px;
+    line-height: 1.8;
+}
+
+.ai-markdown-body li {
+    margin-bottom: 8px;
+}
+
+/* 테이블 스타일 */
 .ai-markdown-body table {
-    width: 100%;
+    width: 100% !important;
     border-collapse: collapse;
-    margin: 32px 0;
-    background: white;
-    border-radius: 16px;
-    overflow: hidden;
-    border: 1px solid #e2e8f0;
-    display: table;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    margin-bottom: 24px;
+    font-size: 14px;
+    table-layout: fixed !important;
+}
+
+.ai-markdown-body th,
+.ai-markdown-body td {
+    padding: 6px 10px !important;
+    border: 1px solid #e5e7eb;
+    text-align: left;
+    vertical-align: top;
+    word-wrap: break-word !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    white-space: normal !important;
+    line-height: 1.4 !important;
 }
 
 .ai-markdown-body th {
-    background: #f8fafc;
+    background: #f8fafc !important;
+    color: #1e293b !important;
+    font-weight: 700;
+    padding: 8px 10px !important;
+    line-height: 1.3 !important;
+}
+
+.ai-markdown-body th[style],
+.ai-markdown-body td[style] {
+    padding: 6px 10px !important;
+    line-height: 1.4 !important;
+}
+
+.ai-markdown-body th[style] {
+    padding: 8px 10px !important;
+    line-height: 1.3 !important;
+}
+
+.ai-markdown-body th *,
+.ai-markdown-body td * {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.4 !important;
+}
+
+.ai-markdown-body th p,
+.ai-markdown-body td p,
+.ai-markdown-body th span,
+.ai-markdown-body td span {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.4 !important;
+    display: inline !important;
+}
+
+.ai-markdown-body th div,
+.ai-markdown-body td div {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.4 !important;
+}
+
+.ai-markdown-body th br,
+.ai-markdown-body td br {
+    display: none !important;
+}
+
+.ai-markdown-body th p:empty,
+.ai-markdown-body td p:empty {
+    display: none !important;
+}
+
+.ai-markdown-body tbody tr:hover {
+    background: #f9fafb;
+}
+
+.ai-markdown-body strong,
+.ai-markdown-body b {
     color: #1e293b;
     font-weight: 700;
-    padding: 18px 16px;
-    font-size: 14px;
-    text-align: left;
-    border-bottom: 2px solid #6366f1;
-    text-transform: none;
 }
 
-.ai-markdown-body td {
-    padding: 16px;
-    border-bottom: 1px solid #f1f5f9;
-    font-size: 15px;
-    color: #334155;
-    transition: background 0.2s;
+.ai-markdown-body table,
+.ai-markdown-body table[style] {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
 }
 
-.ai-markdown-body tr:last-child td {
-    border-bottom: none;
+.ai-markdown-body th:first-child,
+.ai-markdown-body td:first-child {
+    width: 12% !important;
+    text-align: center;
 }
 
-.ai-markdown-body tr:hover td {
-    background: #f1f5f9;
+.ai-markdown-body th:nth-child(2),
+.ai-markdown-body td:nth-child(2) {
+    width: 15% !important;
+}
+
+.ai-markdown-body th:nth-child(3),
+.ai-markdown-body td:nth-child(3) {
+    width: 25% !important;
+}
+
+.ai-markdown-body th:nth-child(4),
+.ai-markdown-body td:nth-child(4) {
+    width: 48% !important;
+}
+
+.ai-markdown-body > *:first-child {
+    margin-top: 0;
+}
+
+.ai-markdown-body > *:last-child {
+    margin-bottom: 0;
 }
 
 @media (max-width: 1024px) {
