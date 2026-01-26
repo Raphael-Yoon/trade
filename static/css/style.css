@@ -1229,16 +1229,28 @@ h1 {
     }
 
     /* AI Report Table Simplification for Mobile */
-    .ai-markdown-body table th:nth-child(1),
-    /* 순위 */
-    .ai-markdown-body table td:nth-child(1),
-    .ai-markdown-body table th:nth-child(3),
-    /* 핵심 섹터 */
-    .ai-markdown-body table td:nth-child(3),
-    .ai-markdown-body table th:nth-child(5),
-    /* 투자 포인트 */
-    .ai-markdown-body table td:nth-child(5) {
+    /* 모바일에서는 종목명(1번)과 추천이유(3번)만 표시, 업종(2번) 숨김 */
+    .ai-markdown-body table th:nth-child(2),
+    .ai-markdown-body table td:nth-child(2) {
         display: none !important;
+    }
+
+    /* 종목명 컬럼 모바일 최적화 */
+    .ai-markdown-body table th:first-child,
+    .ai-markdown-body table td:first-child {
+        width: 80px !important;
+        min-width: 80px !important;
+        max-width: 80px !important;
+        font-size: 12px !important;
+        padding: 8px 6px !important;
+    }
+
+    /* 추천이유 컬럼 모바일 최적화 */
+    .ai-markdown-body table th:nth-child(3),
+    .ai-markdown-body table td:nth-child(3) {
+        width: auto !important;
+        font-size: 12px !important;
+        padding: 8px 6px !important;
     }
 }
 
