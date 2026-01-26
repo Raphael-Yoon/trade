@@ -32,7 +32,13 @@
             </div>
             <div class="modal-footer"
                 style="padding: 20px 32px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; gap: 12px; background: rgba(255,255,255,0.02);">
-                <button class="result-btn" style="background: rgba(255,255,255,0.1); color: var(--text-main);"
+                <button id="aiRefreshBtn" class="result-btn" style="background: #eef2ff; color: #4f46e5; border: 1px solid #e0e7ff; font-weight: 700; display: none; padding: 12px 24px; border-radius: 12px; transition: all 0.2s;"
+                    onmouseover="this.style.background='#e0e7ff'" onmouseout="this.style.background='#eef2ff'"
+                    onclick="refreshAiAnalysis()">
+                    <span id="refreshBtnText">🔄 다시 분석하기</span>
+                </button>
+                <button class="result-btn" style="background: #334155; color: #ffffff; border: none; font-weight: 700; padding: 12px 32px; border-radius: 12px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"
+                    onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='#334155'"
                     onclick="closeAiModal()">닫기</button>
             </div>
         </div>
@@ -45,6 +51,7 @@
         <div class="tabs-nav">
             <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 분석</button>
             <button class="tab-btn" data-tab="myStocks" onclick="switchTab('myStocks')">⭐ 내 종목 관리</button>
+            
         </div>
 
         <!-- Tab 1: Stock Analysis -->
@@ -276,6 +283,7 @@
                 </div>
             </div>
         </div>
+
 
 
 
@@ -677,10 +685,25 @@
                 });
         }
 
-        function generateAiPortfolioReport() {
+        function refreshAiAnalysis() {
+            if (confirm('AI 분석을 다시 시작하시겠습니까? (기존 캐시를 무시하고 새로 분석합니다.)')) {
+                generateAiPortfolioReport(true);
+            }
+        }
+
+        function generateAiPortfolioReport(forceRefresh = false) {
             if (!window.currentPortfolioData || window.currentPortfolioData.length === 0) {
                 showToast('분석할 데이터가 없습니다.', 'error');
                 return;
+            }
+
+            const refreshBtn = document.getElementById('aiRefreshBtn');
+            const refreshBtnText = document.getElementById('refreshBtnText');
+            
+            if (forceRefresh && refreshBtn) {
+                refreshBtn.disabled = true;
+                refreshBtn.style.opacity = '0.7';
+                refreshBtnText.innerHTML = '<span class="ai-spinner" style="width:14px; height:14px; border-width:2px; margin-right:8px;"></span> 분석 중...';
             }
 
             openAiModal();
@@ -690,15 +713,26 @@
             fetch('/api/ai_analyze_portfolio', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ portfolio_data: window.currentPortfolioData })
+                body: JSON.stringify({ portfolio_data: window.currentPortfolioData, refresh: forceRefresh })
             })
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
                         marked.setOptions({ gfm: true, breaks: true });
-                        content.innerHTML = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
+                        let html = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
+                        if (data.cached) {
+                            html = `<div style="background: rgba(99, 102, 241, 0.05); padding: 12px 20px; border-radius: 12px; margin-bottom: 24px; border: 1px solid rgba(99, 102, 241, 0.2); font-size: 14px; color: #94a3b8; display: flex; align-items: center; gap: 10px;">
+                                <span>ℹ️</span> 오늘의 분석 결과가 캐시되어 있습니다. 최신 데이터로 다시 분석하려면 '다시 분석하기'를 눌러주세요.
+                            </div>` + html;
+                            document.getElementById('aiRefreshBtn').style.display = 'block';
+                        if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.style.opacity = '1'; refreshBtnText.innerHTML = '🔄 다시 분석하기'; }
+                        } else {
+                            document.getElementById('aiRefreshBtn').style.display = 'none';
+                        }
+                        content.innerHTML = html;
                     } else {
                         content.innerHTML = `<p style="color: #ef4444; padding: 20px;">분석 중 오류가 발생했습니다: ${data.message}</p>`;
+                        if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.style.opacity = '1'; refreshBtnText.innerHTML = '🔄 다시 분석하기'; }
                     }
                 })
                 .catch(err => {
@@ -796,30 +830,19 @@
             return Array.from(checkboxes).map(cb => cb.value);
         }
 
-        function startCollection(mode = 'MARKET') {
+        function startCollection() {
             const stockCount = parseInt(document.getElementById('stockCount').value);
             const selectedFields = getSelectedFields();
             const useKospi = document.getElementById('marketKospi').checked;
             const useKosdaq = document.getElementById('marketKosdaq').checked;
             let market = 'KOSPI';
-            let tickers = [];
 
-            if (mode === 'MY_STOCKS') {
-                market = 'MY_STOCKS';
-                tickers = myStocks.map(s => `${s.code}:${s.purchase_price || 0}:${s.quantity || 0}`);
-                if (tickers.length === 0) {
-                    showToast('분석할 내 종목이 없습니다.', 'error');
-                    return;
-                }
-                switchTab('analysis');
-            } else {
-                if (!useKospi && !useKosdaq) {
-                    showToast('최소한 하나의 시장(KOSPI, KOSDAQ)을 선택해야 합니다.', 'error');
-                    return;
-                }
-                if (useKospi && useKosdaq) market = 'ALL';
-                else if (useKosdaq) market = 'KOSDAQ';
+            if (!useKospi && !useKosdaq) {
+                showToast('최소한 하나의 시장(KOSPI, KOSDAQ)을 선택해야 합니다.', 'error');
+                return;
             }
+            if (useKospi && useKosdaq) market = 'ALL';
+            else if (useKosdaq) market = 'KOSDAQ';
 
             if (selectedFields.length < 2) {
                 showToast('최소한 종목코드와 종목명 외에 1개 이상의 데이터를 선택해주세요.', 'error');
@@ -840,7 +863,7 @@
             fetch('/api/collect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stock_count: stockCount, fields: selectedFields, market: market, tickers: tickers })
+                body: JSON.stringify({ stock_count: stockCount, fields: selectedFields, market: market })
             })
                 .then(response => response.json())
                 .then(data => {
@@ -950,11 +973,14 @@
                 .then(response => response.json())
                 .then(files => {
                     const resultsList = document.getElementById('resultsList');
-                    if (!files || files.length === 0) {
+                    // Filter out 'My Stocks' analysis results from the general list
+                    const filteredFiles = files.filter(file => file.market !== 'MY_STOCKS' && file.market !== 'MYSTOCKS');
+                    
+                    if (!filteredFiles || filteredFiles.length === 0) {
                         resultsList.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">저장된 결과가 없습니다.</p>';
                         return;
                     }
-                    resultsList.innerHTML = files.map(file => {
+                    resultsList.innerHTML = filteredFiles.map(file => {
                         const market = file.market || 'UNKNOWN';
                         const count = file.stock_count || '0';
                         const created_at = file.created_at || '';
@@ -1058,6 +1084,7 @@
 
             }
         });
+
     </script>
 </body>
 

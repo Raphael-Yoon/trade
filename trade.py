@@ -99,6 +99,14 @@ def init_db():
             market TEXT
         )
     ''')
+    # 포트폴리오 AI 분석 캐시 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS portfolio_ai_cache (
+            cache_key TEXT PRIMARY KEY,
+            ai_result TEXT,
+            created_at TEXT
+        )
+    ''')
     
     conn.commit()
     
@@ -238,17 +246,11 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
             python_cmd = 'python'
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        if market == 'MY_STOCKS':
-            result_filename = f'mystocks_{timestamp}.xlsx'
-        else:
-            count_label = 'all' if stock_count == 0 else f'top{stock_count}'
-            result_filename = f'{market.lower()}_{count_label}_{timestamp}.xlsx'
+        count_label = 'all' if stock_count == 0 else f'top{stock_count}'
+        result_filename = f'{market.lower()}_{count_label}_{timestamp}.xlsx'
         result_path = os.path.join(RESULTS_DIR, result_filename)
 
         cmd = [python_cmd, script_path, '--count', str(stock_count), '--market', market, '--output', result_path]
-        
-        if market == 'MY_STOCKS' and 'tickers' in tasks[task_id]:
-            cmd.extend(['--tickers', ','.join(tasks[task_id]['tickers'])])
 
         if fields:
             cmd.extend(['--fields', ','.join(fields)])
@@ -994,19 +996,23 @@ def ai_analyze(filename):
     try:
         db = get_db()
         cursor = db.cursor()
+        
+        # 1. 기존 캐시 확인
         cursor.execute("SELECT ai_result FROM analysis_results WHERE filename = ?", (filename,))
         row = cursor.fetchone()
-        if row and row[0]:
-            return jsonify({'success': True, 'result': row[0], 'cached': True})
+        
+        if row and row['ai_result'] and len(row['ai_result'].strip()) > 100:
+            # 에러 메시지(짧음)가 아닌 유효한 리포트인 경우만 캐시 사용
+            return jsonify({'success': True, 'result': row['ai_result'], 'cached': True})
             
         file_path = os.path.join(RESULTS_DIR, filename)
         if not os.path.exists(file_path):
             # 드라이브에서 임시 다운로드 시도
             cursor.execute("SELECT spreadsheet_id FROM analysis_results WHERE filename = ?", (filename,))
             row_id = cursor.fetchone()
-            if row_id and row_id[0]:
+            if row_id and row_id['spreadsheet_id']:
                 from drive_sync import download_from_drive
-                content = download_from_drive(row_id[0])
+                content = download_from_drive(row_id['spreadsheet_id'])
                 if content:
                     with open(file_path, 'wb') as f:
                         f.write(content)
@@ -1015,9 +1021,19 @@ def ai_analyze(filename):
             else:
                 return jsonify({'success': False, 'message': '파일을 찾을 수 없습니다.'}), 404
             
+        # 2. AI 분석 수행
         result_text = analyze_stock_data(file_path)
-        cursor.execute("UPDATE analysis_results SET ai_result = ? WHERE filename = ?", (result_text, filename))
-        db.commit()
+        
+        # 3. 결과 저장 (에러가 아닌 경우에만 저장하거나, 에러도 일단 저장해서 중복 호출 방지)
+        # 여기서는 유효한 결과인 경우만 저장하도록 함 (에러면 다음에 다시 시도할 수 있게)
+        if "오류" not in result_text and "제한" not in result_text:
+            cursor.execute("UPDATE analysis_results SET ai_result = ? WHERE filename = ?", (result_text, filename))
+            if cursor.rowcount == 0:
+                # 만약 행이 없으면 (그럴 리 없지만) 새로 삽입
+                cursor.execute("INSERT OR REPLACE INTO analysis_results (filename, ai_result, created_at) VALUES (?, ?, ?)", 
+                               (filename, result_text, datetime.now().isoformat()))
+            db.commit()
+            
         return jsonify({'success': True, 'result': result_text, 'cached': False})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -1027,11 +1043,43 @@ def ai_analyze_portfolio():
     try:
         data = request.get_json() or {}
         portfolio_data = data.get('portfolio_data', [])
+        force_refresh = data.get('refresh', False)
+        
         if not portfolio_data:
             return jsonify({'success': False, 'message': '분석할 데이터가 없습니다.'}), 400
             
+        # 1. 캐시 키 생성 (종목코드, 평단가, 수량의 조합 + 오늘 날짜)
+        import hashlib
+        sorted_portfolio = sorted(portfolio_data, key=lambda x: x['code'])
+        # 평단가와 수량이 같으면 같은 포트폴리오로 간주 (시장가는 수시로 변하므로 캐시 효율을 위해 제외)
+        portfolio_str = "|".join([f"{s['code']}:{s.get('purchase_price',0)}:{s.get('quantity',0)}" for s in sorted_portfolio])
+        today = datetime.now().strftime('%Y-%m-%d')
+        cache_key = hashlib.md5(f"{portfolio_str}_{today}".encode()).hexdigest()
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # 2. 오래된 캐시 삭제 (오늘 이전 데이터)
+        cursor.execute("DELETE FROM portfolio_ai_cache WHERE created_at < ?", (today,))
+        db.commit()
+        
+        # 3. 캐시 확인 (강제 새로고침이 아닌 경우)
+        if not force_refresh:
+            cursor.execute("SELECT ai_result FROM portfolio_ai_cache WHERE cache_key = ?", (cache_key,))
+            row = cursor.fetchone()
+            if row and row['ai_result']:
+                return jsonify({'success': True, 'result': row['ai_result'], 'cached': True})
+            
+        # 4. AI 분석 수행
         result_text = analyze_portfolio(portfolio_data)
-        return jsonify({'success': True, 'result': result_text})
+        
+        # 5. 결과 저장 (유효한 경우만)
+        if "오류" not in result_text and "제한" not in result_text:
+            cursor.execute("INSERT OR REPLACE INTO portfolio_ai_cache (cache_key, ai_result, created_at) VALUES (?, ?, ?)", 
+                           (cache_key, result_text, datetime.now().isoformat()))
+            db.commit()
+            
+        return jsonify({'success': True, 'result': result_text, 'cached': False})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
