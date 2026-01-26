@@ -1229,7 +1229,7 @@ h1 {
     }
 
     /* AI Report Table Simplification for Mobile */
-    /* 모바일에서는 종목명(1번)과 추천이유(3번)만 표시, 업종(2번) 숨김 */
+    /* 모바일: 종목명 + 추천이유 모두 표시 */
     .ai-markdown-body table {
         display: table !important;
         width: 100% !important;
@@ -1237,29 +1237,31 @@ h1 {
         overflow-x: visible !important;
     }
 
-    .ai-markdown-body table th:nth-child(2),
-    .ai-markdown-body table td:nth-child(2) {
-        display: none !important;
-    }
-
-    /* 종목명 컬럼 모바일 최적화 */
+    /* 종목명 컬럼 (1번) */
     .ai-markdown-body table th:first-child,
     .ai-markdown-body table td:first-child {
-        width: 70px !important;
-        min-width: 70px !important;
+        width: 65px !important;
+        min-width: 65px !important;
         font-size: 11px !important;
         padding: 6px 4px !important;
         word-break: keep-all !important;
+        text-align: center !important;
     }
 
-    /* 추천이유 컬럼 모바일 최적화 */
-    .ai-markdown-body table th:nth-child(3),
-    .ai-markdown-body table td:nth-child(3) {
+    /* 추천이유 컬럼 (2번) */
+    .ai-markdown-body table th:nth-child(2),
+    .ai-markdown-body table td:nth-child(2) {
         width: auto !important;
         font-size: 11px !important;
         padding: 6px 4px !important;
         word-break: break-word !important;
         line-height: 1.4 !important;
+    }
+
+    /* 3번 이상 컬럼 숨김 (있을 경우) */
+    .ai-markdown-body table th:nth-child(n+3),
+    .ai-markdown-body table td:nth-child(n+3) {
+        display: none !important;
     }
 }
 
