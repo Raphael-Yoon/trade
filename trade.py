@@ -1006,6 +1006,31 @@ def ai_report_check(filename):
     except Exception as e:
         return jsonify({'success': False, 'cached': False, 'message': str(e)})
 
+@app.route('/api/save_report_to_drive', methods=['POST'])
+def save_report_to_drive():
+    """AI 리포트를 구글 드라이브에 사용자가 지정한 이름으로 저장"""
+    try:
+        from drive_sync import create_google_doc
+
+        data = request.get_json()
+        filename = data.get('filename', '').strip()
+        content = data.get('content', '')
+
+        if not filename:
+            return jsonify({'success': False, 'message': '파일명이 필요합니다.'})
+        if not content:
+            return jsonify({'success': False, 'message': '저장할 내용이 없습니다.'})
+
+        # 구글 드라이브에 문서 저장 (User_Reports 폴더에 저장)
+        result = create_google_doc(filename, content, folder_name="User_Reports")
+
+        if result:
+            return jsonify({'success': True, 'link': result.get('link')})
+        else:
+            return jsonify({'success': False, 'message': '구글 드라이브 저장 실패'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
 @app.route('/api/ai_analyze/<filename>', methods=['POST'])
 def ai_analyze(filename):
     try:
