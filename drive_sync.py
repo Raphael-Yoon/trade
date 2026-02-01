@@ -249,6 +249,41 @@ def download_from_drive(file_id):
         print(f"구글 드라이브 다운로드 중 오류 발생: {e}")
         return None
 
+def get_doc_content(file_id):
+    """구글 문서(Google Docs)의 HTML 내용을 읽어오기"""
+    try:
+        service = get_drive_service()
+        # 구글 문서를 HTML로 내보내기 (서식 유지)
+        request = service.files().export_media(
+            fileId=file_id,
+            mimeType='text/html'
+        )
+        content = request.execute()
+        return content.decode('utf-8')
+    except Exception as e:
+        print(f"구글 문서 읽기 중 오류 발생: {e}")
+        return None
+
+def find_ai_report(base_filename, folder_name="Stock_Analysis_Results"):
+    """특정 분석 파일에 대한 AI 리포트 문서 찾기"""
+    try:
+        service = get_drive_service()
+        folder_id = get_or_create_folder(service, folder_name)
+
+        # AI 리포트 파일명 패턴
+        report_name = f"AI 분석 리포트 - {base_filename}"
+
+        query = f"name = '{report_name}' and '{folder_id}' in parents and mimeType = 'application/vnd.google-apps.document' and trashed = false"
+        results = service.files().list(q=query, fields="files(id, name)").execute()
+        items = results.get('files', [])
+
+        if items:
+            return items[0]  # {'id': ..., 'name': ...}
+        return None
+    except Exception as e:
+        print(f"AI 리포트 검색 중 오류 발생: {e}")
+        return None
+
 def sync_results_with_drive(results_dir, folder_name="Stock_Analysis_Results"):
     """구글 드라이브와 로컬 파일 목록 동기화"""
     try:

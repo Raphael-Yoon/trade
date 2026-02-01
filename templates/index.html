@@ -32,6 +32,11 @@
             </div>
             <div class="modal-footer"
                 style="padding: 20px 32px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; gap: 12px; background: rgba(255,255,255,0.02);">
+                <button id="aiSaveDriveBtn" class="result-btn" style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-weight: 700; display: none; padding: 12px 24px; border-radius: 12px; transition: all 0.2s;"
+                    onmouseover="this.style.background='#d1fae5'" onmouseout="this.style.background='#ecfdf5'"
+                    onclick="savePortfolioReportToDrive()">
+                    <span id="saveDriveBtnText">📁 구글 드라이브에 저장</span>
+                </button>
                 <button id="aiRefreshBtn" class="result-btn" style="background: #eef2ff; color: #4f46e5; border: 1px solid #e0e7ff; font-weight: 700; display: none; padding: 12px 24px; border-radius: 12px; transition: all 0.2s;"
                     onmouseover="this.style.background='#e0e7ff'" onmouseout="this.style.background='#eef2ff'"
                     onclick="refreshAiAnalysis()">
@@ -730,6 +735,8 @@
                             document.getElementById('aiRefreshBtn').style.display = 'none';
                         }
                         content.innerHTML = html;
+                        // 포트폴리오 분석에서는 저장 버튼 표시
+                        document.getElementById('aiSaveDriveBtn').style.display = 'block';
                     } else {
                         content.innerHTML = `<p style="color: #ef4444; padding: 20px;">분석 중 오류가 발생했습니다: ${data.message}</p>`;
                         if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.style.opacity = '1'; refreshBtnText.innerHTML = '🔄 다시 분석하기'; }
@@ -1039,27 +1046,49 @@
         function runAiAnalysis(filename) {
             currentAiFilename = filename;
             isAiAnalyzing = true;
-            openAiModal();
-            fetch(`/api/ai_analyze/${filename}`, { method: 'POST' })
+            openAiModal('기존 리포트 확인 중...');
+
+            // 1단계: 캐시 확인
+            fetch(`/api/ai_report_check/${filename}`)
                 .then(response => response.json())
                 .then(data => {
-                    isAiAnalyzing = false;
-                    if (data.success) {
+                    if (data.success && data.cached && data.result) {
+                        // 캐시에서 바로 표시 (HTML로 저장되어 있음)
+                        isAiAnalyzing = false;
                         currentAiResult = data.result;
                         const content = document.getElementById('aiResultContent');
-                        marked.setOptions({ gfm: true, breaks: true });
-                        content.innerHTML = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
-                        showToast(data.cached ? '기존 리포트를 불러왔습니다.' : '새 리포트가 생성되었습니다.');
+                        content.innerHTML = `<div class="ai-markdown-body">${data.result}</div>`;
+                        showToast('기존 리포트를 불러왔습니다.');
                     } else {
-                        showToast('AI 분석 실패: ' + data.message, 'error');
-                        closeAiModal();
+                        // 2단계: AI 분석 실행
+                        document.getElementById('aiResultContent').innerHTML = '<div class="loading-ai"><div class="ai-spinner"></div><p>AI가 분석 중입니다...</p></div>';
+                        return fetch(`/api/ai_analyze/${filename}`, { method: 'POST' })
+                            .then(response => response.json())
+                            .then(data => {
+                                isAiAnalyzing = false;
+                                if (data.success) {
+                                    currentAiResult = data.result;
+                                    const content = document.getElementById('aiResultContent');
+                                    marked.setOptions({ gfm: true, breaks: true });
+                                    content.innerHTML = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
+                                    showToast('새 리포트가 생성되었습니다.');
+                                } else {
+                                    showToast('AI 분석 실패: ' + data.message, 'error');
+                                    closeAiModal();
+                                }
+                            });
                     }
+                })
+                .catch(err => {
+                    isAiAnalyzing = false;
+                    showToast('오류 발생: ' + err, 'error');
+                    closeAiModal();
                 });
         }
 
-        function openAiModal() {
+        function openAiModal(message = 'AI가 분석 중입니다...') {
             const modal = document.getElementById('aiModal');
-            document.getElementById('aiResultContent').innerHTML = '<div class="loading-ai"><div class="ai-spinner"></div><p>AI가 분석 중입니다...</p></div>';
+            document.getElementById('aiResultContent').innerHTML = `<div class="loading-ai"><div class="ai-spinner"></div><p>${message}</p></div>`;
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
         }
@@ -1067,11 +1096,45 @@
         function closeAiModal() {
             if (isAiAnalyzing) return;
             document.getElementById('aiModal').style.display = 'none';
+            document.getElementById('aiSaveDriveBtn').style.display = 'none';
             document.body.style.overflow = 'auto';
         }
 
+        function savePortfolioReportToDrive() {
+            const filename = prompt('구글 드라이브에 저장할 파일명을 입력하세요:', '포트폴리오 분석 리포트');
+            if (!filename || !filename.trim()) return;
 
+            const saveBtn = document.getElementById('aiSaveDriveBtn');
+            const saveBtnText = document.getElementById('saveDriveBtnText');
+            saveBtn.disabled = true;
+            saveBtn.style.opacity = '0.7';
+            saveBtnText.innerHTML = '<span class="ai-spinner" style="width:14px; height:14px; border-width:2px; margin-right:8px;"></span> 저장 중...';
 
+            const content = document.getElementById('aiResultContent').innerHTML;
+
+            fetch('/api/save_report_to_drive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: filename.trim(), content: content })
+            })
+            .then(response => response.json())
+            .then(data => {
+                saveBtn.disabled = false;
+                saveBtn.style.opacity = '1';
+                saveBtnText.innerHTML = '📁 구글 드라이브에 저장';
+                if (data.success) {
+                    showToast('구글 드라이브에 저장되었습니다.');
+                } else {
+                    showToast('저장 실패: ' + data.message, 'error');
+                }
+            })
+            .catch(err => {
+                saveBtn.disabled = false;
+                saveBtn.style.opacity = '1';
+                saveBtnText.innerHTML = '📁 구글 드라이브에 저장';
+                showToast('저장 중 오류 발생: ' + err, 'error');
+            });
+        }
 
 
         window.onclick = function (event) {
