@@ -492,6 +492,47 @@ def get_audit_opinions(session, corp_code, year, api_key):
             
     return audit_opinion, internal_control, "N/A"
 
+def get_recent_disclosures(dart, corp_code, days=90):
+    """최근 주요 공시 정보를 가져옵니다 (90일 이내)."""
+    try:
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        
+        # 주요 공시 키워드
+        keywords = [
+            '단일판매', '공급계약', 
+            '유상증자', '무상증자', 
+            '전환사채', '신주인수권', 
+            '소송', '영업정지', 
+            '타법인주식', '영업양수도', 
+            '불성실공시'
+        ]
+        
+        # DART API list 호출
+        ds = dart.list(corp_code, start=start_date.strftime('%Y%m%d'), end=end_date.strftime('%Y%m%d'))
+        
+        if ds is None or ds.empty:
+            return "최근 중요공시 없음"
+            
+        important_disclosures = []
+        for _, row in ds.iterrows():
+            rpt_nm = row['report_nm']
+            # 정기공시(분기/반기/사업보고서)는 제외하고 이슈성 공시만
+            if any(k in rpt_nm for k in keywords):
+                date_str = row['rcept_dt']
+                # 날짜 포맷 YYYYMMDD -> YYYY-MM-DD
+                formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                important_disclosures.append(f"[{formatted_date}] {rpt_nm}")
+        
+        if not important_disclosures:
+            return "최근 중요공시 없음"
+            
+        # 최신 공시가 위로 오도록 정렬되어 있을 것이라 가정 (API가 보통 그렇지만, 필요시 ds sort)
+        return "\n".join(important_disclosures[:5]) # 최근 5개만
+        
+    except Exception as e:
+        return f"공시 조회 실패: {str(e)}"
+
 def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None, tickers=None):
     try:
         if tickers:
@@ -610,6 +651,9 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 if not corp_code: corp_code = ticker
                 audit_op, internal_op, audit_report_nm = get_audit_opinions(session, corp_code, current_year, API_KEY)
 
+                # 최근 주요 공시 조회
+                recent_disclosures = get_recent_disclosures(dart, corp_code)
+
                 # 데이터 기준 정보 (재무제표 보고서 우선, 없으면 감사의견 보고서)
                 data_basis = report_nm if report_nm != "N/A" else audit_report_nm
 
@@ -649,6 +693,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     '데이터기준': data_basis,
                     '회계감사의견': audit_op,
                     '내부통제의견': internal_op,
+                    '최근공시': recent_disclosures,
                     '업종': naver_data.get('sector'),
                     'PBR': naver_data.get('pbr'),
                     '업종평균PBR': naver_data.get('avg_pbr'),
