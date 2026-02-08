@@ -314,8 +314,8 @@ def get_naver_investor_data(session, ticker):
     except:
         return 0, 0, 0.0
 
-def get_dart_financials(dart, ticker, target_year, report_types=None):
-    """OpenDARTReader를 사용하여 지정된 연도의 특정 보고서들을 검색하고 가장 최신 데이터를 추출합니다."""
+def get_dart_financials(dart, ticker, target_year=None, report_types=None):
+    """OpenDARTReader를 사용하여 지정된 연도(또는 최신)의 특정 보고서들을 검색하고 가장 최신 데이터를 추출합니다."""
     # 시도할 보고서 코드: 사업보고서(11011), 3분기(11014), 반기(11012), 1분기(11013)
     all_report_codes = [
         ('11011', '사업보고서'),
@@ -330,17 +330,26 @@ def get_dart_financials(dart, ticker, target_year, report_types=None):
     else:
         report_codes = all_report_codes
     
-    # 지정된 연도 데이터만 탐색
-    for code, code_nm in report_codes:
-        try:
-            df = dart.finstate_all(ticker, target_year, code)
-            if df is not None and not df.empty:
-                # 데이터가 유효한지 확인 (매출액 등이 있는지)
-                if any(df['account_nm'].str.contains('매출액|영업수익', na=False)):
-                    report_nm = f"{target_year}년 {code_nm}"
-                    return parse_finstate_df(df, report_nm, ticker)
-        except:
-            continue
+    # 탐색할 연도 리스트 설정
+    if target_year:
+        years_to_check = [int(target_year)]
+    else:
+        # 연도 미지정 시 현재 연도부터 최근 3년 탐색
+        current_y = datetime.now().year
+        years_to_check = [current_y, current_y - 1, current_y - 2]
+
+    # 연도별, 보고서 종류별 탐색
+    for ship_year in years_to_check:
+        for code, code_nm in report_codes:
+            try:
+                df = dart.finstate_all(ticker, ship_year, code)
+                if df is not None and not df.empty:
+                    # 데이터가 유효한지 확인 (매출액 등이 있는지)
+                    if any(df['account_nm'].str.contains('매출액|영업수익', na=False)):
+                        report_nm = f"{ship_year}년 {code_nm}"
+                        return parse_finstate_df(df, report_nm, ticker)
+            except:
+                continue
     
     return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0
 
@@ -593,8 +602,11 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
             tickers_with_names = get_top_tickers_from_naver(session, market, stock_count if stock_count > 0 else 3000)
         
         now = datetime.now()
-        # 사용자가 지정한 연도가 있으면 사용, 없으면 직전 연도 기준
-        current_year = int(year) if year else now.year - 1 
+        # 사용자가 지정한 연도가 있으면 사용, 없으면 None (get_dart_financials에서 자동 탐색)
+        current_year = int(year) if year else None
+        
+        # 캐싱을 위한 기준 연도 (None일 경우 현재 연도-1 사용)
+        cache_year = current_year if current_year else now.year - 1
             
         results = []
         total = len(tickers_with_names)
@@ -631,14 +643,14 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 net_buy_inst = net_buy_inst_vol * price
 
                 # DART 데이터 캐시 확인 (사용자가 연도나 종류를 명시하지 않은 경우에만 캐시 사용)
-                cached = get_cached_data(ticker, current_year) if not (year or report_types) else None
+                cached = get_cached_data(ticker, cache_year) if not (year or report_types) else None
                 # 캐시가 있고, 리포트명이 정상이며, 전년 데이터가 포함되어 있는지 확인
                 if cached and cached.get('report_nm') != "N/A" and 'prev_rev' in cached:
                     revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = (
                         cached['revenue'], cached['op'], cached['re_val'], cached['cash'],
                         cached['liabilities'], cached['equity'], cached['ocf'], cached['capex'], cached['da'],
                         cached.get('net_income', 0), cached.get('cur_assets', 0), cached.get('cur_liab', 0),
-                        cached.get('report_nm', f"{current_year}년 사업보고서"),
+                        cached.get('report_nm', f"{cache_year}년 사업보고서"),
                         cached.get('prev_rev', 0), cached.get('prev_op', 0), cached.get('prev_ni', 0),
                         cached.get('prev2_rev', 0), cached.get('prev2_op', 0), cached.get('prev2_ni', 0)
                     )
@@ -646,7 +658,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     # 캐시가 없거나 전년 데이터가 없는 구버전 캐시라면 새로 수집
                     revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = get_dart_financials(dart, ticker, current_year, report_types)
                     # 캐시 저장
-                    save_cache_data(ticker, current_year, {
+                    save_cache_data(ticker, cache_year, {
                         'revenue': revenue, 'op': op, 're_val': re_val, 'cash': cash,
                         'liabilities': liabilities, 'equity': equity, 'ocf': ocf, 'capex': capex, 'da': da,
                         'net_income': net_income, 'cur_assets': cur_assets, 'cur_liab': cur_liab,
@@ -658,7 +670,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 # 감사 의견 가져오기 (고유번호 필요)
                 corp_code = dart.find_corp_code(ticker)
                 if not corp_code: corp_code = ticker
-                audit_op, internal_op, audit_report_nm = get_audit_opinions(session, corp_code, current_year, API_KEY)
+                audit_op, internal_op, audit_report_nm = get_audit_opinions(session, corp_code, cache_year, API_KEY)
 
                 # 최근 주요 공시 조회
                 recent_disclosures = get_recent_disclosures(dart, corp_code)
