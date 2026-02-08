@@ -63,7 +63,12 @@ def save_cache_data(ticker, year, data):
 
 def get_top_tickers_from_naver(session, market='KOSPI', count=100):
     """네이버 금융에서 시가총액 상위 종목 리스트를 가져옵니다."""
-    markets_to_fetch = ['KOSPI', 'KOSDAQ'] if market.upper() == 'ALL' else [market.upper()]
+    if market.upper() == 'ALL':
+        markets_to_fetch = ['KOSPI', 'KOSDAQ']
+    elif ',' in market:
+        markets_to_fetch = [m.strip().upper() for m in market.split(',')]
+    else:
+        markets_to_fetch = [market.upper()]
     all_tickers = []
     
     for m in markets_to_fetch:
@@ -309,29 +314,33 @@ def get_naver_investor_data(session, ticker):
     except:
         return 0, 0, 0.0
 
-def get_dart_financials(dart, ticker, year):
-    """OpenDARTReader를 사용하여 가장 최신의 재무 데이터를 추출합니다."""
+def get_dart_financials(dart, ticker, target_year, report_types=None):
+    """OpenDARTReader를 사용하여 지정된 연도의 특정 보고서들을 검색하고 가장 최신 데이터를 추출합니다."""
     # 시도할 보고서 코드: 사업보고서(11011), 3분기(11014), 반기(11012), 1분기(11013)
-    # 최신성 순서로 시도
-    report_codes = [
+    all_report_codes = [
         ('11011', '사업보고서'),
         ('11014', '3분기보고서'),
         ('11012', '반기보고서'),
         ('11013', '1분기보고서')
     ]
     
-    # 올해(year)와 작년(year-1) 데이터를 순차적으로 탐색
-    for target_year in [year, year - 1]:
-        for code, code_nm in report_codes:
-            try:
-                df = dart.finstate_all(ticker, target_year, code)
-                if df is not None and not df.empty:
-                    # 데이터가 유효한지 확인 (매출액 등이 있는지)
-                    if any(df['account_nm'].str.contains('매출액|영업수익', na=False)):
-                        report_nm = f"{target_year}년 {code_nm}"
-                        return parse_finstate_df(df, report_nm, ticker)
-            except:
-                continue
+    # 사용자가 선택한 종류만 필터링 (선택하지 않았으면 전체 시도)
+    if report_types:
+        report_codes = [rc for rc in all_report_codes if rc[0] in report_types]
+    else:
+        report_codes = all_report_codes
+    
+    # 지정된 연도 데이터만 탐색
+    for code, code_nm in report_codes:
+        try:
+            df = dart.finstate_all(ticker, target_year, code)
+            if df is not None and not df.empty:
+                # 데이터가 유효한지 확인 (매출액 등이 있는지)
+                if any(df['account_nm'].str.contains('매출액|영업수익', na=False)):
+                    report_nm = f"{target_year}년 {code_nm}"
+                    return parse_finstate_df(df, report_nm, ticker)
+        except:
+            continue
     
     return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0
 
@@ -450,8 +459,8 @@ def get_audit_opinions(session, corp_code, year, api_key):
     audit_opinion = 'N/A'
     internal_control = 'N/A'
     
-    # 최근 2개년도 시도 (2024년 데이터가 없을 경우 2023년 시도)
-    years_to_try = [str(year), str(int(year)-1)]
+    # 지정된 연도 데이터만 탐색
+    years_to_try = [str(year)]
     
     for y in years_to_try:
         try:
@@ -533,7 +542,7 @@ def get_recent_disclosures(dart, corp_code, days=90):
     except Exception as e:
         return f"공시 조회 실패: {str(e)}"
 
-def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None, tickers=None):
+def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None, tickers=None, year=None, report_types=None):
     try:
         if tickers:
             print("=" * 80)
@@ -584,8 +593,8 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
             tickers_with_names = get_top_tickers_from_naver(session, market, stock_count if stock_count > 0 else 3000)
         
         now = datetime.now()
-        # 단순히 2년을 빼는 게 아니라, 직전 연도를 기준으로 잡고 내부 로직에서 최신 보고서를 탐색하도록 변경
-        current_year = now.year - 1 
+        # 사용자가 지정한 연도가 있으면 사용, 없으면 직전 연도 기준
+        current_year = int(year) if year else now.year - 1 
             
         results = []
         total = len(tickers_with_names)
@@ -621,8 +630,8 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 net_buy_foreign = net_buy_foreign_vol * price
                 net_buy_inst = net_buy_inst_vol * price
 
-                # DART 데이터 캐시 확인
-                cached = get_cached_data(ticker, current_year)
+                # DART 데이터 캐시 확인 (사용자가 연도나 종류를 명시하지 않은 경우에만 캐시 사용)
+                cached = get_cached_data(ticker, current_year) if not (year or report_types) else None
                 # 캐시가 있고, 리포트명이 정상이며, 전년 데이터가 포함되어 있는지 확인
                 if cached and cached.get('report_nm') != "N/A" and 'prev_rev' in cached:
                     revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = (
@@ -635,7 +644,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     )
                 else:
                     # 캐시가 없거나 전년 데이터가 없는 구버전 캐시라면 새로 수집
-                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = get_dart_financials(dart, ticker, current_year)
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = get_dart_financials(dart, ticker, current_year, report_types)
                     # 캐시 저장
                     save_cache_data(ticker, current_year, {
                         'revenue': revenue, 'op': op, 're_val': re_val, 'cash': cash,
@@ -801,8 +810,11 @@ if __name__ == "__main__":
     parser.add_argument('--fields', type=str, default='')
     parser.add_argument('--output', type=str, default='')
     parser.add_argument('--tickers', type=str, default='')
+    parser.add_argument('--year', type=str, default='')
+    parser.add_argument('--report_types', type=str, default='')
     args = parser.parse_args()
     
     fields = args.fields.split(',') if args.fields else None
     tickers = args.tickers.split(',') if args.tickers else None
-    main(args.count, fields, args.market, args.output, tickers)
+    report_types = args.report_types.split(',') if args.report_types else None
+    main(args.count, fields, args.market, args.output, tickers, args.year, report_types)

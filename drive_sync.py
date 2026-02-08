@@ -9,12 +9,17 @@ import re
 # 구글 드라이브 API 권한 범위 (파일 읽기/쓰기/생성)
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
+# 파일 경로 설정 (스크립트 위치 기준)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TOKEN_PATH = os.path.join(BASE_DIR, 'token.pickle')
+CREDENTIALS_PATH = os.path.join(BASE_DIR, 'credentials.json')
+
 def get_drive_service():
     """구글 드라이브 서비스 객체 생성 및 인증"""
     creds = None
     # token.pickle 파일에 사용자 인증 정보 저장
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
+    if os.path.exists(TOKEN_PATH):
+        with open(TOKEN_PATH, 'rb') as token:
             creds = pickle.load(token)
             
     # 인증 정보가 없거나 유효하지 않으면 새로 인증
@@ -22,12 +27,12 @@ def get_drive_service():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            if not os.path.exists('credentials.json'):
-                raise FileNotFoundError("credentials.json 파일이 없습니다. 구글 클라우드 콘솔에서 다운로드하여 프로젝트 루트에 저장해주세요.")
-            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            if not os.path.exists(CREDENTIALS_PATH):
+                raise FileNotFoundError(f"credentials.json 파일이 없습니다. 현재 경로({BASE_DIR}) 또는 프로젝트 루트에 저장해주세요.")
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
             creds = flow.run_local_server(port=0)
         # 인증 정보 저장
-        with open('token.pickle', 'wb') as token:
+        with open(TOKEN_PATH, 'wb') as token:
             pickle.dump(creds, token)
 
     return build('drive', 'v3', credentials=creds)

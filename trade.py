@@ -232,7 +232,7 @@ def cleanup_old_results(max_files=20):
     except Exception as e:
         print(f"파일 정리 중 오류: {e}")
 
-def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
+def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', year=None, report_types=None):
     """백그라운드에서 데이터 수집 실행"""
     try:
         tasks[task_id]['status'] = 'running'
@@ -251,6 +251,11 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI'):
         result_path = os.path.join(RESULTS_DIR, result_filename)
 
         cmd = [python_cmd, script_path, '--count', str(stock_count), '--market', market, '--output', result_path]
+        
+        if year:
+            cmd.extend(['--year', str(year)])
+        if report_types:
+            cmd.extend(['--report_types', ','.join(report_types)])
 
         if fields:
             cmd.extend(['--fields', ','.join(fields)])
@@ -373,6 +378,8 @@ def start_collection():
     fields = data.get('fields', [])
     market = data.get('market', 'KOSPI')
     tickers = data.get('tickers', [])
+    year = data.get('year')
+    report_types = data.get('report_types', [])
 
     task_id = str(uuid.uuid4())
     tasks[task_id] = {
@@ -385,7 +392,7 @@ def start_collection():
         'created_at': datetime.now().isoformat()
     }
 
-    thread = threading.Thread(target=run_data_collection, args=(task_id, stock_count, fields, market))
+    thread = threading.Thread(target=run_data_collection, args=(task_id, stock_count, fields, market, year, report_types))
     thread.start()
 
     return jsonify({
