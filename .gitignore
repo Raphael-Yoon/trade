@@ -13,4 +13,6 @@ credentials.json
 token.pickle
 .env
 # trade.db (Removed from ignore to allow commit)
+trade.db
+
 
