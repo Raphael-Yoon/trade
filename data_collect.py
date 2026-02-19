@@ -316,6 +316,9 @@ def get_naver_investor_data(session, ticker):
 
 def get_dart_financials(dart, ticker, target_year=None, report_types=None):
     """OpenDARTReader를 사용하여 지정된 연도(또는 최신)의 특정 보고서들을 검색하고 가장 최신 데이터를 추출합니다."""
+    if dart is None:
+        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A (API Key Missing)", 0, 0, 0, 0, 0, 0
+
     # 시도할 보고서 코드: 사업보고서(11011), 3분기(11014), 반기(11012), 1분기(11013)
     all_report_codes = [
         ('11011', '사업보고서'),
@@ -512,6 +515,8 @@ def get_audit_opinions(session, corp_code, year, api_key):
 
 def get_recent_disclosures(dart, corp_code, days=90):
     """최근 주요 공시 정보를 가져옵니다 (90일 이내)."""
+    if dart is None:
+        return "DART API 키 미설정으로 조회 불가"
     try:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
@@ -584,7 +589,16 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
             return original_get(*args, **kwargs)
         session.get = timeout_get
 
-        dart = OpenDartReader(API_KEY)
+        try:
+            if not API_KEY:
+                print("[경고] DART_API_KEY가 .env 파일에 설정되지 않았습니다. DART 연동 기능이 제한됩니다.")
+                dart = None
+            else:
+                dart = OpenDartReader(API_KEY)
+        except Exception as e:
+            print(f"[오류] OpenDartReader 초기화 실패: {e}")
+            print("DART_API_KEY가 유효하지 않거나 네트워크 오류일 수 있습니다. Naver 데이터 중심으로 수집을 진행합니다.")
+            dart = None
         
         if tickers:
             # 지정된 티커 리스트가 있는 경우 (종목명은 네이버에서 가져옴)
@@ -679,7 +693,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 net_buy_inst = net_buy_inst_vol * price
                 
                 # 감사 의견 가져오기 (고유번호 필요)
-                corp_code = dart.find_corp_code(ticker)
+                corp_code = dart.find_corp_code(ticker) if dart else None
                 if not corp_code: corp_code = ticker
                 audit_op, internal_op, audit_report_nm = get_audit_opinions(session, corp_code, cache_year, API_KEY)
 
@@ -688,6 +702,13 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
 
                 # 데이터 기준 정보 (재무제표 보고서 우선, 없으면 감사의견 보고서)
                 data_basis = report_nm if report_nm != "N/A" else audit_report_nm
+
+                # 공시 자료가 등록되어 있지 않은 경우(N/A) 엑셀에서 제외 (스킵)
+                if data_basis == "N/A" or "API Key Missing" in data_basis:
+                    with lock:
+                        processed_count += 1
+                        print(f"진행률: [{processed_count}/{total}] {processed_count*100//total}% 완료 (스킵: {name} - 공시자료 없음)", flush=True)
+                    return None
 
                 fcf = ocf - capex
                 ebitda = op + da
