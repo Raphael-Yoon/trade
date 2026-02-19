@@ -82,9 +82,9 @@
                         
                         <span style="font-size: 14px; color: var(--text-muted); line-height: 22px;">공시 연도:</span>
                         <select id="collectYear" style="background: #1e293b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; padding: 4px 12px; font-size: 14px; cursor: pointer;">
-                            <option value="" style="background: #1e293b; color: white;">최신 (자동)</option>
+                            <option value="" style="background: #1e293b; color: white;" selected>최신 (자동)</option>
                             <option value="2025" style="background: #1e293b; color: white;">2025년</option>
-                            <option value="2024" style="background: #1e293b; color: white;" selected>2024년</option>
+                            <option value="2024" style="background: #1e293b; color: white;">2024년</option>
                             <option value="2023" style="background: #1e293b; color: white;">2023년</option>
                             <option value="2022" style="background: #1e293b; color: white;">2022년</option>
                         </select>
@@ -925,6 +925,7 @@
 
         function checkStatus() {
             if (!currentTaskId) return;
+            if (statusCheckInterval) clearInterval(statusCheckInterval);
             statusCheckInterval = setInterval(() => {
                 fetch(`/api/status/${currentTaskId}`)
                     .then(response => response.json())
@@ -989,11 +990,14 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        clearInterval(statusCheckInterval);
+                        if (statusCheckInterval) clearInterval(statusCheckInterval);
                         resetButton();
                         showToast('수집이 취소되었습니다.');
                     } else {
-                        showToast('취소 실패: ' + data.message, 'error');
+                        // 취소 실패하더라도 UI는 리셋 (서버 작업이 이미 종료되었을 수 있음)
+                        if (statusCheckInterval) clearInterval(statusCheckInterval);
+                        resetButton();
+                        showToast('취소되었습니다.');
                     }
                 });
         }
@@ -1003,10 +1007,22 @@
             const btnText = document.getElementById('collectBtnText');
             const progressFill = document.getElementById('progressFill');
             const cancelBtn = document.getElementById('cancelBtn');
+            const logArea = document.getElementById('collectionLogArea');
+            
             btn.disabled = false;
-            progressFill.style.width = '100%';
-            btnText.textContent = '🚀 데이터 수집 시작';
+            progressFill.style.width = '0%';
+            
+            // 초기 텍스트로 복구 (로컬 여부에 따라)
+            btnText.textContent = {% if is_local %}'🚀 데이터 수집 시작'{% else %}'🔒 데이터 수집은 로컬에서만 가능합니다'{% endif %};
+            
             cancelBtn.style.display = 'none';
+            if (logArea) logArea.style.display = 'none';
+            
+            currentTaskId = null;
+            if (statusCheckInterval) {
+                clearInterval(statusCheckInterval);
+                statusCheckInterval = null;
+            }
         }
 
         function loadResults() {

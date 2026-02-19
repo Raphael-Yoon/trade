@@ -631,20 +631,10 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 except: pass
             
             try:
-                naver_data = get_naver_financials(session, ticker)
-                if not naver_data:
-                    with lock:
-                        processed_count += 1
-                    return None
-
-                net_buy_foreign_vol, net_buy_inst_vol, foreign_ratio = get_naver_investor_data(session, ticker)
-                price = naver_data.get('price', 0)
-                net_buy_foreign = net_buy_foreign_vol * price
-                net_buy_inst = net_buy_inst_vol * price
-
+                # 1. DART 데이터 먼저 확인 (가장 오래 걸리며, 필수 데이터이므로 존재하지 않으면 즉시 스킵)
                 # DART 데이터 캐시 확인 (사용자가 연도나 종류를 명시하지 않은 경우에만 캐시 사용)
                 cached = get_cached_data(ticker, cache_year) if not (year or report_types) else None
-                # 캐시가 있고, 리포트명이 정상이며, 전년 데이터가 포함되어 있는지 확인
+                
                 if cached and cached.get('report_nm') != "N/A" and 'prev_rev' in cached:
                     revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = (
                         cached['revenue'], cached['op'], cached['re_val'], cached['cash'],
@@ -656,7 +646,16 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     )
                 else:
                     # 캐시가 없거나 전년 데이터가 없는 구버전 캐시라면 새로 수집
-                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = get_dart_financials(dart, ticker, current_year, report_types)
+                    dart_data = get_dart_financials(dart, ticker, current_year, report_types)
+                    if dart_data[12] == "N/A": # report_nm
+                        with lock:
+                            processed_count += 1
+                            # DART 공시가 없으면 네이버 크롤링 단계로 가지 않고 즉시 건너뜀 (속도 향상 및 엑셀 제외)
+                            print(f"진행률: [{processed_count}/{total}] 스킵 (DART 공시 없음): {name}", flush=True)
+                        return None
+                    
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = dart_data
+                    
                     # 캐시 저장
                     save_cache_data(ticker, cache_year, {
                         'revenue': revenue, 'op': op, 're_val': re_val, 'cash': cash,
@@ -666,6 +665,18 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                         'prev_rev': prev_rev, 'prev_op': prev_op, 'prev_ni': prev_ni,
                         'prev2_rev': prev2_rev, 'prev2_op': prev2_op, 'prev2_ni': prev2_ni
                     })
+
+                # 2. DART 데이터가 있는 경우에만 네이버 및 기타 상세 데이터 수집 (속도 최적화)
+                naver_data = get_naver_financials(session, ticker)
+                if not naver_data:
+                    with lock:
+                        processed_count += 1
+                    return None
+
+                net_buy_foreign_vol, net_buy_inst_vol, foreign_ratio = get_naver_investor_data(session, ticker)
+                price = naver_data.get('price', 0)
+                net_buy_foreign = net_buy_foreign_vol * price
+                net_buy_inst = net_buy_inst_vol * price
                 
                 # 감사 의견 가져오기 (고유번호 필요)
                 corp_code = dart.find_corp_code(ticker)
@@ -789,22 +800,24 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
         # None 결과 제외
         results = [r for r in thread_results if r is not None]
 
-        df = pd.DataFrame(results)
+        # 데이터가 없더라도 헤더는 생성되도록 컬럼 설정
         if selected_fields:
-            # 내 종목 분석인 경우 필수 필드 추가
-            if any('현재가' in r for r in results):
+            # 내 종목 분석인 경우 필수 필드 추가 (데이터 유무와 상관없이 추가)
+            if tickers: # 내 종목이 입력된 경우 (tickers_with_names [code:price:qty])
                 my_fields = ['현재가', '매입단가', '보유수량', '평가손익', '수익률(%)']
                 for f in my_fields:
                     if f not in selected_fields:
-                        selected_fields.insert(2, f) # 종목명 뒤에 삽입
-
-            # 전년 동기 데이터가 컬럼에 있다면 자동으로 선택 필드에 추가
+                        selected_fields.insert(2, f)
+            
             yoy_fields = ['전년동기매출액', '매출액증가율(%)', '전년동기영업이익', '영업이익증가율(%)', '전년동기순이익', '순이익증가율(%)']
             for f in yoy_fields:
-                if f in df.columns and f not in selected_fields:
+                if f not in selected_fields:
                     selected_fields.append(f)
             
-            df = df[[f for f in selected_fields if f in df.columns]]
+            # 빈 데이터프레임이라도 컬럼을 미리 지정
+            df = pd.DataFrame(results, columns=selected_fields)
+        else:
+            df = pd.DataFrame(results)
 
         output_file = output_path if output_path else os.path.join(os.path.dirname(os.path.abspath(__file__)), "result.xlsx")
         df.to_excel(output_file, index=False)
