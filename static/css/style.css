@@ -13,6 +13,40 @@
     --error: #ef4444;
 }
 
+/* [김미수] 실시간 시세 애니메이션 */
+@keyframes price-up-bg {
+    0% { background-color: rgba(239, 68, 68, 0.4); color: white; }
+    100% { background-color: transparent; color: #ef4444; }
+}
+
+@keyframes price-down-bg {
+    0% { background-color: rgba(59, 130, 246, 0.4); color: white; }
+    100% { background-color: transparent; color: #3b82f6; }
+}
+
+.price-badge {
+    padding: 4px 12px;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    color: white;
+}
+
+.price-up-flash {
+    animation: price-up-bg 1s ease-out;
+    color: #ef4444 !important;
+}
+
+.price-down-flash {
+    animation: price-down-bg 1s ease-out;
+    color: #3b82f6 !important;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(1); opacity: 0.8; }
+}
+
 * {
     margin: 0;
     padding: 0;

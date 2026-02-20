@@ -19,7 +19,7 @@ import sqlite3
 import requests
 from bs4 import BeautifulSoup
 import re
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from ai_analysis import analyze_stock_data, analyze_portfolio
 from get_all_naver_data import get_all_naver_data
 
@@ -105,6 +105,15 @@ def init_db():
             cache_key TEXT PRIMARY KEY,
             ai_result TEXT,
             created_at TEXT
+        )
+    ''')
+
+    # 관심 종목(Watchlist) 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS watchlist (
+            code TEXT PRIMARY KEY,
+            name TEXT,
+            added_at TEXT
         )
     ''')
     
@@ -747,18 +756,111 @@ def get_portfolio_details_old(ticker):
         print(f"Error collecting data for {ticker}: {e}")
         return data
 
-def get_current_price(ticker):
-    """네이버 금융에서 현재가를 가져옵니다."""
+def get_detailed_price(ticker):
+    """[김정음] 네이버 금융에서 현재가, 전일종가, 등락 정보를 상세히 가져옵니다."""
     try:
         url = f"https://finance.naver.com/item/main.naver?code={ticker}"
+        # Naver Finance는 EUC-KR을 사용하므로 명시적 처리
         res = requests.get(url, timeout=5)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        price_area = soup.select_one('.no_today .no_up .blind, .no_today .no_down .blind, .no_today .no_steady .blind')
-        if price_area:
-            return int(price_area.text.strip().replace(',', ''))
-    except:
-        pass
-    return 0
+        soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
+        
+        # 1. 현재가 추출
+        today_area = soup.select_one('.no_today')
+        current_price = 0
+        if today_area:
+            price_elem = today_area.select_one('.blind')
+            if price_elem:
+                current_price = int(re.sub(r'[^0-9]', '', price_elem.text))
+
+        # 2. 전일종가 추출 (다양한 패턴 대응)
+        prev_close = 0
+        
+        # 패턴 A: .no_info 테이블 (일반 주식)
+        info_area = soup.select_one('.no_info')
+        if info_area:
+            for td in info_area.select('td'):
+                if '전일' in td.text:
+                    val_elem = td.select_one('.blind')
+                    if val_elem:
+                        prev_close = int(re.sub(r'[^0-9]', '', val_elem.text))
+                        break
+        
+        # 패턴 B: .rate_info 영역 (ETF 등)
+        if prev_close == 0:
+            rate_info = soup.select_one('.rate_info')
+            if rate_info:
+                # '전일' 텍스트를 포함한 td나 th를 찾음
+                target = rate_info.find(string=re.compile('전일'))
+                if target:
+                    parent = target.find_parent(['td', 'th', 'div'])
+                    # 인접한 곳에서 숫자 추출
+                    val_elem = parent.find_next_sibling() if parent else None
+                    if not val_elem:
+                         val_elem = parent # 자기 자신일 수도 있음
+                    
+                    # blind 클래스 혹은 텍스트에서 숫자 추출
+                    text_to_search = val_elem.text if val_elem else ""
+                    nums = re.findall(r'[0-9,]+', text_to_search)
+                    if nums:
+                        prev_close = int(nums[0].replace(',', ''))
+
+        # 3. 등락액, 등락률 계산
+        change = current_price - prev_close if prev_close > 0 else 0
+        change_rate = (change / prev_close * 100) if prev_close > 0 else 0
+        
+        return {
+            'current_price': current_price,
+            'prev_close': prev_close,
+            'change': change,
+            'change_rate': round(change_rate, 2)
+        }
+    except Exception as e:
+        print(f"Detailed scraping error for {ticker}: {e}")
+    return {'current_price': 0, 'prev_close': 0, 'change': 0, 'change_rate': 0}
+
+def get_market_index(ticker):
+    """[김정음] 네이버 금융에서 코스피, 코스닥 지수를 가져옵니다."""
+    try:
+        url = f"https://finance.naver.com/sise/sise_index.naver?code={ticker}"
+        res = requests.get(url, timeout=5)
+        soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
+        
+        now_value = soup.select_one('#now_value')
+        change_area = soup.select_one('#change_value_and_rate')
+        
+        if now_value and change_area:
+            price = float(now_value.text.replace(',', ''))
+            
+            # 등락 및 등락률 파싱
+            change_text = change_area.text.strip()
+            # "상승 10.00 +0.40%" 형태 또는 "하락 10.00 -0.40%"
+            nums = re.findall(r'[0-9.]+', change_text)
+            
+            change = float(nums[0]) if len(nums) > 0 else 0
+            rate = float(nums[1]) if len(nums) > 1 else 0
+            
+            if '하락' in change_text or '-' in change_text:
+                change = -change
+                rate = -rate
+                
+            return {
+                'name': '코스피' if ticker == 'KOSPI' else '코스닥',
+                'code': ticker,
+                'price': price,
+                'change': change,
+                'rate': rate
+            }
+    except Exception as e:
+        print(f"Error fetching index {ticker}: {e}")
+    return {'name': ticker, 'code': ticker, 'price': 0, 'change': 0, 'rate': 0}
+
+@app.route('/api/market/indices', methods=['GET'])
+def get_market_indices_api():
+    """[김정음] 주요 시장 지수를 반환합니다."""
+    indices = []
+    for ticker in ['KOSPI', 'KOSDAQ']:
+        indices.append(get_market_index(ticker))
+    return jsonify(indices)
 
 @app.route('/api/my_stocks', methods=['GET'])
 def get_my_stocks():
@@ -1192,6 +1294,125 @@ def news_search():
         print(f"News search error: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/watchlist', methods=['GET'])
+def get_watchlist():
+    """[김정음] 관심 종목 리스트를 가져옵니다."""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT code, name, added_at FROM watchlist ORDER BY added_at DESC")
+        stocks = [dict(row) for row in cursor.fetchall()]
+        return jsonify(stocks)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/watchlist', methods=['POST'])
+def add_to_watchlist():
+    """[김정음] 관심 종목을 추가합니다."""
+    try:
+        data = request.get_json()
+        code = data.get('code')
+        name = data.get('name', '')
+        if not code:
+            return jsonify({'success': False, 'message': '코드가 누락되었습니다.'}), 400
+            
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO watchlist (code, name, added_at) VALUES (?, ?, ?)",
+            (code, name, datetime.now().isoformat())
+        )
+        db.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/watchlist/<code>', methods=['DELETE'])
+def delete_from_watchlist(code):
+    """[김정음] 관심 종목을 삭제합니다."""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("DELETE FROM watchlist WHERE code = ?", (code,))
+        db.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/watchlist/promote', methods=['POST'])
+def promote_to_portfolio():
+    """[김정음] 관심 종목을 내 포트폴리오(보유 종목)로 승격시킵니다."""
+    try:
+        data = request.get_json()
+        code = data.get('code')
+        name = data.get('name', '')
+        price = data.get('purchase_price', 0)
+        qty = data.get('quantity', 0)
+        
+        db = get_db()
+        cursor = db.cursor()
+        # 1. 포트폴리오에 추가
+        cursor.execute(
+            "INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity) VALUES (?, ?, ?, ?, ?)",
+            (code, name, datetime.now().isoformat(), price, qty)
+        )
+        # 2. 관심 종목에서 삭제
+        cursor.execute("DELETE FROM watchlist WHERE code = ?", (code,))
+        db.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/realtime/prices', methods=['GET'])
+def get_realtime_prices():
+    """[김정음] 내 종목 및 관심 종목의 실시간 주가 정보를 상세히 반환합니다."""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        # 보유 종목 가져오기
+        cursor.execute("SELECT code, name FROM my_stocks")
+        portfolio_stocks = [{'code': s['code'], 'name': s['name'], 'type': 'portfolio'} for s in cursor.fetchall()]
+        
+        # 관심 종목 가져오기
+        cursor.execute("SELECT code, name FROM watchlist")
+        watchlist_stocks = [{'code': s['code'], 'name': s['name'], 'type': 'watchlist'} for s in cursor.fetchall()]
+        
+        all_stocks = portfolio_stocks + watchlist_stocks
+        if not all_stocks:
+            return jsonify([])
+            
+        results = []
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_stock = {executor.submit(get_detailed_price, s['code']): s for s in all_stocks}
+            for future in as_completed(future_to_stock):
+                stock = future_to_stock[future]
+                try:
+                    price_info = future.result()
+                    results.append({
+                        'code': stock['code'],
+                        'name': stock['name'],
+                        'price': price_info['current_price'],
+                        'prev_close': price_info['prev_close'],
+                        'change': price_info['change'],
+                        'change_rate': price_info['change_rate'],
+                        'type': stock['type']
+                    })
+                except Exception:
+                    results.append({
+                        'code': stock['code'], 
+                        'name': stock['name'], 
+                        'price': 0, 
+                        'prev_close': 0, 
+                        'change': 0, 
+                        'change_rate': 0, 
+                        'type': stock['type']
+                    })
+                    
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/sync', methods=['POST'])
 def sync_data():
     try:
@@ -1204,4 +1425,6 @@ def sync_data():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 if __name__ == '__main__':
+    init_db()  # [김정음] 스타트업 시 DB 초기화 보장
     app.run(debug=True, host='0.0.0.0', port=5000)
+        
