@@ -61,7 +61,7 @@ def analyze_stock_data(file_path):
         data_summary = df.head(30).to_string(index=False)
         
         client = genai.Client(api_key=GEMINI_API_KEY)
-        model_id = 'gemini-2.5-flash'  # 2.0-flash 무료 티어 비활성화로 변경
+        model_id = 'gemini-2.0-flash'  # 올바른 모델 ID로 수정
         
         prompt = f"""
         당신은 전문적인 주식 퀀트 투자 분석가이자 시장 전략 시스템입니다. 
@@ -194,7 +194,7 @@ def analyze_portfolio(portfolio_data):
             data_str += "\n"
 
         client = genai.Client(api_key=GEMINI_API_KEY)
-        model_id = 'gemini-2.5-flash'  # 2.0-flash 무료 티어 비활성화로 변경
+        model_id = 'gemini-2.0-flash'  # 올바른 모델 ID로 수정
 
         prompt = f"""
         당신은 전문적인 금융 데이터 분석가이자 투자 전략 시스템입니다. 
