@@ -91,7 +91,9 @@ def get_all_naver_data(ticker):
 
         # 기술적 지표
         'rsi': 0,
-        'price_position_52w': 0
+        'price_position_52w': 0,
+        'treasury_shares': 0,
+        'treasury_ratio': 0
     }
 
     try:
@@ -535,15 +537,51 @@ def get_extra_stock_data(ticker, name, headers):
         'ma5': 0,
         'ma20': 0,
         'ma5_diff': 0,
-        'ma20_diff': 0
+        'ma20_diff': 0,
+        'treasury_shares': 0,
+        'treasury_ratio': 0
     }
     
     try:
-        # 1. 수급 추세 (frgn.naver)
+        # 1. 수급 추세 및 자기주식 (frgn.naver)
         frgn_url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
         res = requests.get(frgn_url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, 'html.parser')
         
+        # 자기주식수 및 비율 추출
+        try:
+            for th in soup.find_all('th'):
+                if '자기주식' in th.text:
+                    td = th.find_next_sibling('td')
+                    if td:
+                        text = td.get_text(strip=True)
+                        # 1. 비율 추출 (예: 1.14%)
+                        ratio_match = re.search(r'([\d.]+)\s*%', text)
+                        if ratio_match:
+                            extra['treasury_ratio'] = float(ratio_match.group(1))
+                        
+                        # 2. 수량 추출 (예: 68,024,561)
+                        # 괄호 밖의 큰 숫자를 수량으로 판단
+                        count_text = re.sub(r'\(.*?\)', '', text)
+                        nums = re.findall(r'[\d,]+', count_text)
+                        if nums:
+                            count_val = int(nums[0].replace(',', ''))
+                            # 만약 추출된 숫자가 너무 작고(100 미만) 소수점이 포함되어 있었다면 비율일 가능성 높음
+                            if count_val < 100 and '.' in nums[0]:
+                                if extra['treasury_ratio'] == 0:
+                                    extra['treasury_ratio'] = float(nums[0])
+                            else:
+                                extra['treasury_shares'] = count_val
+            
+            # 3. 데이터 상호 보완 (수량은 있는데 비율이 없거나 그 반대인 경우)
+            if extra['treasury_shares'] > 0 and extra['treasury_ratio'] == 0:
+                if data.get('outstanding_shares', 0) > 0:
+                    extra['treasury_ratio'] = round((extra['treasury_shares'] / data['outstanding_shares']) * 100, 2)
+            elif extra['treasury_ratio'] > 0 and extra['treasury_shares'] == 0:
+                if data.get('outstanding_shares', 0) > 0:
+                    extra['treasury_shares'] = int(data['outstanding_shares'] * (extra['treasury_ratio'] / 100))
+        except: pass
+
         tables = soup.find_all('table', class_='type2')
         for table in tables:
             if '날짜' in table.get_text() and '기관' in table.get_text():

@@ -314,12 +314,113 @@ def get_naver_investor_data(session, ticker):
     except:
         return 0, 0, 0.0
 
+def get_treasury_stock(dart, ticker, year, report_code, total_shares=0):
+    """
+    DART에서 자기주식 보유 현황을 가져옵니다.
+    (수량, 비율) 튜플을 반환합니다.
+    """
+    shares_count = 0
+    ratio = 0.0
+    if dart is None: return shares_count, ratio
+    try:
+        # 1. '자기주식' 테이블 시도
+        df = dart.report(ticker, '자기주식', year, report_code)
+        if df is not None and not df.empty:
+            # 기말 수량 컬럼 찾기 (OpenDartReader 표준 또는 한글 명칭)
+            trm_col = None
+            for col in df.columns:
+                col_str = str(col).lower()
+                if any(x in col_str for x in ['trmend_qy', '기말', '현재', '말잔']):
+                    trm_col = col
+                    break
+            
+            for _, row in df.iterrows():
+                # 전체 행 텍스트 (키워드 매칭용)
+                row_all_str = " ".join([str(v) for v in row.values])
+                # 메타데이터 및 비고 컬럼 제외하여 잘못된 수치(corp_code, 주석 번호 등) 추출 방지
+                data_values = [str(v) for k, v in row.items() if k not in ['corp_code', 'stock_code', 'corp_name', 'rcept_no', 'bsns_year', 'reprt_code', 'rm', '비고']]
+                data_str = " ".join(data_values)
+                
+                # 수치 추출 (날짜 형식 YYYY-MM-DD 등을 공백으로 치환하여 오인 방지)
+                clean_data_str = re.sub(r'\d{4}-\d{2}-\d{2}', ' ', data_str)
+                nums = re.findall(r'[\d.]+', clean_data_str.replace(',', ''))
+                vals = [float(n) for n in nums if float(n) > 0 and len(n.split('.')[0]) <= 10]
+                
+                row_val = 0
+                # 방법 A: 특정 컬럼(trm_col)에서 값 가져오기
+                if trm_col:
+                    v_raw = str(row.get(trm_col, '')).replace(',', '').strip()
+                    if v_raw.replace('.', '').isdigit():
+                        row_val = int(float(v_raw))
+                
+                # 방법 B: 특정 컬럼이 없거나 실패한 경우 데이터 행에서 최대값 선택
+                if row_val == 0 and vals:
+                    # '1000' 이상의 숫자 중 최대값 (수량으로 간주)
+                    large_vals = [v for v in vals if v > 100]
+                    if large_vals: row_val = int(max(large_vals))
+                
+                if row_val > 0:
+                    # '총계'나 '합계'가 포함된 행은 최우선 순위
+                    if any(x in row_all_str for x in ['총계', '합계']):
+                        shares_count = row_val
+                        # 비율도 있으면 추출 (100 이하의 숫자)
+                        possible_ratios = [v for v in vals if 0 < v <= 100]
+                        if possible_ratios: ratio = possible_ratios[0]
+                        break # 총계를 찾았으면 더 이상 루프 돌지 않음
+                    elif row_val > shares_count:
+                        # 총계 행이 아니더라도 더 큰 수치가 나오면 일단 업데이트
+                        shares_count = row_val
+                        possible_ratios = [v for v in vals if 0 < v <= 100]
+                        if possible_ratios and ratio == 0: ratio = possible_ratios[0]
+        
+        # 2. '주식의총수' 테이블 시도 (자기주식 테이블에서 실패한 경우나 보완)
+        if shares_count == 0:
+            df = dart.report(ticker, '주식의총수', year, report_code)
+            if df is not None and not df.empty:
+                target_col = None
+                for col in df.columns:
+                    if '자기주식' in str(col):
+                        target_col = col
+                        break
+                if target_col:
+                    for _, row in df.iterrows():
+                        row_all = " ".join([str(v) for v in row.values])
+                        if any(x in row_all for x in ['합계', '보유', '자기주식', '총계']):
+                            val = str(row[target_col]).replace(',', '')
+                            nums = re.findall(r'\d+', val)
+                            if nums:
+                                current_val = int(nums[0])
+                                if current_val > shares_count:
+                                    shares_count = current_val
+    except: pass
+
+    # 3. 상호 보완 계산
+    if shares_count > 100 and ratio == 0 and total_shares > 0:
+        ratio = round((shares_count / total_shares) * 100, 2)
+    elif 0 < shares_count <= 100 and ratio == 0:
+        # 추출된 숫자가 너무 작으면 비율로 간주
+        ratio = float(shares_count)
+        if total_shares > 0:
+            shares_count = int(total_shares * (ratio / 100))
+    elif ratio > 0 and shares_count == 0 and total_shares > 0:
+        shares_count = int(total_shares * (ratio / 100))
+
+    return shares_count, ratio
+
 def get_dart_financials(dart, ticker, target_year=None, report_types=None):
     """OpenDARTReader를 사용하여 지정된 연도(또는 최신)의 특정 보고서들을 검색하고 가장 최신 데이터를 추출합니다."""
     if dart is None:
-        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A (API Key Missing)", 0, 0, 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A (API Key Missing)", 0, 0, 0, 0, 0, 0, 0, 0
 
-    # 시도할 보고서 코드: 사업보고서(11011), 3분기(11014), 반기(11012), 1분기(11013)
+    # 상장주식수 먼저 파악 (비비율 계산용)
+    total_shares = 0
+    try:
+        # corp_code = dart.find_corp_code(ticker) # 이미 ticker가 corp_code 역할을 할 수 있음
+        stock_info = dart.stock_totqty(ticker, datetime.now().year-1, '11011') # 일단 작년 기준
+        if stock_info is not None and not stock_info.empty:
+            # 보통 첫번째 행의 상장주식수가 총수
+            total_shares = int(str(stock_info.iloc[0].get('stock_totqty', '0')).replace(',', ''))
+    except: pass
     all_report_codes = [
         ('11011', '사업보고서'),
         ('11014', '3분기보고서'),
@@ -350,11 +451,14 @@ def get_dart_financials(dart, ticker, target_year=None, report_types=None):
                     # 데이터가 유효한지 확인 (매출액 등이 있는지)
                     if any(df['account_nm'].str.contains('매출액|영업수익', na=False)):
                         report_nm = f"{ship_year}년 {code_nm}"
-                        return parse_finstate_df(df, report_nm, ticker)
+                        financials = parse_finstate_df(df, report_nm, ticker)
+                        # 자사주 정보 추가 수집 (상장주식수 정보 전달)
+                        treasury_shares, treasury_ratio = get_treasury_stock(dart, ticker, ship_year, code, total_shares)
+                        return financials + (treasury_shares, treasury_ratio)
             except:
                 continue
     
-    return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0
+    return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0, 0, 0
 
 
 def parse_finstate_df(df, report_nm, ticker):
@@ -658,17 +762,12 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                         cached.get('prev_rev', 0), cached.get('prev_op', 0), cached.get('prev_ni', 0),
                         cached.get('prev2_rev', 0), cached.get('prev2_op', 0), cached.get('prev2_ni', 0)
                     )
+                    treasury_shares = cached.get('treasury_shares', 0)
+                    treasury_ratio = cached.get('treasury_ratio', 0.0)
                 else:
                     # 캐시가 없거나 전년 데이터가 없는 구버전 캐시라면 새로 수집
-                    dart_data = get_dart_financials(dart, ticker, current_year, report_types)
-                    if dart_data[12] == "N/A": # report_nm
-                        with lock:
-                            processed_count += 1
-                            # DART 공시가 없으면 네이버 크롤링 단계로 가지 않고 즉시 건너뜀 (속도 향상 및 엑셀 제외)
-                            print(f"진행률: [{processed_count}/{total}] 스킵 (DART 공시 없음): {name}", flush=True)
-                        return None
-                    
-                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = dart_data
+                    dart_all = get_dart_financials(dart, ticker, current_year, report_types)
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni, treasury_shares, treasury_ratio = dart_all
                     
                     # 캐시 저장
                     save_cache_data(ticker, cache_year, {
@@ -677,7 +776,9 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                         'net_income': net_income, 'cur_assets': cur_assets, 'cur_liab': cur_liab,
                         'report_nm': report_nm, 
                         'prev_rev': prev_rev, 'prev_op': prev_op, 'prev_ni': prev_ni,
-                        'prev2_rev': prev2_rev, 'prev2_op': prev2_op, 'prev2_ni': prev2_ni
+                        'prev2_rev': prev2_rev, 'prev2_op': prev2_op, 'prev2_ni': prev2_ni,
+                        'treasury_shares': treasury_shares,
+                        'treasury_ratio': treasury_ratio
                     })
 
                 # 2. DART 데이터가 있는 경우에만 네이버 및 기타 상세 데이터 수집 (속도 최적화)
@@ -703,11 +804,11 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 # 데이터 기준 정보 (재무제표 보고서 우선, 없으면 감사의견 보고서)
                 data_basis = report_nm if report_nm != "N/A" else audit_report_nm
 
-                # 공시 자료가 등록되어 있지 않은 경우(N/A) 엑셀에서 제외 (스킵)
-                if data_basis == "N/A" or "API Key Missing" in data_basis:
+                # 모든 데이터가 없는 경우만 제외 (Naver 데이터라도 있으면 유지)
+                if data_basis == "N/A" and (not naver_data or naver_data.get('price', 0) == 0):
                     with lock:
                         processed_count += 1
-                        print(f"진행률: [{processed_count}/{total}] {processed_count*100//total}% 완료 (스킵: {name} - 공시자료 없음)", flush=True)
+                        print(f"진행률: [{processed_count}/{total}] {processed_count*100//total}% 완료 (스킵: {name} - 데이터 없음)", flush=True)
                     return None
 
                 fcf = ocf - capex
@@ -791,6 +892,8 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     '외국인보유율': foreign_ratio,
                     '외국인순매수': net_buy_foreign,
                     '기관순매수': net_buy_inst,
+                    '자사주보유': treasury_shares,
+                    '자사주비율(%)': treasury_ratio,
                     '내년예상영업이익': naver_data.get('next_op'),
                     '목표주가': naver_data.get('target_price')
                 }

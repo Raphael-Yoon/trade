@@ -515,6 +515,8 @@ def get_portfolio_details(ticker):
          'inst_20d_net': all_data.get('inst_20d_net', 0),
          'ma5': all_data.get('ma5', 0),
          'ma20': all_data.get('ma20', 0),
+         'treasury_shares': all_data.get('treasury_shares', 0),
+         'treasury_ratio': all_data.get('treasury_ratio', 0),
      })
 
     return data

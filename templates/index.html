@@ -19,11 +19,15 @@
 
     <!-- Chart Expansion Modal -->
     <div id="chartModal" class="modal" style="z-index: 2000;">
-        <div class="modal-content" style="max-width: 900px; width: 90%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
+        <div class="modal-content"
+            style="max-width: 900px; width: 90%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
             <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 24px 32px;">
                 <div style="display: flex; align-items: center; gap: 12px;">
-                    <h2 id="chartModalTitle" style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">종목 차트</h2>
-                    <span id="chartModalCode" style="font-size: 14px; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 6px;">000000</span>
+                    <h2 id="chartModalTitle"
+                        style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">
+                        종목 차트</h2>
+                    <span id="chartModalCode"
+                        style="font-size: 14px; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 6px;">000000</span>
                 </div>
                 <span class="close-modal" onclick="closeChartModal()" style="font-size: 32px;">&times;</span>
             </div>
@@ -34,14 +38,19 @@
                     <button class="sub-tab-btn" onclick="updateExpandedChart('week')">주봉</button>
                     <button class="sub-tab-btn" onclick="updateExpandedChart('month')">월봉</button>
                 </div>
-                
-                <div id="expandedChartContainer" style="width: 100%; height: 450px; background: rgba(0,0,0,0.3); border-radius: 20px; overflow: hidden; position: relative; border: 1px solid rgba(255,255,255,0.05);">
-                    <img id="expandedChartImg" src="" style="width: 100%; height: 100%; object-fit: contain; filter: invert(0.92) hue-rotate(180deg) brightness(1.4) contrast(1.4); mix-blend-mode: lighten;">
+
+                <div id="expandedChartContainer"
+                    style="width: 100%; height: 450px; background: rgba(0,0,0,0.3); border-radius: 20px; overflow: hidden; position: relative; border: 1px solid rgba(255,255,255,0.05);">
+                    <img id="expandedChartImg" src=""
+                        style="width: 100%; height: 100%; object-fit: contain; filter: invert(0.92) hue-rotate(180deg) brightness(1.4) contrast(1.4); mix-blend-mode: lighten;">
                 </div>
-                
+
                 <div style="margin-top: 24px; display: flex; justify-content: space-between; align-items: center;">
-                    <p style="margin: 0; font-size: 13px; color: var(--text-muted);">※ 네이버 금융 실시간 데이터를 기반으로 제공되는 차트입니다.</p>
-                    <button class="btn" style="height: auto; padding: 12px 24px; font-size: 14px; background: rgba(255,255,255,0.1); border: none;" onclick="closeChartModal()">닫기</button>
+                    <p style="margin: 0; font-size: 13px; color: var(--text-muted);">※ 네이버 금융 실시간 데이터를 기반으로 제공되는 차트입니다.
+                    </p>
+                    <button class="btn"
+                        style="height: auto; padding: 12px 24px; font-size: 14px; background: rgba(255,255,255,0.1); border: none;"
+                        onclick="closeChartModal()">닫기</button>
                 </div>
             </div>
         </div>
@@ -51,25 +60,33 @@
     <div id="aiModal" class="modal">
         <div class="modal-content" style="max-width: 1000px; width: 95%;">
             <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 24px 32px;">
-                <h2 style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">🤖 AI 포트폴리오 정밀 분석</h2>
+                <h2
+                    style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">
+                    🤖 AI 포트폴리오 정밀 분석</h2>
                 <div style="display: flex; gap: 12px; align-items: center;">
-                    <button id="aiRefreshBtn" class="btn" style="display: none; height: auto; padding: 8px 16px; font-size: 13px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3);" onclick="refreshAiAnalysis()">
+                    <button id="aiRefreshBtn" class="btn"
+                        style="display: none; height: auto; padding: 8px 16px; font-size: 13px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3);"
+                        onclick="refreshAiAnalysis()">
                         <span id="refreshBtnText">🔄 다시 분석하기</span>
                     </button>
                     <span class="close-modal" onclick="closeAiModal()" style="font-size: 32px;">&times;</span>
                 </div>
             </div>
-            <div id="aiResultContent" class="modal-body" style="padding: 32px; background: #020617; min-height: 400px; overflow-y: auto;">
+            <div id="aiResultContent" class="modal-body"
+                style="padding: 32px; background: #020617; min-height: 400px; overflow-y: auto;">
                 <div class="loading-ai">
                     <div class="ai-spinner"></div>
                     <p>AI가 분석 준비 중입니다...</p>
                 </div>
             </div>
-            <div class="modal-footer" style="padding: 24px 32px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 16px; background: #0f172a;">
-                <button id="aiSaveDriveBtn" class="btn" style="display: none; gap: 8px; align-items: center;" onclick="savePortfolioReportToDrive()">
+            <div class="modal-footer"
+                style="padding: 24px 32px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 16px; background: #0f172a;">
+                <button id="aiSaveDriveBtn" class="btn" style="display: none; gap: 8px; align-items: center;"
+                    onclick="savePortfolioReportToDrive()">
                     <span id="saveDriveBtnText">📁 구글 드라이브에 저장</span>
                 </button>
-                <button class="btn" style="background: rgba(255,255,255,0.1); border: none;" onclick="closeAiModal()">닫기</button>
+                <button class="btn" style="background: rgba(255,255,255,0.1); border: none;"
+                    onclick="closeAiModal()">닫기</button>
             </div>
         </div>
     </div>
@@ -82,7 +99,7 @@
             <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 분석</button>
             <button class="tab-btn" data-tab="myStocks" onclick="switchTab('myStocks')">⭐ 내 종목 관리</button>
             <button class="tab-btn" data-tab="realtime" onclick="switchTab('realtime')">⚡ 실시간 시세</button>
-            
+
         </div>
 
         <!-- Tab 1: Stock Analysis -->
@@ -93,7 +110,8 @@
                         <input type="checkbox" id="selectAll" checked onclick="toggleSelectAll()">
                         <span>전체 선택/해제</span>
                     </label>
-                    <div class="market-selection-area" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                    <div class="market-selection-area"
+                        style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
                         <span style="font-size: 14px; color: var(--text-muted); line-height: 22px;">대상 시장:</span>
                         <label class="checkbox-label" style="margin-bottom: 0;">
                             <input type="checkbox" id="marketKospi" value="KOSPI" checked>
@@ -103,11 +121,12 @@
                             <input type="checkbox" id="marketKosdaq" value="KOSDAQ">
                             <span>KOSDAQ</span>
                         </label>
-                        
+
                         <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.1); margin: 0 8px;"></div>
-                        
+
                         <span style="font-size: 14px; color: var(--text-muted); line-height: 22px;">공시 연도:</span>
-                        <select id="collectYear" style="background: #1e293b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; padding: 4px 12px; font-size: 14px; cursor: pointer;">
+                        <select id="collectYear"
+                            style="background: #1e293b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; padding: 4px 12px; font-size: 14px; cursor: pointer;">
                             <option value="" style="background: #1e293b; color: white;" selected>최신 (자동)</option>
                             <option value="2025" style="background: #1e293b; color: white;">2025년</option>
                             <option value="2024" style="background: #1e293b; color: white;">2024년</option>
@@ -116,13 +135,14 @@
                         </select>
 
                         <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.1); margin: 0 8px;"></div>
-                        
+
                         <span style="font-size: 14px; color: var(--text-muted); line-height: 22px;">보고서 종류:</span>
                         <label class="checkbox-label" style="margin-bottom: 0;">
                             <input type="checkbox" id="reportTypeAnnual" value="11011" checked> <span>사업보고서</span>
                         </label>
                         <label class="checkbox-label" style="margin-bottom: 0;">
-                            <input type="checkbox" id="reportTypeQuarterly" value="quarterly" checked> <span>분/반기 보고서</span>
+                            <input type="checkbox" id="reportTypeQuarterly" value="quarterly" checked> <span>분/반기
+                                보고서</span>
                         </label>
                     </div>
                 </div>
@@ -211,6 +231,8 @@
                                 checked><span>기관 순매수 (20일)</span></label>
                         <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="외국인보유율"
                                 checked><span>외국인 보유율</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="자사주보유"
+                                checked><span>자사주 보유</span></label>
                     </div>
                 </div>
             </div>
@@ -228,8 +250,7 @@
             </div>
 
             <div class="action-buttons" style="display: flex; gap: 16px;">
-                <button id="collectBtn" class="btn {{ 'is-disabled' if not is_local else '' }}"
-                    style="flex: 1;"
+                <button id="collectBtn" class="btn {{ 'is-disabled' if not is_local else '' }}" style="flex: 1;"
                     onclick="startCollection()" {{ 'disabled' if not is_local else '' }}>
                     <div id="progressFill" class="btn-progress-fill"></div>
                     <span id="collectBtnText">
@@ -289,8 +310,10 @@
                 </div>
 
                 <div class="tabs-sub-nav" style="display: flex; gap: 12px; margin-bottom: 24px;">
-                    <button class="sub-tab-btn active" data-subtab="portfolio" onclick="switchSubTab('portfolio')">👛 보유 포트폴리오</button>
-                    <button class="sub-tab-btn" data-subtab="watchlist" onclick="switchSubTab('watchlist')">★ 관심 위시리스트</button>
+                    <button class="sub-tab-btn active" data-subtab="portfolio" onclick="switchSubTab('portfolio')">👛 보유
+                        포트폴리오</button>
+                    <button class="sub-tab-btn" data-subtab="watchlist" onclick="switchSubTab('watchlist')">★ 관심
+                        위시리스트</button>
                 </div>
 
                 <div class="my-stock-input-group"
@@ -312,9 +335,11 @@
                     <input type="number" id="myStockQty" placeholder="보유수량"
                         style="flex: 1; min-width: 100px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px; text-align: right;">
                     <button id="addMyStockBtn" class="btn" onclick="addMyStock()"
-                        style="padding: 0 40px; height: 60px; font-size: 16px; background: linear-gradient(135deg, var(--primary), var(--primary-hover));">보유 등록</button>
+                        style="padding: 0 40px; height: 60px; font-size: 16px; background: linear-gradient(135deg, var(--primary), var(--primary-hover));">보유
+                        등록</button>
                     <button id="addToWatchlistBtn" class="btn" onclick="addToWatchlist()"
-                        style="padding: 0 40px; height: 60px; font-size: 16px; background: linear-gradient(135deg, var(--secondary), #7c3aed); box-shadow: 0 20px 40px -10px rgba(168, 85, 247, 0.3); display: none;">관심 등록</button>
+                        style="padding: 0 40px; height: 60px; font-size: 16px; background: linear-gradient(135deg, var(--secondary), #7c3aed); box-shadow: 0 20px 40px -10px rgba(168, 85, 247, 0.3); display: none;">관심
+                        등록</button>
                 </div>
 
                 <div style="text-align: right; margin-top: -20px; margin-bottom: 30px;">
@@ -326,7 +351,8 @@
                 <div id="portfolioSection" class="sub-tab-content active">
                     <div id="myStocksList" class="my-stocks-list"
                         style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 40px; min-height: 100px; padding: 32px; background: rgba(255,255,255,0.02); border-radius: 24px; border: 1px dashed rgba(255,255,255,0.1);">
-                        <p style="color: var(--text-muted); font-size: 16px; width: 100%; text-align: center; margin: 0;">
+                        <p
+                            style="color: var(--text-muted); font-size: 16px; width: 100%; text-align: center; margin: 0;">
                             등록된 내 종목이 없습니다.</p>
                     </div>
 
@@ -342,7 +368,8 @@
                 <div id="watchlistSection" class="sub-tab-content">
                     <div id="watchlistList" class="my-stocks-list"
                         style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 40px; min-height: 100px; padding: 32px; background: rgba(255,255,255,0.02); border-radius: 24px; border: 1px dashed rgba(255,255,255,0.1);">
-                        <p style="color: var(--text-muted); font-size: 16px; width: 100%; text-align: center; margin: 0;">
+                        <p
+                            style="color: var(--text-muted); font-size: 16px; width: 100%; text-align: center; margin: 0;">
                             등록된 관심 종목이 없습니다.</p>
                     </div>
                 </div>
@@ -355,27 +382,36 @@
 
         <!-- Tab 3: Real-time Prices -->
         <div id="realtimeTab" class="tab-content">
-            <div class="realtime-section" style="padding: 40px; background: rgba(255,255,255,0.03); border-radius: 32px; border: 1px solid rgba(255,255,255,0.1);">
-                <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-                    <h3 style="margin: 0; font-size: 28px; color: var(--text-main); font-family: 'Outfit', sans-serif;">⚡ 실시간 시세 현황</h3>
+            <div class="realtime-section"
+                style="padding: 40px; background: rgba(255,255,255,0.03); border-radius: 32px; border: 1px solid rgba(255,255,255,0.1);">
+                <div class="section-header"
+                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+                    <h3 style="margin: 0; font-size: 28px; color: var(--text-main); font-family: 'Outfit', sans-serif;">
+                        ⚡ 실시간 시세 현황</h3>
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <span id="updateTimer" style="font-size: 13px; color: var(--text-muted); font-family: 'Consolas', monospace;">다음 업데이트: 5s</span>
-                        <div id="liveIndicator" style="width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 8px #10b981; animation: pulse 2s infinite;"></div>
+                        <span id="updateTimer"
+                            style="font-size: 13px; color: var(--text-muted); font-family: 'Consolas', monospace;">다음
+                            업데이트: 5s</span>
+                        <div id="liveIndicator"
+                            style="width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 8px #10b981; animation: pulse 2s infinite;">
+                        </div>
                     </div>
                 </div>
-                
+
                 <div class="market-indices-sticky">
                     <div id="marketIndices" style="display: flex; gap: 20px; padding: 0 40px;">
                         <!-- KOSPI, KOSDAQ 카드가 여기에 동적으로 생성됩니다 -->
                     </div>
                 </div>
-                
+
                 <h4 style="margin: 0 0 16px; font-size: 18px; color: var(--primary);">👛 포트폴리오</h4>
-                <div id="realtimeGridPortfolio" class="results-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin-bottom: 40px;">
+                <div id="realtimeGridPortfolio" class="results-grid"
+                    style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin-bottom: 40px;">
                 </div>
 
                 <h4 style="margin: 0 0 16px; font-size: 18px; color: var(--secondary);">★ 관심 리스트</h4>
-                <div id="realtimeGridWatchlist" class="results-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
+                <div id="realtimeGridWatchlist" class="results-grid"
+                    style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
                 </div>
             </div>
         </div>
@@ -384,34 +420,70 @@
             .sub-tab-btn {
                 padding: 10px 24px;
                 border-radius: 12px;
-                border: 1px solid rgba(255,255,255,0.1);
-                background: rgba(255,255,255,0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                background: rgba(255, 255, 255, 0.05);
                 color: var(--text-muted);
                 font-family: 'Outfit', sans-serif;
                 font-weight: 600;
                 cursor: pointer;
                 transition: all 0.3s;
             }
+
             .sub-tab-btn.active {
                 background: rgba(99, 102, 241, 0.2);
                 color: white;
                 border-color: var(--primary);
             }
+
             .sub-tab-content {
                 display: none;
                 animation: fadeIn 0.4s ease-out;
             }
+
             .sub-tab-content.active {
                 display: block;
             }
+
             @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(10px); }
-                to { opacity: 1; transform: translateY(0); }
+                from {
+                    opacity: 0;
+                    transform: translateY(10px);
+                }
+
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
             }
-            .price-up-flash { animation: flash-green 1s; }
-            .price-down-flash { animation: flash-red 1s; }
-            @keyframes flash-green { 0% { background: rgba(16,185,129,0.3); } 100% { background: transparent; } }
-            @keyframes flash-red { 0% { background: rgba(239,68,68,0.3); } 100% { background: transparent; } }
+
+            .price-up-flash {
+                animation: flash-green 1s;
+            }
+
+            .price-down-flash {
+                animation: flash-red 1s;
+            }
+
+            @keyframes flash-green {
+                0% {
+                    background: rgba(16, 185, 129, 0.3);
+                }
+
+                100% {
+                    background: transparent;
+                }
+            }
+
+            @keyframes flash-red {
+                0% {
+                    background: rgba(239, 68, 68, 0.3);
+                }
+
+                100% {
+                    background: transparent;
+                }
+            }
+
             .btn.is-disabled {
                 opacity: 0.6;
                 cursor: not-allowed;
@@ -435,7 +507,7 @@
 
     <script>
         // [김선화] JS 에러 발생 시 토스트로 알림 (디버깅용)
-        window.onerror = function(message, source, lineno, colno, error) {
+        window.onerror = function (message, source, lineno, colno, error) {
             console.error('JS Error:', message, 'at', source, 'line', lineno);
             if (typeof showToast === 'function') {
                 showToast(`JS Error: ${message} (L${lineno})`, 'error');
@@ -475,7 +547,7 @@
                 content.classList.remove('active');
             });
             document.getElementById(tabId + 'Tab').classList.add('active');
-            
+
             if (tabId === 'realtime') {
                 startRealtimePolling();
             } else {
@@ -514,14 +586,14 @@
             // [김정음] 탭 클릭 시 즉시 업데이트 수행
             updateRealtimePrices();
             loadMarketIndices();
-            
+
             if (realtimeTimer) clearInterval(realtimeTimer);
-            
+
             let seconds = 5;
             // 타이머 UI 초기화
             const timerEl = document.getElementById('updateTimer');
             if (timerEl) timerEl.innerText = `다음 업데이트: ${seconds}s`;
-            
+
             realtimeTimer = setInterval(() => {
                 seconds--;
                 if (seconds <= 0) {
@@ -546,17 +618,17 @@
                 .then(data => {
                     const container = document.getElementById('marketIndices');
                     if (!data || data.length === 0) return;
-                    
+
                     container.innerHTML = data.map(idx => {
                         const color = idx.change > 0 ? '#ef4444' : (idx.change < 0 ? '#3b82f6' : 'var(--text-muted)');
                         const sign = idx.change > 0 ? '▲' : (idx.change < 0 ? '▼' : '');
                         const chartCode = idx.code === 'KOSPI' ? 'KOS' : 'KOSDAQ';
-                        
+
                         return `
                             <div class="result-card" style="flex: 1; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 20px; display: flex; align-items: center; gap: 16px;">
                                 <div style="flex: 1;">
                                     <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600;">${idx.name}</div>
-                                    <div style="font-size: 24px; font-weight: 900; color: white; font-family: 'Outfit', sans-serif;">${idx.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                    <div style="font-size: 24px; font-weight: 900; color: white; font-family: 'Outfit', sans-serif;">${idx.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                     <div style="font-size: 13px; font-weight: 700; color: ${color}; margin-top: 4px; font-family: 'Outfit', sans-serif;">
                                         ${sign} ${Math.abs(idx.change).toFixed(2)} (${idx.rate > 0 ? '+' : ''}${idx.rate}%)
                                     </div>
@@ -579,7 +651,7 @@
                     if (data.error) return;
                     const portfolioGrid = document.getElementById('realtimeGridPortfolio');
                     const watchlistGrid = document.getElementById('realtimeGridWatchlist');
-                    
+
                     if (!data || data.length === 0) {
                         portfolioGrid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 20px;">등록된 종목이 없습니다.</p>';
                         watchlistGrid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 20px;">등록된 종목이 없습니다.</p>';
@@ -607,7 +679,7 @@
                         let flashClass = '';
                         if (oldPrice > 0 && newPrice > oldPrice) flashClass = 'price-up-flash';
                         if (oldPrice > 0 && newPrice < oldPrice) flashClass = 'price-down-flash';
-                        
+
                         lastPrices[stock.code] = newPrice;
 
                         const change = stock.change || 0;
@@ -1042,6 +1114,9 @@
                                     <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
                                         20일: ${stock.foreign_20d_net > 0 ? '+' : ''}${(stock.foreign_20d_net || 0).toLocaleString()} / ${stock.inst_20d_net > 0 ? '+' : ''}${(stock.inst_20d_net || 0).toLocaleString()}
                                     </div>
+                                    <div style="font-size: 10px; color: #f59e0b; font-weight: 700; margin-top: 4px;">
+                                        자사주: ${stock.treasury_shares > 100 ? stock.treasury_shares.toLocaleString() + '주 ' : ''}${stock.treasury_ratio > 0 ? '(' + stock.treasury_ratio + '%)' : (stock.treasury_shares <= 100 && stock.treasury_shares > 0 ? '(' + stock.treasury_shares + '%)' : '정보없음')}
+                                    </div>
                                 </td>
                                 <td data-label="밸류/위치">
                                     <div style="margin-bottom: 12px;">
@@ -1117,7 +1192,7 @@
                     // [김선화] 동적으로 생성된 버튼에 이벤트 리스너 고정
                     const aiBtn = document.getElementById('aiPortfolioReportBtn');
                     if (aiBtn) {
-                        aiBtn.addEventListener('click', function() {
+                        aiBtn.addEventListener('click', function () {
                             console.log('AI Button Clicked!');
                             generateAiPortfolioReport();
                         });
@@ -1145,7 +1220,7 @@
 
             const refreshBtn = document.getElementById('aiRefreshBtn');
             const refreshBtnText = document.getElementById('refreshBtnText');
-            
+
             if (forceRefresh && refreshBtn) {
                 refreshBtn.disabled = true;
                 refreshBtn.style.opacity = '0.7';
@@ -1161,50 +1236,50 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ portfolio_data: window.currentPortfolioData, refresh: forceRefresh })
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    if (typeof marked !== 'undefined') {
-                        marked.setOptions({ gfm: true, breaks: true });
-                        let html = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
-                        
-                        if (data.cached) {
-                            html = `<div style="background: rgba(99, 102, 241, 0.05); padding: 12px 20px; border-radius: 12px; margin-bottom: 24px; border: 1px solid rgba(99, 102, 241, 0.2); font-size: 14px; color: #94a3b8; display: flex; align-items: center; gap: 10px;">
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        if (typeof marked !== 'undefined') {
+                            marked.setOptions({ gfm: true, breaks: true });
+                            let html = `<div class="ai-markdown-body">${marked.parse(data.result)}</div>`;
+
+                            if (data.cached) {
+                                html = `<div style="background: rgba(99, 102, 241, 0.05); padding: 12px 20px; border-radius: 12px; margin-bottom: 24px; border: 1px solid rgba(99, 102, 241, 0.2); font-size: 14px; color: #94a3b8; display: flex; align-items: center; gap: 10px;">
                                 <span>ℹ️</span> 오늘의 분석 결과가 캐시되어 있습니다. 최신 데이터로 다시 분석하려면 '다시 분석하기'를 눌러주세요.
                             </div>` + html;
-                            document.getElementById('aiRefreshBtn').style.display = 'block';
+                                document.getElementById('aiRefreshBtn').style.display = 'block';
+                            } else {
+                                document.getElementById('aiRefreshBtn').style.display = 'none';
+                            }
+
+                            content.innerHTML = html;
+                            if (refreshBtn) {
+                                refreshBtn.disabled = false;
+                                refreshBtn.style.opacity = '1';
+                                refreshBtnText.innerHTML = '🔄 다시 분석하기';
+                            }
+                            document.getElementById('aiSaveDriveBtn').style.display = 'block';
                         } else {
-                            document.getElementById('aiRefreshBtn').style.display = 'none';
+                            content.innerHTML = `<div class="ai-markdown-body">${data.result}</div>`;
                         }
-                        
-                        content.innerHTML = html;
-                        if (refreshBtn) { 
-                            refreshBtn.disabled = false; 
-                            refreshBtn.style.opacity = '1'; 
-                            refreshBtnText.innerHTML = '🔄 다시 분석하기'; 
-                        }
-                        document.getElementById('aiSaveDriveBtn').style.display = 'block';
                     } else {
-                        content.innerHTML = `<div class="ai-markdown-body">${data.result}</div>`;
+                        content.innerHTML = `<p style="color: #ef4444; padding: 20px;">분석 중 오류가 발생했습니다: ${data.message}</p>`;
+                        if (refreshBtn) {
+                            refreshBtn.disabled = false;
+                            refreshBtn.style.opacity = '1';
+                            refreshBtnText.innerHTML = '🔄 다시 분석하기';
+                        }
                     }
-                } else {
-                    content.innerHTML = `<p style="color: #ef4444; padding: 20px;">분석 중 오류가 발생했습니다: ${data.message}</p>`;
-                    if (refreshBtn) { 
-                        refreshBtn.disabled = false; 
-                        refreshBtn.style.opacity = '1'; 
-                        refreshBtnText.innerHTML = '🔄 다시 분석하기'; 
+                })
+                .catch(err => {
+                    console.error('AI Analysis Error:', err);
+                    content.innerHTML = `<p style="color: #ef4444; padding: 20px;">서버 연결 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>`;
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.style.opacity = '1';
+                        refreshBtnText.innerHTML = '🔄 다시 분석하기';
                     }
-                }
-            })
-            .catch(err => {
-                console.error('AI Analysis Error:', err);
-                content.innerHTML = `<p style="color: #ef4444; padding: 20px;">서버 연결 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>`;
-                if (refreshBtn) { 
-                    refreshBtn.disabled = false; 
-                    refreshBtn.style.opacity = '1'; 
-                    refreshBtnText.innerHTML = '🔄 다시 분석하기'; 
-                }
-            });
+                });
         }
 
         function addMyStock() {
@@ -1447,16 +1522,16 @@
             const progressFill = document.getElementById('progressFill');
             const cancelBtn = document.getElementById('cancelBtn');
             const logArea = document.getElementById('collectionLogArea');
-            
+
             btn.disabled = false;
             progressFill.style.width = '0%';
-            
+
             // 초기 텍스트로 복구 (로컬 여부에 따라)
             btnText.textContent = "{{ '🚀 데이터 수집 시작' if is_local else '🔒 데이터 수집은 로컬에서만 가능합니다' }}";
-            
+
             cancelBtn.style.display = 'none';
             if (logArea) logArea.style.display = 'none';
-            
+
             currentTaskId = null;
             if (statusCheckInterval) {
                 clearInterval(statusCheckInterval);
@@ -1471,7 +1546,7 @@
                     const resultsList = document.getElementById('resultsList');
                     // Filter out 'My Stocks' analysis results from the general list
                     const filteredFiles = files.filter(file => file.market !== 'MY_STOCKS' && file.market !== 'MYSTOCKS');
-                    
+
                     if (!filteredFiles || filteredFiles.length === 0) {
                         resultsList.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">저장된 결과가 없습니다.</p>';
                         return;
@@ -1581,12 +1656,12 @@
         function openChartModal(code, name) {
             currentChartCode = code;
             currentChartName = name;
-            
+
             document.getElementById('chartModalTitle').innerText = name;
             document.getElementById('chartModalCode').innerText = code;
-            
+
             updateExpandedChart('day'); // 기본 일봉
-            
+
             document.getElementById('chartModal').style.display = 'flex';
             document.body.style.overflow = 'hidden';
         }
@@ -1609,22 +1684,22 @@
             const img = document.getElementById('expandedChartImg');
             // 시장 지수와 일반 종목의 차트 URL 구조가 다름
             const isMarketIndex = currentChartCode === 'KOSPI' || currentChartCode === 'KOSDAQ';
-            
+
             let url = '';
             if (isMarketIndex) {
-                 // 지수 일봉/주봉/월봉
-                 const typeMap = { 'day': 'KOSPI', 'week': 'KOSPI_WEEK', 'month': 'KOSPI_MONTH' };
-                 // KOSDAQ 처리 추가
-                 let targetCode = currentChartCode;
-                 if (type === 'week') targetCode += '_WEEK';
-                 if (type === 'month') targetCode += '_MONTH';
-                 url = `https://ssl.pstatic.net/imgfinance/chart/main/${targetCode}.png?sid=${Date.now()}`;
+                // 지수 일봉/주봉/월봉
+                const typeMap = { 'day': 'KOSPI', 'week': 'KOSPI_WEEK', 'month': 'KOSPI_MONTH' };
+                // KOSDAQ 처리 추가
+                let targetCode = currentChartCode;
+                if (type === 'week') targetCode += '_WEEK';
+                if (type === 'month') targetCode += '_MONTH';
+                url = `https://ssl.pstatic.net/imgfinance/chart/main/${targetCode}.png?sid=${Date.now()}`;
             } else {
                 // 종목 일봉/주봉/월봉
                 const typePath = type === 'day' ? 'area/day' : (type === 'week' ? 'candle/week' : 'candle/month');
                 url = `https://ssl.pstatic.net/imgfinance/chart/item/${typePath}/${currentChartCode}.png?sid=${Date.now()}`;
             }
-            
+
             img.src = url;
         }
 
@@ -1659,23 +1734,23 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: filename.trim(), content: content })
             })
-            .then(response => response.json())
-            .then(data => {
-                saveBtn.disabled = false;
-                saveBtn.style.opacity = '1';
-                saveBtnText.innerHTML = '📁 구글 드라이브에 저장';
-                if (data.success) {
-                    showToast('구글 드라이브에 저장되었습니다.');
-                } else {
-                    showToast('저장 실패: ' + data.message, 'error');
-                }
-            })
-            .catch(err => {
-                saveBtn.disabled = false;
-                saveBtn.style.opacity = '1';
-                saveBtnText.innerHTML = '📁 구글 드라이브에 저장';
-                showToast('저장 중 오류 발생: ' + err, 'error');
-            });
+                .then(response => response.json())
+                .then(data => {
+                    saveBtn.disabled = false;
+                    saveBtn.style.opacity = '1';
+                    saveBtnText.innerHTML = '📁 구글 드라이브에 저장';
+                    if (data.success) {
+                        showToast('구글 드라이브에 저장되었습니다.');
+                    } else {
+                        showToast('저장 실패: ' + data.message, 'error');
+                    }
+                })
+                .catch(err => {
+                    saveBtn.disabled = false;
+                    saveBtn.style.opacity = '1';
+                    saveBtnText.innerHTML = '📁 구글 드라이브에 저장';
+                    showToast('저장 중 오류 발생: ' + err, 'error');
+                });
         }
 
 
@@ -1691,7 +1766,7 @@
         });
 
         // [김정음] 페이지 로드 시 초기 데이터 로딩
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             loadAllStockContexts();
             // 기본 탭이 실시간이라면 폴링 시작
             const activeTab = document.querySelector('.tab-btn.active');
