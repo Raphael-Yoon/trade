@@ -119,105 +119,7 @@ def init_db():
     
     conn.commit()
     
-    # 기존 JSON 데이터 마이그레이션 (한 번만 실행)
-    json_file = os.path.join(os.path.dirname(__file__), 'my_stocks.json')
-    if os.path.exists(json_file):
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                stocks = json.load(f)
-                for s in stocks:
-                    cursor.execute(
-                        "INSERT OR IGNORE INTO my_stocks (code, name, added_at) VALUES (?, ?, ?)",
-                        (s['code'], s.get('name', ''), s.get('added_at', datetime.now().isoformat()))
-                    )
-            conn.commit()
-            os.rename(json_file, json_file + '.bak')
-            print("JSON 데이터를 SQLite로 마이그레이션 완료했습니다.")
-        except Exception as e:
-            print(f"마이그레이션 중 오류: {e}")
-
-    # 기존 분석 결과 파일들 마이그레이션
-    try:
-        for filename in os.listdir(RESULTS_DIR):
-            if filename.endswith('.json') and not filename.endswith('_ai.json') and not filename.endswith('.bak'):
-                xlsx_name = filename.replace('.json', '.xlsx')
-                json_path = os.path.join(RESULTS_DIR, filename)
-                
-                # 이미 DB에 있는지 확인
-                cursor.execute("SELECT filename FROM analysis_results WHERE filename = ?", (xlsx_name,))
-                if not cursor.fetchone():
-                    try:
-                        with open(json_path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            
-                            # 파일명 파싱
-                            parts = xlsx_name.replace('.xlsx', '').split('_')
-                            market_val = parts[0].upper() if len(parts) > 0 else 'UNKNOWN'
-                            count_val = parts[1] if len(parts) > 1 else '0'
-                            
-                            cursor.execute('''
-                                INSERT OR IGNORE INTO analysis_results 
-                                (filename, market, stock_count, created_at, size, spreadsheet_id, drive_link)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                            ''', (
-                                xlsx_name,
-                                market_val,
-                                count_val,
-                                data.get('created_at', datetime.now().isoformat()),
-                                data.get('size', 0),
-                                data.get('spreadsheet_id'),
-                                data.get('drive_link')
-                            ))
-                    except Exception as e:
-                        print(f"파일 마이그레이션 중 오류 ({filename}): {e}")
-        conn.commit()
-    except Exception as e:
-        print(f"결과 목록 마이그레이션 중 오류: {e}")
-            
-    # 종목 마스터가 비어있으면 업데이트 트리거
-    cursor.execute("SELECT COUNT(*) FROM stocks_master")
-    if cursor.fetchone()[0] == 0:
-        print("종목 마스터가 비어있습니다. 백그라운드 업데이트를 시작합니다...")
-        def background_update():
-            try:
-                import requests
-                from bs4 import BeautifulSoup
-                import sqlite3 as sqlite
-                
-                all_stocks = []
-                session = requests.Session()
-                for sosok in [0, 1]:
-                    market_name = 'KOSPI' if sosok == 0 else 'KOSDAQ'
-                    page = 1
-                    while True:
-                        url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
-                        res = session.get(url)
-                        soup = BeautifulSoup(res.text, 'html.parser')
-                        table = soup.find('table', {'class': 'type_2'})
-                        if not table: break
-                        
-                        found = False
-                        for a in table.find_all('a', {'class': 'tltle'}):
-                            code = a.get('href').split('code=')[1]
-                            name = a.text.strip()
-                            all_stocks.append((code, name, market_name))
-                            found = True
-                        
-                        if not found or page > 40: break
-                        page += 1
-                
-                if all_stocks:
-                    conn_bg = sqlite.connect(DB_FILE)
-                    cursor_bg = conn_bg.cursor()
-                    cursor_bg.executemany("INSERT OR REPLACE INTO stocks_master (code, name, market) VALUES (?, ?, ?)", all_stocks)
-                    conn_bg.commit()
-                    conn_bg.close()
-                    print(f"종목 마스터 초기 업데이트 완료: {len(all_stocks)}개 종목")
-            except Exception as e:
-                print(f"초기 마스터 업데이트 중 오류: {e}")
-
-        threading.Thread(target=background_update, daemon=True).start()
-    
+    conn.commit()
     conn.close()
 
 # DB 초기화 실행
@@ -325,37 +227,42 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', y
                     drive_data = upload_to_drive(result_path)
                     if drive_data:
                         tasks[task_id]['message'] += f' (구글 드라이브 업로드 완료)'
-                        drive_link = drive_data['link']
-                        spreadsheet_id = drive_data['id']
-                        tasks[task_id]['drive_link'] = drive_link
-                        os.remove(result_path)
+                        tasks[task_id]['drive_link'] = drive_data['link']
+                        # [김정음] 드라이브 업로드 완료 후 로컬 파일 즉시 삭제 (Drive-Native)
+                        if os.path.exists(result_path):
+                            os.remove(result_path)
+                        # 메타데이터 JSON 파일도 생성되었다면 삭제
+                        json_path = result_path.replace('.xlsx', '.json')
+                        if os.path.exists(json_path):
+                            os.remove(json_path)
                 except Exception as drive_err:
                     print(f"드라이브 업로드 실패: {drive_err}")
-
-                try:
-                    conn = sqlite3.connect(DB_FILE)
-                    cursor = conn.cursor()
-                    parts = result_filename.replace('.xlsx', '').split('_')
-                    market_val = parts[0].upper() if len(parts) > 0 else market
-                    count_val = parts[1] if len(parts) > 1 else str(stock_count)
+                
+                # [김정음] Drive-Native 전략으로 변경됨에 따라 DB에 메타데이터 저장 로직 제거
+                # try:
+                #     conn = sqlite3.connect(DB_FILE)
+                #     cursor = conn.cursor()
+                #     parts = result_filename.replace('.xlsx', '').split('_')
+                #     market_val = parts[0].upper() if len(parts) > 0 else market
+                #     count_val = parts[1] if len(parts) > 1 else str(stock_count)
                     
-                    cursor.execute('''
-                        INSERT OR REPLACE INTO analysis_results 
-                        (filename, market, stock_count, created_at, size, spreadsheet_id, drive_link)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        result_filename,
-                        market_val,
-                        count_val,
-                        datetime.now().isoformat(),
-                        os.path.getsize(result_path) if os.path.exists(result_path) else 0,
-                        spreadsheet_id,
-                        drive_link
-                    ))
-                    conn.commit()
-                    conn.close()
-                except Exception as db_err:
-                    print(f"DB 저장 실패: {db_err}")
+                #     cursor.execute('''
+                #         INSERT OR REPLACE INTO analysis_results 
+                #         (filename, market, stock_count, created_at, size, spreadsheet_id, drive_link)
+                #         VALUES (?, ?, ?, ?, ?, ?, ?)
+                #     ''', (
+                #         result_filename,
+                #         market_val,
+                #         count_val,
+                #         datetime.now().isoformat(),
+                #         os.path.getsize(result_path) if os.path.exists(result_path) else 0,
+                #         spreadsheet_id,
+                #         drive_link
+                #     ))
+                #     conn.commit()
+                #     conn.close()
+                # except Exception as db_err:
+                #     print(f"DB 저장 실패: {db_err}")
                 
                 cleanup_old_results()
             else:
@@ -1059,45 +966,113 @@ def update_master():
 @app.route('/api/results', methods=['GET'])
 def get_results():
     try:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute("SELECT * FROM analysis_results ORDER BY created_at DESC")
-        results = [dict(row) for row in cursor.fetchall()]
+        from drive_sync import list_files_in_folder
+        drive_files = list_files_in_folder()
+        
+        results = []
+        for df in drive_files:
+            if df.get('mimeType') == 'application/vnd.google-apps.spreadsheet':
+                name = df['name']
+                # .xlsx 확장자 보정
+                if not name.endswith('.xlsx'):
+                    name += '.xlsx'
+                
+                # 파일명에서 시장 및 종목수 파싱
+                parts = name.replace('.xlsx', '').split('_')
+                market_val = parts[0].upper() if len(parts) > 0 else 'UNKNOWN'
+                count_val = parts[1] if len(parts) > 1 else '0'
+                
+                results.append({
+                    'filename': name,
+                    'market': market_val,
+                    'stock_count': count_val,
+                    'created_at': df.get('createdTime'),
+                    'size': int(df.get('size', 0)) if df.get('size') else 0,
+                    'spreadsheet_id': df['id'],
+                    'drive_link': df.get('webViewLink'),
+                    'ai_result': None # 실시간 조회시 AI 결과는 별도 API로 처리
+                })
         return jsonify(results)
+    except Exception as e:
+        print(f"목록 실시간 조회 중 오류: {e}")
+        # 실패 시 차선책으로 DB 조회 (기존 로직)
+        try:
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute("SELECT * FROM analysis_results ORDER BY created_at DESC")
+            return jsonify([dict(row) for row in cursor.fetchall()])
+        except:
+            return jsonify({'error': str(e)}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/download/<filename>')
 def download_file(filename):
+    # 1. 로컬에 있으면 로컬 파일 제공
     file_path = os.path.join(RESULTS_DIR, filename)
     if os.path.exists(file_path):
         return send_file(file_path, as_attachment=True)
     
-    # 드라이브에서 다운로드 시도
+    # 2. 로컬에 없으면 드라이브에서 실시간 다운로드
     try:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute("SELECT spreadsheet_id FROM analysis_results WHERE filename = ?", (filename,))
-        row = cursor.fetchone()
-        if row and row[0]:
-            from drive_sync import download_from_drive
-            content = download_from_drive(row[0])
+        from drive_sync import list_files_in_folder, download_from_drive
+        drive_files = list_files_in_folder()
+        spreadsheet_id = None
+        
+        # 파일명으로 ID 찾기
+        target_name = filename.replace('.xlsx', '')
+        for df in drive_files:
+            if df['name'] == target_name or df['name'] == filename:
+                spreadsheet_id = df['id']
+                break
+        
+        if spreadsheet_id:
+            content = download_from_drive(spreadsheet_id)
             if content:
                 import io
                 return send_file(io.BytesIO(content), as_attachment=True, download_name=filename)
-    except: pass
+    except Exception as e:
+        print(f"드라이브 다운로드 중 오류: {e}")
+        
     return jsonify({'error': '파일을 찾을 수 없습니다.'}), 404
 
 @app.route('/api/delete/<filename>', methods=['DELETE'])
 def delete_result(filename):
     try:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute("DELETE FROM analysis_results WHERE filename = ?", (filename,))
-        db.commit()
-        file_path = os.path.join(RESULTS_DIR, filename)
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        from drive_sync import delete_from_drive, list_files_in_folder, find_ai_report
+        
+        # 1. 드라이브에서 파일 ID 조회
+        drive_files = list_files_in_folder()
+        spreadsheet_id = None
+        target_name_base = filename.replace('.xlsx', '')
+        
+        for df in drive_files:
+            if df['name'] == target_name_base or df['name'] == filename:
+                spreadsheet_id = df['id']
+                break
+        
+        # 2. 구글 드라이브 파일 삭제
+        if spreadsheet_id:
+            delete_from_drive(spreadsheet_id)
+            
+        # 3. 연관된 AI 리포트 문서 삭제
+        existing_report = find_ai_report(target_name_base)
+        if existing_report:
+            delete_from_drive(existing_report['id'])
+            
+        # 4. 로컬 및 DB 잔재 청소 (보조적 정리)
+        try:
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute("DELETE FROM analysis_results WHERE filename = ?", (filename,))
+            db.commit()
+        except: pass
+        
+        for ext in ['.xlsx', '.json']:
+            path = os.path.join(RESULTS_DIR, target_name_base + ext)
+            if os.path.exists(path):
+                os.remove(path)
+            
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
