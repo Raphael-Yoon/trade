@@ -1098,7 +1098,8 @@
                                         <div style="color: ${profitColor}; font-weight: 900; font-size: 18px; margin-bottom: 4px;">${profitSign}${stock.profit_rate}% ${stock.sl_diagnosis && stock.sl_diagnosis.signal === 'SELL' ? '<span style="font-size:12px; color:white; background:#ef4444; padding:2px 6px; border-radius:4px; vertical-align:middle; margin-left:4px;">손절 주의</span>' : ''}</div>
                                         <div style="font-size: 12px; color: white; font-weight: 600;">${(stock.current_price || 0).toLocaleString()}원</div>
                                         <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">평단: ${(stock.purchase_price || 0).toLocaleString()}원</div>
-                                        <div style="font-size: 11px; color: var(--text-muted);">보유: ${stock.quantity}주 ${stock.stop_loss_ratio > 0 ? `<span style="color:#f87171; font-weight:700;">(손절: ${stock.stop_loss_ratio}%)</span>` : ''}</div>
+                                        <div style="font-size: 11px; color: var(--text-muted);">보유: ${stock.quantity}주</div>
+                                        ${stock.stop_loss_ratio > 0 ? `<div style="font-size: 11px; color:#f87171; font-weight:700; margin-top: 2px;">(손절: ${stock.stop_loss_ratio}%)</div>` : ''}
                                     </td>
                                     <td data-label="투자 의견">
                                         <div style="margin-bottom: 8px;">
