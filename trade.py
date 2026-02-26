@@ -62,7 +62,8 @@ def init_db():
             name TEXT,
             added_at TEXT,
             purchase_price REAL DEFAULT 0,
-            quantity INTEGER DEFAULT 0
+            quantity INTEGER DEFAULT 0,
+            stop_loss_ratio REAL DEFAULT 0
         )
     ''')
     
@@ -70,12 +71,17 @@ def init_db():
     try:
         cursor.execute("ALTER TABLE my_stocks ADD COLUMN purchase_price REAL DEFAULT 0")
     except sqlite3.OperationalError:
-        pass # 이미 존재함
+        pass
         
     try:
         cursor.execute("ALTER TABLE my_stocks ADD COLUMN quantity INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
-        pass # 이미 존재함
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE my_stocks ADD COLUMN stop_loss_ratio REAL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     
     # 분석 결과 테이블
     cursor.execute('''
@@ -776,39 +782,164 @@ def get_my_stocks():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT code, name, added_at, purchase_price, quantity FROM my_stocks ORDER BY added_at DESC")
+        cursor.execute("SELECT code, name, added_at, purchase_price, quantity, stop_loss_ratio FROM my_stocks ORDER BY added_at DESC")
         stocks = [dict(row) for row in cursor.fetchall()]
         return jsonify(stocks)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+def get_daily_prices(code, pages=2):
+    """네이버 금융에서 일별 시세를 가져옵니다."""
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    prices = []
+    try:
+        for page in range(1, pages + 1):
+            url = f"https://finance.naver.com/item/sise_day.naver?code={code}&page={page}"
+            res = requests.get(url, headers=headers, timeout=5)
+            soup = BeautifulSoup(res.text, 'html.parser')
+            rows = soup.select('tr[onmouseover]')
+            for row in rows:
+                tds = row.find_all('td')
+                if len(tds) >= 7:
+                    try:
+                        date = tds[0].get_text(strip=True).replace('.', '-')
+                        close = int(tds[1].get_text(strip=True).replace(',', ''))
+                        prices.append({'date': date, 'close': close})
+                    except: continue
+        return prices
+    except:
+        return []
+
+def get_kospi_daily(pages=2):
+    """네이버 금융에서 코스피 일별 시세를 가져옵니다."""
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    data = []
+    try:
+        for page in range(1, pages + 1):
+            url = f"https://finance.naver.com/sise/sise_index_day.naver?code=KOSPI&page={page}"
+            res = requests.get(url, headers=headers, timeout=5)
+            soup = BeautifulSoup(res.text, 'html.parser')
+            rows = soup.find_all('tr')
+            for row in rows:
+                date_td = row.find('td', class_='date')
+                price_td = row.find('td', class_='number_1')
+                if date_td and price_td:
+                    date = date_td.get_text(strip=True).replace('.', '-')
+                    price = float(price_td.get_text(strip=True).replace(',', ''))
+                    data.append({'date': date, 'index': price})
+        return data
+    except:
+        return []
+
+def calculate_stop_loss_status(stock, current_price, daily_prices, kospi_data, kospi_current):
+    """5가지 손절 원칙에 따라 상태를 진단합니다."""
+    sl_ratio = (stock.get('stop_loss_ratio', 0) or 0) / 100
+    if sl_ratio <= 0:
+        return {'signal': 'KEEP', 'reasons': []}
+
+    purchase_price = stock.get('purchase_price', 0)
+    added_at = stock.get('added_at', '')[:10]  # YYYY-MM-DD
+    
+    signals = []
+    
+    # 1. 취득가 대비 손절 (Legacy)
+    if current_price <= purchase_price * (1 - sl_ratio):
+        signals.append(f"취득가({purchase_price:,}원) 대비 {stock['stop_loss_ratio']}% 하락")
+
+    # 2. 최근 최고가 대비 손절 (Trailing)
+    if daily_prices:
+        # added_at 이후의 가격들 중 최고가 찾기 (없으면 전체 기간 중)
+        relevant_prices = [p['close'] for p in daily_prices if p['date'] >= added_at]
+        if not relevant_prices: relevant_prices = [p['close'] for p in daily_prices]
+        
+        if relevant_prices:
+            max_price = max(relevant_prices)
+            if current_price <= max_price * (1 - sl_ratio):
+                signals.append(f"최근 최고가({max_price:,}원) 대비 {stock['stop_loss_ratio']}% 하락")
+
+    # 3. 코스피 대비 상대 손절
+    if purchase_price > 0 and kospi_data and kospi_current > 0:
+        # 매수일의 코스피 지수 찾기
+        purchase_kospi = None
+        for k in kospi_data:
+            if k['date'] <= added_at:
+                purchase_kospi = k['index']
+                break
+        if not purchase_kospi: purchase_kospi = kospi_data[-1]['index']
+        
+        stock_return = (current_price - purchase_price) / purchase_price
+        kospi_return = (kospi_current - purchase_kospi) / purchase_kospi
+        relative_return = stock_return - kospi_return
+        
+        if relative_return <= -sl_ratio:
+            signals.append(f"지수 대비 상대 수익률({round(relative_return*100, 1)}%)이 손절 포인트 도달")
+
+    if signals:
+        return {'signal': 'SELL', 'reasons': signals}
+    return {'signal': 'KEEP', 'reasons': []}
 
 @app.route('/api/my_stocks/status', methods=['GET'])
 def get_my_stocks_status():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT code, name, purchase_price, quantity FROM my_stocks")
-        stocks = [dict(row) for row in cursor.fetchall()]
+        
+        # 1. 보유 종목 가져오기 (added_at 필드 추가)
+        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, added_at FROM my_stocks")
+        portfolio_stocks = [dict(row) for row in cursor.fetchall()]
+        portfolio_codes = {s['code'] for s in portfolio_stocks}
+        for s in portfolio_stocks:
+            s['type'] = 'portfolio'
+            
+        # 2. 관심 종목 가져오기
+        cursor.execute("SELECT code, name FROM watchlist")
+        watchlist_stocks = []
+        for row in cursor.fetchall():
+            s = dict(row)
+            if s['code'] not in portfolio_codes:
+                s['type'] = 'watchlist'
+                s['purchase_price'] = 0
+                s['quantity'] = 0
+                s['stop_loss_ratio'] = 0
+                s['added_at'] = datetime.now().isoformat()
+                watchlist_stocks.append(s)
+            
+        stocks = portfolio_stocks + watchlist_stocks
         
         # 상세 데이터 수집 (병렬 처리)
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=10) as executor:
             details = list(executor.map(lambda s: get_portfolio_details(s['code']), stocks))
         
+        # 코스피 지수 데이터 가져오기 (상대 매도 포인트 계산용)
+        kospi_data = get_kospi_daily(pages=3)
+        kospi_current = 0
+        if kospi_data:
+            kospi_current = kospi_data[0]['index']
+
         results = []
         for i, stock in enumerate(stocks):
             detail = details[i] if details[i] else {}
             price = detail.get('current_price', 0)
-            purchase_price = stock['purchase_price'] or 0
-            qty = stock['quantity'] or 0
+            purchase_price = stock.get('purchase_price') or 0
+            qty = stock.get('quantity') or 0
             profit = (price - purchase_price) * qty if purchase_price > 0 else 0
             profit_rate = ((price - purchase_price) / purchase_price * 100) if purchase_price > 0 else 0
             
+            # 손절 상태 진단 (보유 종목만)
+            sl_diagnosis = {'signal': 'KEEP', 'reasons': []}
+            if stock['type'] == 'portfolio':
+                daily_prices = get_daily_prices(stock['code'], pages=3)
+                sl_diagnosis = calculate_stop_loss_status(stock, price, daily_prices, kospi_data, kospi_current)
+
             results.append({
                 'code': stock['code'],
                 'name': stock['name'],
+                'type': stock['type'],
                 'current_price': price,
                 'purchase_price': purchase_price,
                 'quantity': qty,
+                'stop_loss_ratio': stock.get('stop_loss_ratio', 0),
+                'sl_diagnosis': sl_diagnosis, # 손절 진단 추가
                 'profit': profit,
                 'profit_rate': round(profit_rate, 2),
                 'market_cap': detail.get('market_cap', 'N/A'),
@@ -836,7 +967,7 @@ def get_my_stocks_status():
                 'inst_5d_net': detail.get('inst_5d_net', 0),
                 'inst_20d_net': detail.get('inst_20d_net', 0),
                 'foreign_ownership_ratio': detail.get('foreign_ownership_ratio', 0),
-                'rsi_pos': detail.get('rsi', 0), # 52주 고저점 대비 위치
+                'rsi_pos': detail.get('rsi', 0),
                 'news': detail.get('news', []),
                 'ma5': detail.get('ma5', 0),
                 'ma20': detail.get('ma20', 0),
@@ -855,13 +986,14 @@ def add_my_stock():
     name = data.get('name', '')
     purchase_price = data.get('purchase_price', 0)
     quantity = data.get('quantity', 0)
+    stop_loss_ratio = data.get('stop_loss_ratio', 0)
     if not code:
         return jsonify({'success': False, 'message': '종목 코드가 필요합니다.'}), 400
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity) VALUES (?, ?, ?, ?, ?)", 
-                       (code, name, datetime.now().isoformat(), purchase_price, quantity))
+        cursor.execute("INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio) VALUES (?, ?, ?, ?, ?, ?)", 
+                       (code, name, datetime.now().isoformat(), purchase_price, quantity, stop_loss_ratio))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -883,19 +1015,30 @@ def update_my_stock(code_val):
     data = request.get_json() or {}
     purchase_price = data.get('purchase_price')
     quantity = data.get('quantity')
+    stop_loss_ratio = data.get('stop_loss_ratio')
     
     try:
         db = get_db()
         cursor = db.cursor()
-        if purchase_price is not None and quantity is not None:
-            cursor.execute("UPDATE my_stocks SET purchase_price = ?, quantity = ? WHERE code = ?", 
-                           (purchase_price, quantity, code_val))
-        elif purchase_price is not None:
-            cursor.execute("UPDATE my_stocks SET purchase_price = ? WHERE code = ?", 
-                           (purchase_price, code_val))
-        elif quantity is not None:
-            cursor.execute("UPDATE my_stocks SET quantity = ? WHERE code = ?", 
-                           (quantity, code_val))
+        
+        updates = []
+        params = []
+        if purchase_price is not None:
+            updates.append("purchase_price = ?")
+            params.append(purchase_price)
+        if quantity is not None:
+            updates.append("quantity = ?")
+            params.append(quantity)
+        if stop_loss_ratio is not None:
+            updates.append("stop_loss_ratio = ?")
+            params.append(stop_loss_ratio)
+            
+        if not updates:
+            return jsonify({'success': False, 'message': '수정할 데이터가 없습니다.'}), 400
+            
+        params.append(code_val)
+        query = f"UPDATE my_stocks SET {', '.join(updates)} WHERE code = ?"
+        cursor.execute(query, params)
         
         db.commit()
         return jsonify({'success': True})
@@ -1325,13 +1468,14 @@ def promote_to_portfolio():
         name = data.get('name', '')
         price = data.get('purchase_price', 0)
         qty = data.get('quantity', 0)
+        stop_loss = data.get('stop_loss_ratio', 0)
         
         db = get_db()
         cursor = db.cursor()
         # 1. 포트폴리오에 추가
         cursor.execute(
-            "INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity) VALUES (?, ?, ?, ?, ?)",
-            (code, name, datetime.now().isoformat(), price, qty)
+            "INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio) VALUES (?, ?, ?, ?, ?, ?)",
+            (code, name, datetime.now().isoformat(), price, qty, stop_loss)
         )
         # 2. 관심 종목에서 삭제
         cursor.execute("DELETE FROM watchlist WHERE code = ?", (code,))

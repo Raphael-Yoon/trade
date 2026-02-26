@@ -334,6 +334,8 @@
                         style="flex: 1; min-width: 120px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px; text-align: right;">
                     <input type="number" id="myStockQty" placeholder="보유수량"
                         style="flex: 1; min-width: 100px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px; text-align: right;">
+                    <input type="number" id="myStockStopLoss" placeholder="손절비율(%)" step="0.1"
+                        style="flex: 1; min-width: 110px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #f87171; font-size: 16px; text-align: right; font-weight: 700;">
                     <button id="addMyStockBtn" class="btn" onclick="addMyStock()"
                         style="padding: 0 40px; height: 60px; font-size: 16px; background: linear-gradient(135deg, var(--primary), var(--primary-hover));">보유
                         등록</button>
@@ -573,6 +575,7 @@
             document.getElementById('addToWatchlistBtn').style.display = isPortfolio ? 'none' : 'block';
             document.getElementById('myStockPrice').style.display = isPortfolio ? 'block' : 'none';
             document.getElementById('myStockQty').style.display = isPortfolio ? 'block' : 'none';
+            document.getElementById('myStockStopLoss').style.display = isPortfolio ? 'block' : 'none';
         }
 
         function loadAllStockContexts() {
@@ -662,8 +665,8 @@
                     portfolioGrid.innerHTML = '';
                     watchlistGrid.innerHTML = '';
 
-                    // [김정음] 결과 순서가 뒤바뀌지 않도록 종목명 순으로 정렬
-                    data.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+                    // [김정음] 결과 순서가 뒤바뀌지 않도록 종목명 순으로 정렬 (이름 없으면 코드로)
+                    data.sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'ko'));
 
                     data.forEach(stock => {
                         const card = document.createElement('div');
@@ -734,6 +737,8 @@
             fetch('/api/watchlist')
                 .then(response => response.json())
                 .then(data => {
+                    // [김미수] 이름순 정렬 (이름 없으면 코드로)
+                    data.sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'ko'));
                     const list = document.getElementById('watchlistList');
                     if (!data || data.length === 0) {
                         list.innerHTML = '<p style="color: var(--text-muted); font-size: 16px; width: 100%; text-align: center; margin: 0;">등록된 관심 종목이 없습니다.</p>';
@@ -796,6 +801,8 @@
             if (price === null) return;
             const qty = prompt(`${name} 종목의 보유수량을 입력해주세요`, '0');
             if (qty === null) return;
+            const stop_loss = prompt(`${name} 종목의 손절비율(%)을 입력해주세요 (예: 10.5)`, '0');
+            if (stop_loss === null) return;
 
             fetch('/api/watchlist/promote', {
                 method: 'POST',
@@ -804,7 +811,8 @@
                     code,
                     name,
                     purchase_price: parseFloat(price.replace(/,/g, '')) || 0,
-                    quantity: parseInt(qty) || 0
+                    quantity: parseInt(qty) || 0,
+                    stop_loss_ratio: parseFloat(stop_loss) || 0
                 })
             })
                 .then(res => res.json())
@@ -906,6 +914,8 @@
             fetch('/api/my_stocks')
                 .then(response => response.json())
                 .then(data => {
+                    // [김미수] 이름순 정렬 (이름 없으면 코드로)
+                    data.sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'ko'));
                     myStocks = data;
                     const list = document.getElementById('myStocksList');
                     if (!data || data.length === 0) {
@@ -924,7 +934,7 @@
                                 <span onclick="deleteMyStock('${stock.code}')" style="cursor: pointer; color: #ef4444; font-weight: bold; font-size: 20px; line-height: 1; margin-left: 10px;">&times;</span>
                             </div>
                             <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">${stock.code}</div>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; margin-top: 4px;">
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; margin-top: 4px;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <span style="font-size: 11px; color: var(--text-muted);">평단(원)</span>
                                     <input type="text" value="${(stock.purchase_price || 0).toLocaleString()}" 
@@ -937,6 +947,12 @@
                                     <input type="number" value="${stock.quantity || 0}" 
                                         onchange="updateStockDetail('${stock.code}', 'qty', this.value)"
                                         style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #94a3b8; font-weight: 600; padding: 4px 8px; font-size: 13px; text-align: right;">
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <span style="font-size: 11px; color: var(--text-muted);">손절(%)</span>
+                                    <input type="number" value="${stock.stop_loss_ratio || 0}" step="0.1"
+                                        onchange="updateStockDetail('${stock.code}', 'stop_loss', this.value)"
+                                        style="width: 100%; background: rgba(248,113,113,0.05); border: 1px solid rgba(248,113,113,0.2); border-radius: 8px; color: #f87171; font-weight: 700; padding: 4px 8px; font-size: 13px; text-align: right;">
                                 </div>
                             </div>
                         </div>
@@ -976,6 +992,198 @@
                     });
                     allNews.sort((a, b) => b.date.localeCompare(a.date));
 
+                    // [김미수] 손절 알림 섹션 구성
+                    const slAlerts = data.filter(s => s.sl_diagnosis && s.sl_diagnosis.signal === 'SELL');
+                    let slAlertHtml = '';
+                    if (slAlerts.length > 0) {
+                        slAlertHtml = `
+                            <div class="sl-alerts-container" style="margin-bottom: 32px; padding: 24px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 24px; animation: pulse-red 2s infinite;">
+                                <h4 style="margin: 0 0 16px; color: #f87171; display: flex; align-items: center; gap: 8px; font-size: 20px;">
+                                    <span style="font-size: 24px;">🚨</span> 손절 원칙 위배 종목 (${slAlerts.length})
+                                </h4>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+                                    ${slAlerts.map(s => `
+                                        <div style="background: rgba(255,255,255,0.05); padding: 16px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);">
+                                            <div style="font-weight: 800; color: white; margin-bottom: 8px; font-size: 16px;">${s.name}</div>
+                                            <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #fca5a5; line-height: 1.6;">
+                                                ${s.sl_diagnosis.reasons.map(r => `<li>${r}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                <style>
+                                    @keyframes pulse-red {
+                                        0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+                                        70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+                                        100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+                                    }
+                                </style>
+                            </div>
+                        `;
+                    } else {
+                        slAlertHtml = `
+                            <div style="margin-bottom: 32px; padding: 20px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 24px; text-align: center; color: #10b981; font-weight: 700;">
+                                ✅ 현재 모든 종목이 설정된 손절 원칙 내에서 안정적으로 유지되고 있습니다.
+                            </div>
+                        `;
+                    }
+
+                    // [김미수] 보유 vs 관심 종목 분리 및 이름순 정렬
+                    const portfolioData = data.filter(s => s.type === 'portfolio').sort((a, b) => a.name.localeCompare(b.name));
+                    const watchlistData = data.filter(s => s.type === 'watchlist').sort((a, b) => a.name.localeCompare(b.name));
+
+                    const buildTableHtml = (stocks, title, icon) => {
+                        if (stocks.length === 0) return '';
+                        
+                        let tableInner = `
+                            <div class="report-section" style="margin-bottom: 48px;">
+                                <h5 style="font-size: 20px; color: white; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; font-family: 'Outfit', sans-serif;">
+                                    <span style="font-size: 24px;">${icon}</span> ${title} (${stocks.length})
+                                </h5>
+                                <div class="portfolio-table-container">
+                                    <table class="portfolio-table">
+                                        <thead>
+                                            <tr>
+                                                <th>종목 정보</th>
+                                                <th>수익/평가</th>
+                                                <th>투자 의견</th>
+                                                <th>실적/성장</th>
+                                                <th>재무/배당</th>
+                                                <th>수급/외인</th>
+                                                <th>밸류/위치</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                        `;
+
+                        stocks.forEach(stock => {
+                            if (stock.type === 'portfolio') {
+                                totalProfit += stock.profit;
+                                totalAssetValue += (stock.current_price * stock.quantity);
+                                totalInvested += (stock.purchase_price * stock.quantity);
+                            }
+
+                            const profitColor = stock.profit > 0 ? '#ef4444' : (stock.profit < 0 ? '#3b82f6' : 'white');
+                            const profitSign = stock.profit > 0 ? '+' : '';
+
+                            let opinionColor = 'var(--text-muted)';
+                            if (stock.opinion.includes('매수') || stock.opinion.includes('Buy')) opinionColor = '#10b981';
+                            else if (stock.opinion.includes('매도') || stock.opinion.includes('Sell')) opinionColor = '#ef4444';
+
+                            const fBuyColor = stock.foreign_5d_net > 0 ? '#10b981' : (stock.foreign_5d_net < 0 ? '#ef4444' : 'white');
+                            const iBuyColor = stock.inst_5d_net > 0 ? '#10b981' : (stock.inst_5d_net < 0 ? '#ef4444' : 'white');
+
+                            tableInner += `
+                                <tr>
+                                    <td data-label="종목 정보">
+                                        <div style="font-weight: 800; font-size: 16px; color: white; margin-bottom: 4px;">${stock.name}</div>
+                                        <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">${stock.code} | <span class="stock-market-cap">${stock.market_cap}</span></div>
+                                        ${stock.news && stock.news.length > 0 ? `
+                                            <div class="accordion" style="margin-top: 12px; border-radius: 12px;">
+                                                <div class="accordion-header" onclick="toggleAccordion(this)" style="padding: 10px 16px; background: rgba(99, 102, 241, 0.05);">
+                                                    <h5 style="font-size: 12px;"><span>📰</span> 최신 뉴스</h5>
+                                                    <span class="accordion-icon" style="font-size: 10px;">▼</span>
+                                                </div>
+                                                <div class="accordion-content">
+                                                ${stock.news.slice(0, 2).map(n => `
+                                                    <div style="margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
+                                                        <a href="${n.link}" target="_blank" style="color: #94a3b8; text-decoration: none;">• ${n.title}</a>
+                                                    </div>
+                                                `).join('')}
+                                                </div>
+                                            </div>
+                                        ` : ''}
+                                    </td>
+                                    <td data-label="수익/평가">
+                                        <div style="color: ${profitColor}; font-weight: 900; font-size: 18px; margin-bottom: 4px;">${profitSign}${stock.profit_rate}% ${stock.sl_diagnosis && stock.sl_diagnosis.signal === 'SELL' ? '<span style="font-size:12px; color:white; background:#ef4444; padding:2px 6px; border-radius:4px; vertical-align:middle; margin-left:4px;">손절 주의</span>' : ''}</div>
+                                        <div style="font-size: 12px; color: white; font-weight: 600;">${(stock.current_price || 0).toLocaleString()}원</div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">평단: ${(stock.purchase_price || 0).toLocaleString()}원</div>
+                                        <div style="font-size: 11px; color: var(--text-muted);">보유: ${stock.quantity}주 ${stock.stop_loss_ratio > 0 ? `<span style="color:#f87171; font-weight:700;">(손절: ${stock.stop_loss_ratio}%)</span>` : ''}</div>
+                                    </td>
+                                    <td data-label="투자 의견">
+                                        <div style="margin-bottom: 8px;">
+                                            <span style="padding: 4px 10px; border-radius: 8px; background: ${opinionColor}20; color: ${opinionColor}; font-weight: 800; font-size: 12px; border: 1px solid ${opinionColor}40;">${stock.opinion}</span>
+                                        </div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">목표가</div>
+                                        <div style="font-weight: 800; font-size: 15px; color: white;">${stock.target_price > 0 ? (stock.target_price || 0).toLocaleString() + '원' : '-'}</div>
+                                        ${stock.target_price > 0 ? `
+                                            <div style="font-size: 11px; color: #10b981; font-weight: 700; margin-top: 4px;">
+                                                상승여력: ${Math.round((stock.target_price - stock.current_price) / stock.current_price * 100)}%
+                                            </div>
+                                        ` : ''}
+                                    </td>
+                                    <td data-label="실적/성장">
+                                        <div style="margin-bottom: 10px;">
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">매출액</div>
+                                            <div style="font-weight: 700; color: white;">${stock.revenue}</div>
+                                            <div style="font-size: 11px; color: ${stock.revenue_growth.includes('-') ? '#3b82f6' : '#10b981'}; font-weight: 700;">(YoY ${stock.revenue_growth}%)</div>
+                                        </div>
+                                        <div>
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">영업이익</div>
+                                            <div style="font-weight: 700; color: white;">${stock.operating_profit}</div>
+                                            <div style="font-size: 11px; color: ${stock.profit_growth.includes('-') ? '#3b82f6' : '#10b981'}; font-weight: 700;">(YoY ${stock.profit_growth}%)</div>
+                                        </div>
+                                    </td>
+                                    <td data-label="재무/배당">
+                                        <div style="margin-bottom: 8px;">
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">ROE / 부채비율</div>
+                                            <div style="font-weight: 700; color: white;">${stock.roe}% / ${stock.debt_ratio}%</div>
+                                        </div>
+                                        <div>
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">배당수익률</div>
+                                            <div style="font-weight: 700; color: #f59e0b;">${stock.dividend_yield}%</div>
+                                        </div>
+                                    </td>
+                                    <td data-label="수급/외인">
+                                        <div style="margin-bottom: 8px;">
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">외인 지분율</div>
+                                            <div style="font-weight: 700; color: white;">${stock.foreign_ownership_ratio}%</div>
+                                        </div>
+                                        <div style="font-size: 11px; color: ${fBuyColor}; font-weight: 600;">외인(5일): ${stock.foreign_5d_net > 0 ? '+' : ''}${(stock.foreign_5d_net || 0).toLocaleString()}</div>
+                                        <div style="font-size: 11px; color: ${iBuyColor}; font-weight: 600;">기관(5일): ${stock.inst_5d_net > 0 ? '+' : ''}${(stock.inst_5d_net || 0).toLocaleString()}</div>
+                                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
+                                            20일: ${stock.foreign_20d_net > 0 ? '+' : ''}${(stock.foreign_20d_net || 0).toLocaleString()} / ${stock.inst_20d_net > 0 ? '+' : ''}${(stock.inst_20d_net || 0).toLocaleString()}
+                                        </div>
+                                        <div style="font-size: 10px; color: #f59e0b; font-weight: 700; margin-top: 4px;">
+                                            자사주: ${stock.treasury_shares > 100 ? stock.treasury_shares.toLocaleString() + '주 ' : ''}${stock.treasury_ratio > 0 ? '(' + stock.treasury_ratio + '%)' : (stock.treasury_shares <= 100 && stock.treasury_shares > 0 ? '(' + stock.treasury_shares + '%)' : '정보없음')}
+                                        </div>
+                                    </td>
+                                    <td data-label="밸류/위치">
+                                        <div style="margin-bottom: 12px;">
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">PER / PBR</div>
+                                            <div style="font-weight: 700; color: white;">${stock.per}배 / ${stock.pbr}배</div>
+                                            <div style="font-size: 10px; color: #94a3b8;">(업종 PER: ${stock.sector_per}배)</div>
+                                        </div>
+                                        <div style="margin-bottom: 12px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05);">
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">기술적 지표 (이평선)</div>
+                                            <div style="display: flex; gap: 8px; font-size: 11px;">
+                                                <div style="flex: 1; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                                                    <div style="color: #94a3b8; font-size: 9px;">MA5</div>
+                                                    <div style="color: ${stock.ma5_diff >= 0 ? '#ef4444' : '#3b82f6'}; font-weight: 700;">${stock.ma5_diff > 0 ? '+' : ''}${stock.ma5_diff}%</div>
+                                                </div>
+                                                <div style="flex: 1; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                                                    <div style="color: #94a3b8; font-size: 9px;">MA20</div>
+                                                    <div style="color: ${stock.ma20_diff >= 0 ? '#ef4444' : '#3b82f6'}; font-weight: 700;">${stock.ma20_diff > 0 ? '+' : ''}${stock.ma20_diff}%</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">52주 가격 위치</div>
+                                        <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; position: relative;" title="52주 고저점 내 주가 위치">
+                                            <div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981, #ef4444); opacity: 0.2; border-radius: 3px;"></div>
+                                            <div style="position: absolute; left: ${stock.rsi_pos}%; top: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px; background: white; border-radius: 50%; box-shadow: 0 0 10px rgba(255,255,255,0.8); border: 2px solid #6366f1; z-index: 2;"></div>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: 6px; font-weight: 600;">
+                                            <span>LOW</span>
+                                            <span>HIGH</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+
+                        return tableInner + `</tbody></table></div></div>`;
+                    };
+
                     let html = `
                         <div class="report-header">
                             <h4 class="report-title">📊 포트폴리오 정밀 분석 리포트</h4>
@@ -985,10 +1193,11 @@
                             </div>
                         </div>
 
+                        ${slAlertHtml}
+
                         ${allNews.length > 0 ? `
                         <div class="accordion">
                             <div class="accordion-header" onclick="toggleAccordion(this)">
-
                                 <h5><span>📰</span> 내 종목 주요 뉴스 및 공시</h5>
                                 <span class="accordion-icon">▼</span>
                             </div>
@@ -1011,173 +1220,35 @@
                         </div>
                         ` : ''}
 
-                        <div class="portfolio-table-container">
-                            <table class="portfolio-table">
-                                <thead>
-                                    <tr>
-                                        <th>종목 정보</th>
-                                        <th>수익/평가</th>
-                                        <th>투자 의견</th>
-                                        <th>실적/성장</th>
-                                        <th>재무/배당</th>
-                                        <th>수급/외인</th>
-                                        <th>밸류/위치</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                    `;
+                        ${buildTableHtml(portfolioData, '💰 보유 종목 포트폴리오', '🔥')}
+                        ${buildTableHtml(watchlistData, '🎯 핵심 관심 위시리스트', '⭐')}
 
-                    data.forEach(stock => {
-                        totalProfit += stock.profit;
-                        totalAssetValue += (stock.current_price * stock.quantity);
-                        totalInvested += (stock.purchase_price * stock.quantity);
-
-                        const profitColor = stock.profit > 0 ? '#ef4444' : (stock.profit < 0 ? '#3b82f6' : 'white');
-                        const profitSign = stock.profit > 0 ? '+' : '';
-
-                        let opinionColor = 'var(--text-muted)';
-                        if (stock.opinion.includes('매수') || stock.opinion.includes('Buy')) opinionColor = '#10b981';
-                        else if (stock.opinion.includes('매도') || stock.opinion.includes('Sell')) opinionColor = '#ef4444';
-
-                        // 수급 색상
-                        const fBuyColor = stock.foreign_5d_net > 0 ? '#10b981' : (stock.foreign_5d_net < 0 ? '#ef4444' : 'white');
-                        const iBuyColor = stock.inst_5d_net > 0 ? '#10b981' : (stock.inst_5d_net < 0 ? '#ef4444' : 'white');
-
-                        html += `
-                            <tr>
-                                <td data-label="종목 정보">
-                                    <div style="font-weight: 800; font-size: 16px; color: white; margin-bottom: 4px;">${stock.name}</div>
-                                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">${stock.code} | <span class="stock-market-cap">${stock.market_cap}</span></div>
-                                    ${stock.news && stock.news.length > 0 ? `
-                                        <div class="accordion" style="margin-top: 12px; border-radius: 12px;">
-                                            <div class="accordion-header" onclick="toggleAccordion(this)" style="padding: 10px 16px; background: rgba(99, 102, 241, 0.05);">
-                                                <h5 style="font-size: 12px;"><span>📰</span> 최신 뉴스</h5>
-                                                <span class="accordion-icon" style="font-size: 10px;">▼</span>
-                                            </div>
-                                            <div class="accordion-content">
-                                            ${stock.news.slice(0, 2).map(n => `
-                                                <div style="margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
-                                                    <a href="${n.link}" target="_blank" style="color: #94a3b8; text-decoration: none;">• ${n.title}</a>
-                                                </div>
-                                            `).join('')}
-                                            </div>
+                        ${(() => {
+                            const totalProfitColor = totalProfit > 0 ? '#ef4444' : (totalProfit < 0 ? '#3b82f6' : 'white');
+                            const totalProfitRate = totalInvested > 0 ? ((totalAssetValue - totalInvested) / totalInvested * 100).toFixed(2) : '0.00';
+                            
+                            return `
+                            <div class="summary-container">
+                                <h4 style="margin: 0 0 24px; font-size: 20px; color: white; font-family: 'Outfit', sans-serif;">💰 포트폴리오 요약</h4>
+                                <div class="summary-grid">
+                                    <div class="summary-item">
+                                        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">총 투자금액</div>
+                                        <div style="font-size: 20px; font-weight: 800; color: white;">${totalInvested.toLocaleString()}원</div>
+                                    </div>
+                                    <div class="summary-item">
+                                        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">총 평가금액</div>
+                                        <div style="font-size: 20px; font-weight: 800; color: white;">${totalAssetValue.toLocaleString()}원</div>
+                                    </div>
+                                    <div class="summary-item">
+                                        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">총 수익금 (수익률)</div>
+                                        <div style="font-size: 20px; font-weight: 800; color: ${totalProfitColor};">
+                                            ${totalProfit > 0 ? '+' : ''}${totalProfit.toLocaleString()}원 (${totalProfitRate}%)
                                         </div>
-                                    ` : ''}
-                                </td>
-                                <td data-label="수익/평가">
-                                    <div style="color: ${profitColor}; font-weight: 900; font-size: 18px; margin-bottom: 4px;">${profitSign}${stock.profit_rate}%</div>
-                                    <div style="font-size: 12px; color: white; font-weight: 600;">${(stock.current_price || 0).toLocaleString()}원</div>
-                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">평단: ${(stock.purchase_price || 0).toLocaleString()}원</div>
-                                    <div style="font-size: 11px; color: var(--text-muted);">보유: ${stock.quantity}주</div>
-                                </td>
-                                <td data-label="투자 의견">
-                                    <div style="margin-bottom: 8px;">
-                                        <span style="padding: 4px 10px; border-radius: 8px; background: ${opinionColor}20; color: ${opinionColor}; font-weight: 800; font-size: 12px; border: 1px solid ${opinionColor}40;">${stock.opinion}</span>
-                                    </div>
-                                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">목표가</div>
-                                    <div style="font-weight: 800; font-size: 15px; color: white;">${stock.target_price > 0 ? (stock.target_price || 0).toLocaleString() + '원' : '-'}</div>
-                                    ${stock.target_price > 0 ? `
-                                        <div style="font-size: 11px; color: #10b981; font-weight: 700; margin-top: 4px;">
-                                            상승여력: ${Math.round((stock.target_price - stock.current_price) / stock.current_price * 100)}%
-                                        </div>
-                                    ` : ''}
-                                </td>
-                                <td data-label="실적/성장">
-                                    <div style="margin-bottom: 10px;">
-                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">매출액</div>
-                                        <div style="font-weight: 700; color: white;">${stock.revenue}</div>
-                                        <div style="font-size: 11px; color: ${stock.revenue_growth.includes('-') ? '#3b82f6' : '#10b981'}; font-weight: 700;">(YoY ${stock.revenue_growth}%)</div>
-                                    </div>
-                                    <div>
-                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">영업이익</div>
-                                        <div style="font-weight: 700; color: white;">${stock.operating_profit}</div>
-                                        <div style="font-size: 11px; color: ${stock.profit_growth.includes('-') ? '#3b82f6' : '#10b981'}; font-weight: 700;">(YoY ${stock.profit_growth}%)</div>
-                                    </div>
-                                </td>
-                                <td data-label="재무/배당">
-                                    <div style="margin-bottom: 8px;">
-                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">ROE / 부채비율</div>
-                                        <div style="font-weight: 700; color: white;">${stock.roe}% / ${stock.debt_ratio}%</div>
-                                    </div>
-                                    <div>
-                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">배당수익률</div>
-                                        <div style="font-weight: 700; color: #f59e0b;">${stock.dividend_yield}%</div>
-                                    </div>
-                                </td>
-                                <td data-label="수급/외인">
-                                    <div style="margin-bottom: 8px;">
-                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">외인 지분율</div>
-                                        <div style="font-weight: 700; color: white;">${stock.foreign_ownership_ratio}%</div>
-                                    </div>
-                                    <div style="font-size: 11px; color: ${fBuyColor}; font-weight: 600;">외인(5일): ${stock.foreign_5d_net > 0 ? '+' : ''}${(stock.foreign_5d_net || 0).toLocaleString()}</div>
-                                    <div style="font-size: 11px; color: ${iBuyColor}; font-weight: 600;">기관(5일): ${stock.inst_5d_net > 0 ? '+' : ''}${(stock.inst_5d_net || 0).toLocaleString()}</div>
-                                    <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
-                                        20일: ${stock.foreign_20d_net > 0 ? '+' : ''}${(stock.foreign_20d_net || 0).toLocaleString()} / ${stock.inst_20d_net > 0 ? '+' : ''}${(stock.inst_20d_net || 0).toLocaleString()}
-                                    </div>
-                                    <div style="font-size: 10px; color: #f59e0b; font-weight: 700; margin-top: 4px;">
-                                        자사주: ${stock.treasury_shares > 100 ? stock.treasury_shares.toLocaleString() + '주 ' : ''}${stock.treasury_ratio > 0 ? '(' + stock.treasury_ratio + '%)' : (stock.treasury_shares <= 100 && stock.treasury_shares > 0 ? '(' + stock.treasury_shares + '%)' : '정보없음')}
-                                    </div>
-                                </td>
-                                <td data-label="밸류/위치">
-                                    <div style="margin-bottom: 12px;">
-                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">PER / PBR</div>
-                                        <div style="font-weight: 700; color: white;">${stock.per}배 / ${stock.pbr}배</div>
-                                        <div style="font-size: 10px; color: #94a3b8;">(업종 PER: ${stock.sector_per}배)</div>
-                                    </div>
-                                    <div style="margin-bottom: 12px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05);">
-                                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">기술적 지표 (이평선)</div>
-                                        <div style="display: flex; gap: 8px; font-size: 11px;">
-                                            <div style="flex: 1; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">
-                                                <div style="color: #94a3b8; font-size: 9px;">MA5</div>
-                                                <div style="color: ${stock.ma5_diff >= 0 ? '#ef4444' : '#3b82f6'}; font-weight: 700;">${stock.ma5_diff > 0 ? '+' : ''}${stock.ma5_diff}%</div>
-                                            </div>
-                                            <div style="flex: 1; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">
-                                                <div style="color: #94a3b8; font-size: 9px;">MA20</div>
-                                                <div style="color: ${stock.ma20_diff >= 0 ? '#ef4444' : '#3b82f6'}; font-weight: 700;">${stock.ma20_diff > 0 ? '+' : ''}${stock.ma20_diff}%</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">52주 가격 위치</div>
-                                    <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; position: relative;" title="52주 고저점 내 주가 위치">
-                                        <div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981, #ef4444); opacity: 0.2; border-radius: 3px;"></div>
-                                        <div style="position: absolute; left: ${stock.rsi_pos}%; top: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px; background: white; border-radius: 50%; box-shadow: 0 0 10px rgba(255,255,255,0.8); border: 2px solid #6366f1; z-index: 2;"></div>
-                                    </div>
-                                    <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: 6px; font-weight: 600;">
-                                        <span>LOW</span>
-                                        <span>HIGH</span>
-                                    </div>
-                                </td>
-                            </tr>
-                        `;
-                    });
-
-                    const totalProfitColor = totalProfit > 0 ? '#ef4444' : (totalProfit < 0 ? '#3b82f6' : 'white');
-                    const totalProfitRate = totalInvested > 0 ? ((totalAssetValue - totalInvested) / totalInvested * 100).toFixed(2) : '0.00';
-
-                    html += `
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div class="summary-container">
-                            <h4 style="margin: 0 0 24px; font-size: 20px; color: white; font-family: 'Outfit', sans-serif;">💰 포트폴리오 요약</h4>
-                            <div class="summary-grid">
-                                <div class="summary-item">
-                                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">총 투자금액</div>
-                                    <div style="font-size: 20px; font-weight: 800; color: white;">${totalInvested.toLocaleString()}원</div>
-                                </div>
-                                <div class="summary-item">
-                                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">총 평가금액</div>
-                                    <div style="font-size: 20px; font-weight: 800; color: white;">${totalAssetValue.toLocaleString()}원</div>
-                                </div>
-                                <div class="summary-item">
-                                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">총 수익금 (수익률)</div>
-                                    <div style="font-size: 20px; font-weight: 800; color: ${totalProfitColor};">
-                                        ${totalProfit > 0 ? '+' : ''}${totalProfit.toLocaleString()}원 (${totalProfitRate}%)
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                            `;
+                        })()}
 
                         <div class="report-footer-actions" style="margin-top: 40px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 32px;">
                             <button id="aiPortfolioReportBtn" class="btn" style="background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%); box-shadow: 0 10px 30px rgba(129, 140, 248, 0.3); border: none; padding: 20px 50px; font-size: 18px; font-weight: 800; cursor: pointer; transition: all 0.3s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 15px 35px rgba(129, 140, 248, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 10px 30px rgba(129, 140, 248, 0.3)'">
@@ -1287,10 +1358,12 @@
             const nameInput = document.getElementById('myStockName');
             const priceInput = document.getElementById('myStockPrice');
             const qtyInput = document.getElementById('myStockQty');
+            const slInput = document.getElementById('myStockStopLoss');
             const code = codeInput.value.trim();
             const name = nameInput.value.trim();
             const price = parseFloat(unformatNumber(priceInput.value)) || 0;
             const qty = parseInt(qtyInput.value) || 0;
+            const stop_loss = parseFloat(slInput.value) || 0;
             if (!code) {
                 showToast('종목을 선택하거나 코드를 입력해주세요.', 'error');
                 return;
@@ -1298,7 +1371,7 @@
             fetch('/api/my_stocks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code, name, purchase_price: price, quantity: qty })
+                body: JSON.stringify({ code, name, purchase_price: price, quantity: qty, stop_loss_ratio: stop_loss })
             })
                 .then(response => response.json())
                 .then(data => {
@@ -1308,6 +1381,7 @@
                         nameInput.value = '';
                         priceInput.value = '';
                         qtyInput.value = '';
+                        slInput.value = '';
                         loadMyStocks();
                     } else {
                         showToast(data.message, 'error');
@@ -1333,6 +1407,7 @@
             const payload = {};
             if (type === 'price') payload.purchase_price = parseFloat(unformatNumber(value)) || 0;
             if (type === 'qty') payload.quantity = parseInt(value) || 0;
+            if (type === 'stop_loss') payload.stop_loss_ratio = parseFloat(value) || 0;
 
             fetch(`/api/my_stocks/${code}`, {
                 method: 'PATCH',
@@ -1347,6 +1422,7 @@
                         if (stock) {
                             if (type === 'price') stock.purchase_price = payload.purchase_price;
                             if (type === 'qty') stock.quantity = payload.quantity;
+                            if (type === 'stop_loss') stock.stop_loss_ratio = payload.stop_loss_ratio;
                         }
                     } else {
                         showToast('업데이트 실패: ' + data.message, 'error');
@@ -1542,10 +1618,12 @@
         function loadResults() {
             fetch('/api/results')
                 .then(response => response.json())
-                .then(files => {
+                .then(data => {
+                    // [김미수] 이름순 정렬
+                    data.sort((a, b) => a.name.localeCompare(b.name));
                     const resultsList = document.getElementById('resultsList');
                     // Filter out 'My Stocks' analysis results from the general list
-                    const filteredFiles = files.filter(file => file.market !== 'MY_STOCKS' && file.market !== 'MYSTOCKS');
+                    const filteredFiles = data.filter(file => file.market !== 'MY_STOCKS' && file.market !== 'MYSTOCKS');
 
                     if (!filteredFiles || filteredFiles.length === 0) {
                         resultsList.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">저장된 결과가 없습니다.</p>';
