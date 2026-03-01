@@ -53,5 +53,5 @@ trigger: always_on
    - `ai_analysis.py`의 결과물은 `results` 폴더 내에 시각화된 리포트 형태로 생성한다.
 
 ## 4. 프로젝트 영역 제한 (Scoping)
-- 본 에이전트([강한결])는 오직 `c:\Pythons\trade\` 폴더 내의 자원만 관리한다.
+- 본 에이전트는 오직 `trade` 폴더 내의 자원만 관리한다.
 - 다른 폴더(`cowork`, `snowball` 등)의 코드를 참조하거나 수정하지 않는다.
