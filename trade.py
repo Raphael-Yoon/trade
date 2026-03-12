@@ -1144,10 +1144,8 @@ def get_results():
             cursor = db.cursor()
             cursor.execute("SELECT * FROM analysis_results ORDER BY created_at DESC")
             return jsonify([dict(row) for row in cursor.fetchall()])
-        except:
-            return jsonify({'error': str(e)}), 500
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        except Exception as db_e:
+            return jsonify({'error': str(db_e)}), 500
 
 @app.route('/api/download/<filename>')
 def download_file(filename):

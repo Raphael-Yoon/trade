@@ -1620,8 +1620,12 @@
             fetch('/api/results')
                 .then(response => response.json())
                 .then(data => {
-                    // [김미수] 이름순 정렬
-                    data.sort((a, b) => a.name.localeCompare(b.name));
+                    // [유병욱] 최신 날짜순 정렬 (내림차순)
+                    data.sort((a, b) => {
+                        const dateA = a.created_at || '';
+                        const dateB = b.created_at || '';
+                        return dateB.localeCompare(dateA);
+                    });
                     const resultsList = document.getElementById('resultsList');
                     // Filter out 'My Stocks' analysis results from the general list
                     const filteredFiles = data.filter(file => file.market !== 'MY_STOCKS' && file.market !== 'MYSTOCKS');
