@@ -61,8 +61,34 @@ def save_cache_data(ticker, year, data):
             json.dump(data, f, ensure_ascii=False, indent=4)
     except: pass
 
+def get_etf_codes(session):
+    """네이버 금융 ETF 목록에서 전체 ETF 코드를 수집합니다."""
+    etf_codes = set()
+    page = 1
+    while True:
+        url = f"https://finance.naver.com/sise/sise_etf.naver?page={page}"
+        res = session.get(url)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        table = soup.find('table', {'class': 'type_1'})
+        if not table:
+            break
+        found = False
+        for a in table.find_all('a', href=lambda h: h and 'code=' in h):
+            code = a.get('href').split('code=')[1]
+            etf_codes.add(code)
+            found = True
+        if not found:
+            break
+        page += 1
+        time.sleep(0.05)
+    if not etf_codes:
+        raise RuntimeError("ETF 목록 수집 실패: 네이버 금융에서 ETF 코드를 가져올 수 없습니다.")
+    return etf_codes
+
 def get_top_tickers_from_naver(session, market='KOSPI', count=100):
-    """네이버 금융에서 시가총액 상위 종목 리스트를 가져옵니다."""
+    """네이버 금융에서 시가총액 상위 종목 리스트를 가져옵니다. ETF는 제외합니다."""
+    etf_codes = get_etf_codes(session)
+
     if market.upper() == 'ALL':
         markets_to_fetch = ['KOSPI', 'KOSDAQ']
     elif ',' in market:
@@ -70,36 +96,37 @@ def get_top_tickers_from_naver(session, market='KOSPI', count=100):
     else:
         markets_to_fetch = [market.upper()]
     all_tickers = []
-    
+
     for m in markets_to_fetch:
         sosok = 0 if m == 'KOSPI' else 1
         base_url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}"
         page = 1
         market_tickers = []
-        
-        # ALL인 경우 각각 count만큼 시도
+
         target_count = count
-        
+
         while len(market_tickers) < target_count:
             url = f"{base_url}&page={page}"
             res = session.get(url)
             soup = BeautifulSoup(res.text, 'html.parser')
             table = soup.find('table', {'class': 'type_2'})
             if not table: break
-            
+
             found = False
             for a in table.find_all('a', {'class': 'tltle'}):
                 code = a.get('href').split('code=')[1]
                 name = a.text.strip()
+                if code in etf_codes:
+                    continue
                 market_tickers.append((code, name))
                 found = True
                 if len(market_tickers) >= target_count: break
-            
+
             if not found: break
             page += 1
             time.sleep(0.05)
         all_tickers.extend(market_tickers)
-    
+
     return all_tickers[:count] if count > 0 else all_tickers
 
 def get_naver_financials(session, ticker):

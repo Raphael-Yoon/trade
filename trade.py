@@ -226,49 +226,20 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', y
                 tasks[task_id]['message'] = '데이터 수집 완료!'
                 tasks[task_id]['result_file'] = result_filename
                 
-                drive_link = None
-                spreadsheet_id = None
                 try:
                     from drive_sync import upload_to_drive
                     drive_data = upload_to_drive(result_path)
                     if drive_data:
                         tasks[task_id]['message'] += f' (구글 드라이브 업로드 완료)'
                         tasks[task_id]['drive_link'] = drive_data['link']
-                        # [김정음] 드라이브 업로드 완료 후 로컬 파일 즉시 삭제 (Drive-Native)
+                        # Drive-Native: 업로드 완료 후 로컬 파일 즉시 삭제, DB 저장 없음
                         if os.path.exists(result_path):
                             os.remove(result_path)
-                        # 메타데이터 JSON 파일도 생성되었다면 삭제
                         json_path = result_path.replace('.xlsx', '.json')
                         if os.path.exists(json_path):
                             os.remove(json_path)
                 except Exception as drive_err:
                     print(f"드라이브 업로드 실패: {drive_err}")
-                
-                # [김정음] Drive-Native 전략으로 변경됨에 따라 DB에 메타데이터 저장 로직 제거
-                # try:
-                #     conn = sqlite3.connect(DB_FILE)
-                #     cursor = conn.cursor()
-                #     parts = result_filename.replace('.xlsx', '').split('_')
-                #     market_val = parts[0].upper() if len(parts) > 0 else market
-                #     count_val = parts[1] if len(parts) > 1 else str(stock_count)
-                    
-                #     cursor.execute('''
-                #         INSERT OR REPLACE INTO analysis_results 
-                #         (filename, market, stock_count, created_at, size, spreadsheet_id, drive_link)
-                #         VALUES (?, ?, ?, ?, ?, ?, ?)
-                #     ''', (
-                #         result_filename,
-                #         market_val,
-                #         count_val,
-                #         datetime.now().isoformat(),
-                #         os.path.getsize(result_path) if os.path.exists(result_path) else 0,
-                #         spreadsheet_id,
-                #         drive_link
-                #     ))
-                #     conn.commit()
-                #     conn.close()
-                # except Exception as db_err:
-                #     print(f"DB 저장 실패: {db_err}")
                 
                 cleanup_old_results()
             else:
@@ -1137,15 +1108,7 @@ def get_results():
                 })
         return jsonify(results)
     except Exception as e:
-        print(f"목록 실시간 조회 중 오류: {e}")
-        # 실패 시 차선책으로 DB 조회 (기존 로직)
-        try:
-            db = get_db()
-            cursor = db.cursor()
-            cursor.execute("SELECT * FROM analysis_results ORDER BY created_at DESC")
-            return jsonify([dict(row) for row in cursor.fetchall()])
-        except Exception as db_e:
-            return jsonify({'error': str(db_e)}), 500
+        return jsonify({'error': '구글 드라이브 연결에 실패했습니다.'}), 503
 
 @app.route('/api/download/<filename>')
 def download_file(filename):
@@ -1273,26 +1236,34 @@ def ai_analyze(filename):
             if cached_content and len(cached_content.strip()) > 100:
                 return jsonify({'success': True, 'result': cached_content, 'cached': True})
 
-        # 2. 원본 데이터 파일 확인
+        # 2. 원본 데이터 파일 확인 (Drive-Native: Drive에서 직접 ID 조회)
         file_path = os.path.join(RESULTS_DIR, filename)
         if not os.path.exists(file_path):
-            # 드라이브에서 임시 다운로드 시도
-            db = get_db()
-            cursor = db.cursor()
-            cursor.execute("SELECT spreadsheet_id FROM analysis_results WHERE filename = ?", (filename,))
-            row_id = cursor.fetchone()
-            if row_id and row_id['spreadsheet_id']:
-                content = download_from_drive(row_id['spreadsheet_id'])
+            from drive_sync import list_files_in_folder
+            drive_files = list_files_in_folder()
+            target_name = filename.replace('.xlsx', '')
+            spreadsheet_id = None
+            for df in drive_files:
+                if df['name'] == target_name or df['name'] == filename:
+                    spreadsheet_id = df['id']
+                    break
+            if spreadsheet_id:
+                content = download_from_drive(spreadsheet_id)
                 if content:
                     with open(file_path, 'wb') as f:
                         f.write(content)
                 else:
-                    return jsonify({'success': False, 'message': '파일을 찾을 수 없습니다.'}), 404
+                    return jsonify({'success': False, 'message': '드라이브에서 파일을 다운로드할 수 없습니다.'}), 404
             else:
-                return jsonify({'success': False, 'message': '파일을 찾을 수 없습니다.'}), 404
+                return jsonify({'success': False, 'message': '드라이브에서 파일을 찾을 수 없습니다.'}), 404
 
         # 3. AI 분석 수행
-        result_text = analyze_stock_data(file_path)
+        try:
+            result_text = analyze_stock_data(file_path)
+        finally:
+            # Drive-Native: 분석용 임시 파일 즉시 삭제
+            if os.path.exists(file_path):
+                os.remove(file_path)
 
         # 4. 결과를 구글 문서로 저장 (유효한 경우만)
         if "오류" not in result_text and "제한" not in result_text:
