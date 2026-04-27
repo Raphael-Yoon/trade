@@ -124,9 +124,21 @@ def init_db():
             type TEXT, -- 'spike' or 'drop'
             change_rate REAL,
             price REAL,
+            volume INTEGER DEFAULT 0, -- [김선화] 거래량 추가
+            industry TEXT, -- [김선화] 업종 추가
             created_at TEXT
         )
     ''')
+    
+    # 스키마 업데이트 (기존 테이블에 volume, industry 컬럼 추가)
+    try:
+        cursor.execute("ALTER TABLE price_alerts ADD COLUMN volume INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE price_alerts ADD COLUMN industry TEXT")
+    except sqlite3.OperationalError:
+        pass
     
     conn.commit()
     
@@ -139,6 +151,25 @@ init_db()
 # 실시간 모니터링 관리
 monitor_running = False
 monitor_thread = None
+monitor_threshold = 7.0 # [김선화] 급등 탐지 임계치 (기본 7.0%)
+monitor_min_volume = 50000 # [김선화] 최소 거래량 필터 (기본 5만 주)
+
+# [김선화] ETF 필터링용 캐시
+etf_cache = {'codes': [], 'last_updated': 0}
+
+def get_etf_codes():
+    """네이버 API에서 전체 ETF 리스트 가져오기 (1시간 캐싱)"""
+    global etf_cache
+    import time
+    if time.time() - etf_cache['last_updated'] > 3600:
+        try:
+            url = "https://finance.naver.com/api/sise/etfItemList.nhn"
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            data = res.json()
+            etf_cache['codes'] = [item['itemcode'] for item in data['result']['etfItemList']]
+            etf_cache['last_updated'] = time.time()
+        except: pass
+    return etf_cache['codes']
 
 def get_current_price_naver(code):
     """네이버 금융에서 현재가 가져오기"""
@@ -153,26 +184,78 @@ def get_current_price_naver(code):
         print(f"가격 수집 오류 ({code}): {e}")
     return None
 
+def get_industry_naver(code):
+    """[김선화] 네이버 금융에서 해당 종목의 업종(Sector) 정보를 가져옵니다."""
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # 업종 정보 추출 (상세 페이지 내 '업종' 텍스트 뒤의 em 태그)
+        industry_el = soup.select_one(".description em a")
+        if not industry_el:
+            # 다른 패턴 시도
+            for th in soup.find_all("th", scope="row"):
+                if "업종" in th.text:
+                    industry_el = th.find_next("td").find("a")
+                    break
+        
+        if industry_el:
+            return industry_el.text.strip()
+    except Exception as e:
+        print(f"업종 수집 오류 ({code}): {e}")
+    return "기타"
+
 def get_market_movers():
     """시장 전체에서 급등/급락 종목 가져오기 (네이버 금융 상위 종목)"""
     movers = []
     try:
-        # KOSPI/KOSDAQ 상승 상위
-        for mkt in ['sosok=0', 'sosok=1']:
-            url = f"https://finance.naver.com/sise/sise_quant.naver?{mkt}"
+        # [김선화] 탐지 정밀도를 높이기 위해 '거래량 상위', '상승 상위', '시가총액 상위' 페이지를 모두 스캔합니다.
+        targets = [
+            'sise_quant.naver?sosok=0', 'sise_quant.naver?sosok=1', # 거래량 상위
+            'sise_rise.naver?sosok=0', 'sise_rise.naver?sosok=1',   # 상승 상위
+            'sise_market_sum.naver?sosok=0', 'sise_market_sum.naver?sosok=1' # 시가총액 상위
+        ]
+        
+        for t_url in targets:
+            url = f"https://finance.naver.com/sise/{t_url}"
             res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
             soup = BeautifulSoup(res.text, 'html.parser')
             rows = soup.select("table.type_2 tr")
+            
+            etf_codes = get_etf_codes() # [김선화] ETF 필터링용 리스트
+            
             for row in rows:
                 cols = row.select("td")
                 if len(cols) < 6: continue
                 name = cols[1].text.strip()
-                code = cols[1].find('a')['href'].split('=')[-1]
-                change_rate_str = cols[5].text.strip().replace('%', '').replace('+', '')
+                code_el = cols[1].find('a')
+                if not code_el: continue
+                code = code_el['href'].split('=')[-1]
+                
+                # [김선화] ETF, ETN, 스팩 제외 로직 강화 (노이즈 제거)
+                if code in etf_codes or any(x in name.upper() for x in ['ETF', 'ETN', '스팩', 'SPAC']):
+                    continue
+                
+                # [김선화] 등락률 컬럼 인덱스 수정 (5 -> 4) 및 파싱 로직 보완
+                price_str = cols[2].text.strip().replace(',', '') # [김선화] 현재가 (Index 2)
+                change_rate_str = cols[4].text.strip().replace('%', '').replace('+', '').replace(',', '')
+                volume_str = cols[5].text.strip().replace(',', '') # [김선화] 거래량 (Index 5)
                 try:
+                    price = int(price_str)
                     change_rate = float(change_rate_str)
-                    if change_rate >= 7.0: # 당일 7% 이상 급등주 포착
-                        movers.append({'code': code, 'name': name, 'change_rate': change_rate, 'type': 'spike'})
+                    volume = int(volume_str)
+                    
+                    # [김선화] 임계치 이상 && 최소 거래량 이상일 때만 포착
+                    if change_rate >= monitor_threshold and volume >= monitor_min_volume:
+                        movers.append({
+                            'code': code, 
+                            'name': name, 
+                            'price': price, # 현재가 추가
+                            'change_rate': change_rate, 
+                            'volume': volume, 
+                            'type': 'spike'
+                        })
                 except: continue
     except Exception as e:
         print(f"시장 모니터링 오류: {e}")
@@ -214,11 +297,14 @@ def run_realtime_monitor():
                 """, (m['code'],))
                 if cursor.fetchone(): continue
                 
-                print(f"📡 [전시장 포착] {m['name']}({m['code']}) {m['change_rate']}% 급등 중!")
+                # [김선화] 업종 정보 수집 (상세 페이지 1회 조회)
+                industry = get_industry_naver(m['code'])
+                
+                print(f"📡 [전시장 포착] {m['name']}({m['code']}) [{industry}] {m['price']:,}원 {m['change_rate']}% 급등 중! (거래량: {m['volume']:,})")
                 cursor.execute("""
-                    INSERT INTO price_alerts (code, name, type, change_rate, price, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (m['code'], m['name'], m['type'], m['change_rate'], 0, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (m['code'], m['name'], m['type'], m['change_rate'], m['price'], m['volume'], industry, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             
             conn.commit()
             conn.close()
@@ -238,13 +324,22 @@ def start_monitor():
 
 @app.route('/api/monitor/start', methods=['POST'])
 def api_start_monitor():
-    """모니터링 시작"""
+    """모니터링 시작 ([김선화] 시작 시 기존 알림 초기화 및 즉시 재조회)"""
     global monitor_running, monitor_thread
     if not monitor_running:
+        # [김선화] 재조회 요청에 따라 기존 알림 내역 초기화 (Clean Start)
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM price_alerts")
+            conn.commit()
+            conn.close()
+        except: pass
+        
         monitor_running = True
         monitor_thread = threading.Thread(target=run_realtime_monitor, daemon=True)
         monitor_thread.start()
-        return jsonify({"status": "success", "message": "모니터링이 시작되었습니다."})
+        return jsonify({"status": "success", "message": "모니터링이 시작되었습니다. 시장을 재조회합니다."})
     return jsonify({"status": "info", "message": "이미 모니터링이 실행 중입니다."})
 
 @app.route('/api/monitor/stop', methods=['POST'])
@@ -254,6 +349,38 @@ def api_stop_monitor():
     monitor_running = False
     return jsonify({"status": "success", "message": "모니터링이 중지되었습니다."})
 
+@app.route('/api/monitor/threshold', methods=['GET', 'POST'])
+def api_monitor_threshold():
+    """[김선화] 탐지 임계치 조회 및 설정"""
+    global monitor_threshold
+    if request.method == 'POST':
+        try:
+            data = request.get_json()
+            val = float(data.get('threshold', 7.0))
+            if val <= 0:
+                return jsonify({"status": "error", "message": "임계치는 0보다 커야 합니다."}), 400
+            monitor_threshold = val
+            return jsonify({"status": "success", "message": f"임계치가 {val}%로 변경되었습니다.", "threshold": monitor_threshold})
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+    return jsonify({"threshold": monitor_threshold})
+
+@app.route('/api/monitor/min_volume', methods=['GET', 'POST'])
+def api_monitor_min_volume():
+    """[김선화] 최소 거래량 필터 조회 및 설정"""
+    global monitor_min_volume
+    if request.method == 'POST':
+        try:
+            data = request.get_json()
+            val = int(data.get('min_volume', 50000))
+            if val < 0:
+                return jsonify({"status": "error", "message": "거래량은 0 이상이어야 합니다."}), 400
+            monitor_min_volume = val
+            return jsonify({"status": "success", "message": f"최소 거래량이 {val:,}주로 변경되었습니다.", "min_volume": monitor_min_volume})
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+    return jsonify({"min_volume": monitor_min_volume})
+
 @app.route('/api/monitor/status')
 def api_monitor_status():
     """모니터링 상태 조회"""
@@ -261,10 +388,21 @@ def api_monitor_status():
 
 @app.route('/api/alerts')
 def get_alerts():
-    """최근 알림 목록 조회"""
+    """최근 알림 목록 조회 (현재 설정값으로 실시간 필터링 및 정렬)"""
+    sort_by = request.args.get('sort', 'change_rate') # 기본값: 상승률순
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM price_alerts ORDER BY created_at DESC LIMIT 50")
+    
+    # 정렬 기준 설정
+    order_clause = "change_rate DESC" if sort_by == 'change_rate' else "created_at DESC"
+    
+    # [김선화] 사용자가 설정한 현재 임계치와 최소 거래량을 만족하는 알림만 반환
+    query = f"""
+        SELECT * FROM price_alerts 
+        WHERE change_rate >= ? AND volume >= ?
+        ORDER BY {order_clause} LIMIT 50
+    """
+    cursor.execute(query, (monitor_threshold, monitor_min_volume))
     alerts = [dict(zip([column[0] for column in cursor.description], row)) for row in cursor.fetchall()]
     conn.close()
     return jsonify(alerts)
@@ -1182,6 +1320,19 @@ def update_master():
                     
                     if not found or page > 40: break # 대략 40페이지까지
                     page += 1
+
+            # [김정음] ETF 리스트 추가 수집
+            try:
+                etf_url = "https://finance.naver.com/api/sise/etfItemList.nhn"
+                etf_res = session.get(etf_url, timeout=10)
+                etf_data = etf_res.json()
+                if etf_data.get('resultCode') == 'success':
+                    etf_items = etf_data.get('result', {}).get('etfItemList', [])
+                    for item in etf_items:
+                        if 'itemcode' in item:
+                            all_stocks.append((item['itemcode'], item['itemname'], 'ETF'))
+            except Exception as etf_e:
+                print(f"ETF 마스터 수집 중 오류: {etf_e}")
             
             if all_stocks:
                 conn = sqlite3.connect(DB_FILE)
@@ -1632,8 +1783,7 @@ def sync_data():
         init_db() 
         return jsonify({'success': True, 'added': added, 'removed': removed})
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
+        return jsonify({'success': False, 'message': str(e)}), 500 
 if __name__ == '__main__':
     init_db()  # [김정음] 스타트업 시 DB 초기화 보장
     app.run(debug=True, host='0.0.0.0', port=5000)

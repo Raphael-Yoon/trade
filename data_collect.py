@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import sys
 import os
 import time
@@ -62,28 +62,46 @@ def save_cache_data(ticker, year, data):
     except: pass
 
 def get_etf_codes(session):
-    """네이버 금융 ETF 목록에서 전체 ETF 코드를 수집합니다."""
+    """네이버 금융 ETF API를 통해 전체 ETF 코드를 수집합니다."""
     etf_codes = set()
-    page = 1
-    while True:
-        url = f"https://finance.naver.com/sise/sise_etf.naver?page={page}"
-        res = session.get(url)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        table = soup.find('table', {'class': 'type_1'})
-        if not table:
-            break
-        found = False
-        for a in table.find_all('a', href=lambda h: h and 'code=' in h):
-            code = a.get('href').split('code=')[1]
-            etf_codes.add(code)
-            found = True
-        if not found:
-            break
-        page += 1
-        time.sleep(0.05)
-    if not etf_codes:
-        raise RuntimeError("ETF 목록 수집 실패: 네이버 금융에서 ETF 코드를 가져올 수 없습니다.")
-    return etf_codes
+    url = "https://finance.naver.com/api/sise/etfItemList.nhn"
+    
+    try:
+        res = session.get(url, timeout=10)
+        data = res.json()
+        
+        if data.get('resultCode') == 'success':
+            items = data.get('result', {}).get('etfItemList', [])
+            for item in items:
+                if 'itemcode' in item:
+                    etf_codes.add(item['itemcode'])
+                    
+        if not etf_codes:
+            print("자체 경고: 네이버 ETF API에서 응답은 왔으나 종목이 없습니다. 필터링 없이 진행합니다.")
+            
+        return etf_codes
+    except Exception as e:
+        print(f"자체 경고: 네이버 ETF API 호출 중 오류 발생 ({e}). 필터링 없이 진행합니다.")
+        return set()
+
+def get_etf_list(session):
+    """네이버 금융 ETF API를 통해 전체 ETF 리스트(코드, 명칭)를 수집합니다."""
+    url = "https://finance.naver.com/api/sise/etfItemList.nhn"
+    etf_list = []
+    
+    try:
+        res = session.get(url, timeout=10)
+        data = res.json()
+        
+        if data.get('resultCode') == 'success':
+            items = data.get('result', {}).get('etfItemList', [])
+            for item in items:
+                if 'itemcode' in item and 'itemname' in item:
+                    etf_list.append((item['itemcode'], item['itemname']))
+        return etf_list
+    except Exception as e:
+        print(f"자체 경고: 네이버 ETF API 호출 중 오류 발생 ({e}).")
+        return []
 
 def get_top_tickers_from_naver(session, market='KOSPI', count=100):
     """네이버 금융에서 시가총액 상위 종목 리스트를 가져옵니다. ETF는 제외합니다."""
@@ -98,6 +116,7 @@ def get_top_tickers_from_naver(session, market='KOSPI', count=100):
     all_tickers = []
 
     for m in markets_to_fetch:
+
         sosok = 0 if m == 'KOSPI' else 1
         base_url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}"
         page = 1

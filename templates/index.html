@@ -435,19 +435,55 @@
                     </div>
                 </div>
 
-                <div id="monitorStatusArea" style="margin-bottom: 32px; padding: 20px; border-radius: 20px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 20px;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <div id="monitorStatusIndicator" style="width: 12px; height: 12px; border-radius: 50%; background: #64748b;"></div>
-                        <span id="monitorStatusText" style="font-weight: 700; color: var(--text-muted);">엔진 중지됨</span>
+                <div id="monitorStatusArea" style="margin-bottom: 32px; padding: 20px; border-radius: 20px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+                    <div style="display: flex; align-items: center; gap: 20px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div id="monitorStatusIndicator" style="width: 12px; height: 12px; border-radius: 50%; background: #64748b;"></div>
+                            <span id="monitorStatusText" style="font-weight: 700; color: var(--text-muted);">엔진 중지됨</span>
+                        </div>
+                        <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1);"></div>
+                        <div id="marketTimeInfo" style="font-size: 13px; color: var(--text-muted);">
+                            장 운영 시간: 평일 09:00 - 15:30 (자동 절전 적용)
+                        </div>
                     </div>
-                    <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1);"></div>
-                    <div id="marketTimeInfo" style="font-size: 13px; color: var(--text-muted);">
-                        장 운영 시간: 평일 09:00 - 15:30 (자동 절전 적용)
+                    
+                    <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                            <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">상승률:</span>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <input type="number" id="monitorThreshold" value="7.0" step="0.1" min="0.1"
+                                    style="width: 60px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; padding: 4px 8px; font-size: 14px; font-weight: 700; text-align: center;">
+                                <span style="font-size: 14px; color: var(--text-muted);">% ↑</span>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                            <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">최소 거래량:</span>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <input type="number" id="monitorMinVolume" value="50000" step="10000" min="0"
+                                    style="width: 80px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; padding: 4px 8px; font-size: 14px; font-weight: 700; text-align: center;">
+                                <span style="font-size: 14px; color: var(--text-muted);">주 이상</span>
+                            </div>
+                        </div>
+                        
+                        <button class="btn" style="height: auto; padding: 10px 24px; font-size: 14px; background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.4);"
+                            onclick="applyMonitorSettings()">설정 적용</button>
                     </div>
                 </div>
 
                 <div class="results-section">
-                    <h4 style="margin: 0 0 24px; font-size: 18px; color: var(--primary);">📡 실시간 이상 징후 포착 내역</h4>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h4 style="margin: 0; font-size: 18px; color: var(--primary);">📡 실시간 이상 징후 포착 내역</h4>
+                        <div style="display: flex; gap: 8px; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                            <button id="sortMomentumBtn" class="sub-tab-btn active" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('change_rate')">📈 수익률순</button>
+                            <button id="sortTimeBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('time')">🕒 최신순</button>
+                        </div>
+                    </div>
+                    
+                    <!-- [김선화] 섹터 모멘텀 분석 영역 -->
+                    <div id="sectorMomentumArea" style="margin-bottom: 24px; display: flex; gap: 12px; flex-wrap: wrap;">
+                        <!-- 섹터 요약 배지가 여기에 생성됩니다 -->
+                    </div>
                     <div id="alertsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
                         <!-- 알림 카드가 여기에 동적으로 생성됩니다 -->
                         <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 60px;">
@@ -1943,16 +1979,43 @@
                 });
         }
 
+        let currentAlertSort = 'change_rate';
+
+        function setAlertSort(sortType) {
+            currentAlertSort = sortType;
+            document.getElementById('sortMomentumBtn').classList.toggle('active', sortType === 'change_rate');
+            document.getElementById('sortTimeBtn').classList.toggle('active', sortType === 'time');
+            fetchAlerts();
+        }
+
         function fetchAlerts() {
-            fetch('/api/alerts')
+            fetch(`/api/alerts?sort=${currentAlertSort}`)
                 .then(res => res.json())
                 .then(data => {
                     const list = document.getElementById('alertsList');
                     if (!list) return;
                     if (!data || data.length === 0) {
                         list.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 60px;"><p>탐지된 이상 징후가 없습니다.</p></div>';
+                        document.getElementById('sectorMomentumArea').innerHTML = '';
                         return;
                     }
+
+                    // [김선화] 섹터별 그룹화 및 분석
+                    const sectorMap = {};
+                    data.forEach(item => {
+                        const sector = item.industry || '기타';
+                        sectorMap[sector] = (sectorMap[sector] || 0) + 1;
+                    });
+
+                    const sortedSectors = Object.entries(sectorMap).sort((a, b) => b[1] - a[1]);
+                    const sectorArea = document.getElementById('sectorMomentumArea');
+                    sectorArea.innerHTML = sortedSectors.map(([name, count]) => `
+                        <div style="padding: 6px 14px; background: ${count > 1 ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255,255,255,0.05)'}; 
+                             border: 1px solid ${count > 1 ? 'var(--primary)' : 'rgba(255,255,255,0.1)'}; 
+                             border-radius: 12px; font-size: 13px; color: ${count > 1 ? 'white' : 'var(--text-muted)'}; font-weight: 600;">
+                            ${name} <span style="color: var(--primary); margin-left: 4px;">${count}</span>
+                        </div>
+                    `).join('');
 
                     list.innerHTML = data.map(alert => {
                         const isSpike = alert.type === 'spike';
@@ -1963,9 +2026,20 @@
                             <div class="result-card" style="padding: 24px; background: rgba(255,255,255,0.05); border-radius: 24px; border-left: 4px solid ${color};">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                                     <div>
-                                        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 4px;">${alert.code}</div>
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                            <span style="font-size: 10px; padding: 2px 8px; background: var(--primary); color: white; border-radius: 4px; font-weight: 700;">${alert.industry || '기타'}</span>
+                                            <span style="font-size: 13px; color: var(--text-muted);">${alert.code}</span>
+                                        </div>
                                         <div style="font-size: 20px; font-weight: 800; color: white;">${alert.name}</div>
-                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">🕒 포착: ${alert.created_at}</div>
+                                        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 8px;">
+                                            <div style="font-size: 14px; color: white; font-weight: 700;">
+                                                💰 포착가: ${alert.price ? alert.price.toLocaleString() : '0'}원
+                                            </div>
+                                            <div style="display: flex; gap: 12px; align-items: center;">
+                                                <span style="font-size: 12px; color: #10b981; font-weight: 600;">📊 거래량: ${alert.volume ? alert.volume.toLocaleString() : '0'}</span>
+                                                <span style="font-size: 11px; color: var(--text-muted);">🕒 ${alert.created_at}</span>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div style="text-align: right;">
                                         <div style="font-size: 24px; font-weight: 900; color: ${color}; font-family: 'Outfit', sans-serif;">
@@ -2003,7 +2077,67 @@
             if (activeTab && activeTab.getAttribute('data-tab') === 'realtime') {
                 startRealtimePolling();
             }
+            loadMonitorThreshold();
+            loadMonitorMinVolume();
         });
+
+        function loadMonitorThreshold() {
+            fetch('/api/monitor/threshold')
+                .then(res => res.json())
+                .then(data => {
+                    const input = document.getElementById('monitorThreshold');
+                    if (input && data.threshold) {
+                        input.value = data.threshold;
+                    }
+                });
+        }
+
+        function loadMonitorMinVolume() {
+            fetch('/api/monitor/min_volume')
+                .then(res => res.json())
+                .then(data => {
+                    const input = document.getElementById('monitorMinVolume');
+                    if (input && data.min_volume !== undefined) {
+                        input.value = data.min_volume;
+                    }
+                });
+        }
+
+        function applyMonitorSettings() {
+            const threshold = document.getElementById('monitorThreshold').value;
+            const minVolume = document.getElementById('monitorMinVolume').value;
+            
+            if (!threshold || threshold <= 0) {
+                showToast('유효한 상승률 임계치를 입력해주세요.', 'error');
+                return;
+            }
+            
+            // 두 설정을 순차적으로 적용
+            Promise.all([
+                fetch('/api/monitor/threshold', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ threshold: parseFloat(threshold) })
+                }).then(res => res.json()),
+                fetch('/api/monitor/min_volume', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ min_volume: parseInt(minVolume) })
+                }).then(res => res.json())
+            ]).then(results => {
+                const success = results.every(r => r.status === 'success');
+                if (success) {
+                    showToast('탐지 설정이 저장되었습니다.');
+                    fetchAlerts();
+                } else {
+                    showToast('설정 저장 중 일부 오류가 발생했습니다.', 'error');
+                }
+            });
+        }
+
+        function updateMonitorThreshold() {
+            applyMonitorSettings(); // 기존 함수 대체
+        }
 
     </script>
 </body>

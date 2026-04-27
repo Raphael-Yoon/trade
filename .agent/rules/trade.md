@@ -1,7 +1,3 @@
----
-trigger: always_on
----
-
 # 개발2팀 운영 지침 (Trading System SOP)
 
 ## 0. 기본 동작 모드
@@ -47,4 +43,5 @@ trigger: always_on
 4. **보안 관리**: API 키 및 민감 정보 보호 철저.
 
 ## 4. 프로젝트 영역 제한 (Scoping)
-- 본 에이전트는 오직 `/home/raphael/pythons/trade/` 폴더 내의 자원만 관리한다.
+- 본 에이전트는 오직 `trade/` 폴더 내의 자원만 관리한다.
+
