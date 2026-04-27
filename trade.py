@@ -22,6 +22,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ai_analysis import analyze_stock_data, analyze_portfolio
 from get_all_naver_data import get_all_naver_data
+import time
 
 app = Flask(__name__)
 
@@ -114,12 +115,16 @@ def init_db():
         )
     ''')
 
-    # 관심 종목(Watchlist) 테이블
+    # 실시간 알림 테이블
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS watchlist (
-            code TEXT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS price_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT,
             name TEXT,
-            added_at TEXT
+            type TEXT, -- 'spike' or 'drop'
+            change_rate REAL,
+            price REAL,
+            created_at TEXT
         )
     ''')
     
@@ -131,23 +136,138 @@ def init_db():
 # DB 초기화 실행
 init_db()
 
-def cleanup_old_results(max_files=20):
-    """오래된 결과 파일 자동 삭제"""
+# 실시간 모니터링 관리
+monitor_running = False
+monitor_thread = None
+
+def get_current_price_naver(code):
+    """네이버 금융에서 현재가 가져오기"""
     try:
-        files = []
-        for filename in os.listdir(RESULTS_DIR):
-            if filename.endswith('.xlsx'):
-                file_path = os.path.join(RESULTS_DIR, filename)
-                files.append((file_path, os.path.getctime(file_path)))
-        
-        files.sort(key=lambda x: x[1])
-        
-        if len(files) > max_files:
-            for i in range(len(files) - max_files):
-                os.remove(files[i][0])
-                print(f"자동 삭제됨: {files[i][0]}")
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        price_tag = soup.select_one(".no_today .blind")
+        if price_tag:
+            return int(price_tag.text.replace(',', ''))
     except Exception as e:
-        print(f"파일 정리 중 오류: {e}")
+        print(f"가격 수집 오류 ({code}): {e}")
+    return None
+
+def get_market_movers():
+    """시장 전체에서 급등/급락 종목 가져오기 (네이버 금융 상위 종목)"""
+    movers = []
+    try:
+        # KOSPI/KOSDAQ 상승 상위
+        for mkt in ['sosok=0', 'sosok=1']:
+            url = f"https://finance.naver.com/sise/sise_quant.naver?{mkt}"
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            soup = BeautifulSoup(res.text, 'html.parser')
+            rows = soup.select("table.type_2 tr")
+            for row in rows:
+                cols = row.select("td")
+                if len(cols) < 6: continue
+                name = cols[1].text.strip()
+                code = cols[1].find('a')['href'].split('=')[-1]
+                change_rate_str = cols[5].text.strip().replace('%', '').replace('+', '')
+                try:
+                    change_rate = float(change_rate_str)
+                    if change_rate >= 7.0: # 당일 7% 이상 급등주 포착
+                        movers.append({'code': code, 'name': name, 'change_rate': change_rate, 'type': 'spike'})
+                except: continue
+    except Exception as e:
+        print(f"시장 모니터링 오류: {e}")
+    return movers
+
+def is_market_open():
+    """장 운영 시간 확인 (09:00 ~ 15:30, 주말 제외)"""
+    now = datetime.now()
+    if now.weekday() >= 5: # 토, 일
+        return False
+    start_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    end_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    return start_time <= now <= end_time
+
+def run_realtime_monitor():
+    """실시간 급등주 모니터링 백그라운드 태스크 (전시장 스캔)"""
+    global monitor_running
+    print("🚀 시장 전수 모니터링 스레드 시작")
+    
+    while monitor_running:
+        try:
+            # 장 시간이 아니면 대기
+            if not is_market_open():
+                print("💤 장 운영 시간이 아닙니다. 대기 중...")
+                time.sleep(300) # 5분 대기
+                continue
+
+            # 1. 시장 전체 급등주 스캔 (Top Movers)
+            movers = get_market_movers()
+            
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            
+            for m in movers:
+                # 이미 오늘 알림이 울린 종목은 중복 방지 (최근 1시간 내)
+                cursor.execute("""
+                    SELECT id FROM price_alerts 
+                    WHERE code = ? AND created_at > datetime('now', '-1 hour')
+                """, (m['code'],))
+                if cursor.fetchone(): continue
+                
+                print(f"📡 [전시장 포착] {m['name']}({m['code']}) {m['change_rate']}% 급등 중!")
+                cursor.execute("""
+                    INSERT INTO price_alerts (code, name, type, change_rate, price, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (m['code'], m['name'], m['type'], m['change_rate'], 0, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            
+            conn.commit()
+            conn.close()
+            
+            time.sleep(180) # 시장 전수 스캔은 3분 간격
+            
+        except Exception as e:
+            print(f"시장 모니터링 루프 오류: {e}")
+            time.sleep(30)
+
+def start_monitor():
+    global monitor_running, monitor_thread
+    if not monitor_running:
+        monitor_running = True
+        monitor_thread = threading.Thread(target=run_realtime_monitor, daemon=True)
+        monitor_thread.start()
+
+@app.route('/api/monitor/start', methods=['POST'])
+def api_start_monitor():
+    """모니터링 시작"""
+    global monitor_running, monitor_thread
+    if not monitor_running:
+        monitor_running = True
+        monitor_thread = threading.Thread(target=run_realtime_monitor, daemon=True)
+        monitor_thread.start()
+        return jsonify({"status": "success", "message": "모니터링이 시작되었습니다."})
+    return jsonify({"status": "info", "message": "이미 모니터링이 실행 중입니다."})
+
+@app.route('/api/monitor/stop', methods=['POST'])
+def api_stop_monitor():
+    """모니터링 중지"""
+    global monitor_running
+    monitor_running = False
+    return jsonify({"status": "success", "message": "모니터링이 중지되었습니다."})
+
+@app.route('/api/monitor/status')
+def api_monitor_status():
+    """모니터링 상태 조회"""
+    return jsonify({"running": monitor_running})
+
+@app.route('/api/alerts')
+def get_alerts():
+    """최근 알림 목록 조회"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM price_alerts ORDER BY created_at DESC LIMIT 50")
+    alerts = [dict(zip([column[0] for column in cursor.description], row)) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(alerts)
 
 def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', year=None, report_types=None):
     """백그라운드에서 데이터 수집 실행"""

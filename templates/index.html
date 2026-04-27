@@ -94,12 +94,11 @@
     <div class="container">
         <h1>📊 종목 분석 시스템</h1>
 
-        <!-- Tab Navigation -->
         <div class="tabs-nav">
             <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 분석</button>
             <button class="tab-btn" data-tab="myStocks" onclick="switchTab('myStocks')">⭐ 내 종목 관리</button>
             <button class="tab-btn" data-tab="realtime" onclick="switchTab('realtime')">⚡ 실시간 시세</button>
-
+            <button class="tab-btn" data-tab="monitor" onclick="switchTab('monitor')">🚨 급등주 탐지</button>
         </div>
 
         <!-- Tab 1: Stock Analysis -->
@@ -418,6 +417,47 @@
             </div>
         </div>
 
+        <!-- Tab 4: Market Monitoring -->
+        <div id="monitorTab" class="tab-content">
+            <div class="monitor-section"
+                style="padding: 40px; background: rgba(255,255,255,0.03); border-radius: 32px; border: 1px solid rgba(255,255,255,0.1);">
+                <div class="section-header"
+                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+                    <div>
+                        <h3 style="margin: 0; font-size: 28px; color: var(--text-main); font-family: 'Outfit', sans-serif;">
+                            🚨 시장 급등주 실시간 탐지</h3>
+                        <p style="margin: 8px 0 0; font-size: 14px; color: var(--text-muted);">전 종목을 3분마다 스캔하여 비정상적 가격 변동을 포착합니다.</p>
+                    </div>
+                    <div style="display: flex; gap: 12px;">
+                        <button id="monitorToggleBtn" class="btn" style="padding: 12px 32px;" onclick="toggleMonitor()">
+                            🚀 탐지 엔진 가동
+                        </button>
+                    </div>
+                </div>
+
+                <div id="monitorStatusArea" style="margin-bottom: 32px; padding: 20px; border-radius: 20px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 20px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div id="monitorStatusIndicator" style="width: 12px; height: 12px; border-radius: 50%; background: #64748b;"></div>
+                        <span id="monitorStatusText" style="font-weight: 700; color: var(--text-muted);">엔진 중지됨</span>
+                    </div>
+                    <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1);"></div>
+                    <div id="marketTimeInfo" style="font-size: 13px; color: var(--text-muted);">
+                        장 운영 시간: 평일 09:00 - 15:30 (자동 절전 적용)
+                    </div>
+                </div>
+
+                <div class="results-section">
+                    <h4 style="margin: 0 0 24px; font-size: 18px; color: var(--primary);">📡 실시간 이상 징후 포착 내역</h4>
+                    <div id="alertsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                        <!-- 알림 카드가 여기에 동적으로 생성됩니다 -->
+                        <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 60px;">
+                            <p>탐지된 이상 징후가 없습니다.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <style>
             .sub-tab-btn {
                 padding: 10px 24px;
@@ -552,8 +592,11 @@
 
             if (tabId === 'realtime') {
                 startRealtimePolling();
+            } else if (tabId === 'monitor') {
+                startMonitorPolling();
             } else {
                 stopRealtimePolling();
+                stopMonitorPolling();
             }
         }
 
@@ -1833,6 +1876,110 @@
                     saveBtn.style.opacity = '1';
                     saveBtnText.innerHTML = '📁 구글 드라이브에 저장';
                     showToast('저장 중 오류 발생: ' + err, 'error');
+                });
+        }
+
+        // --- 실시간 모니터링 (급등주 탐지) 관련 JS ---
+        let monitorStatusTimer = null;
+        let alertsTimer = null;
+
+        function startMonitorPolling() {
+            updateMonitorStatus();
+            fetchAlerts();
+            if (monitorStatusTimer) clearInterval(monitorStatusTimer);
+            if (alertsTimer) clearInterval(alertsTimer);
+            monitorStatusTimer = setInterval(updateMonitorStatus, 5000);
+            alertsTimer = setInterval(fetchAlerts, 10000);
+        }
+
+        function stopMonitorPolling() {
+            if (monitorStatusTimer) clearInterval(monitorStatusTimer);
+            if (alertsTimer) clearInterval(alertsTimer);
+        }
+
+        function updateMonitorStatus() {
+            fetch('/api/monitor/status')
+                .then(res => res.json())
+                .then(data => {
+                    const btn = document.getElementById('monitorToggleBtn');
+                    const indicator = document.getElementById('monitorStatusIndicator');
+                    const statusText = document.getElementById('monitorStatusText');
+                    if (!btn || !indicator || !statusText) return;
+
+                    if (data.running) {
+                        btn.innerHTML = '⏹ 탐지 엔진 중지';
+                        btn.style.background = 'rgba(239, 68, 68, 0.2)';
+                        btn.style.borderColor = '#ef4444';
+                        btn.style.color = '#ef4444';
+                        indicator.style.background = '#10b981';
+                        indicator.style.boxShadow = '0 0 10px #10b981';
+                        statusText.innerText = '엔진 가동 중';
+                        statusText.style.color = '#10b981';
+                    } else {
+                        btn.innerHTML = '🚀 탐지 엔진 가동';
+                        btn.style.background = 'linear-gradient(135deg, var(--primary), var(--primary-hover))';
+                        btn.style.borderColor = 'transparent';
+                        btn.style.color = 'white';
+                        indicator.style.background = '#64748b';
+                        indicator.style.boxShadow = 'none';
+                        statusText.innerText = '엔진 중지됨';
+                        statusText.style.color = 'var(--text-muted)';
+                    }
+                });
+        }
+
+        function toggleMonitor() {
+            fetch('/api/monitor/status')
+                .then(res => res.json())
+                .then(data => {
+                    const action = data.running ? 'stop' : 'start';
+                    fetch(`/api/monitor/${action}`, { method: 'POST' })
+                        .then(res => res.json())
+                        .then(resData => {
+                            showToast(resData.message, resData.status);
+                            updateMonitorStatus();
+                            if (action === 'start') fetchAlerts();
+                        });
+                });
+        }
+
+        function fetchAlerts() {
+            fetch('/api/alerts')
+                .then(res => res.json())
+                .then(data => {
+                    const list = document.getElementById('alertsList');
+                    if (!list) return;
+                    if (!data || data.length === 0) {
+                        list.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 60px;"><p>탐지된 이상 징후가 없습니다.</p></div>';
+                        return;
+                    }
+
+                    list.innerHTML = data.map(alert => {
+                        const isSpike = alert.type === 'spike';
+                        const color = isSpike ? '#ef4444' : '#3b82f6';
+                        const sign = isSpike ? '▲' : '▼';
+                        
+                        return `
+                            <div class="result-card" style="padding: 24px; background: rgba(255,255,255,0.05); border-radius: 24px; border-left: 4px solid ${color};">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <div>
+                                        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 4px;">${alert.code}</div>
+                                        <div style="font-size: 20px; font-weight: 800; color: white;">${alert.name}</div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">🕒 포착: ${alert.created_at}</div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div style="font-size: 24px; font-weight: 900; color: ${color}; font-family: 'Outfit', sans-serif;">
+                                            ${sign} ${alert.change_rate ? alert.change_rate.toFixed(2) : '0.00'}%
+                                        </div>
+                                        <button onclick="openChartModal('${alert.code}', '${alert.name}')" 
+                                            style="margin-top: 16px; padding: 6px 12px; font-size: 11px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; cursor: pointer;">
+                                            📊 차트
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
                 });
         }
 
