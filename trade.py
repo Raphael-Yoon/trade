@@ -151,11 +151,41 @@ init_db()
 # 실시간 모니터링 관리
 monitor_running = False
 monitor_thread = None
-monitor_threshold = 7.0 # [김선화] 급등 탐지 임계치 (기본 7.0%)
-monitor_min_volume = 50000 # [김선화] 최소 거래량 필터 (기본 5만 주)
+# [김선화] 정규장 및 시간외 설정 분리
+monitor_threshold = 7.0 # 정규장 임계치
+monitor_min_volume = 50000 # 정규장 최소 거래량
+monitor_threshold_ah = 2.0 # 시간외 임계치 (낮게 설정)
+monitor_min_volume_ah = 1000 # 시간외 최소 거래량 (낮게 설정)
 
 # [김선화] ETF 필터링용 캐시
 etf_cache = {'codes': [], 'last_updated': 0}
+
+# [김선화] 감사팀 재무 데이터 캐시
+financial_cache = {}
+
+def load_financial_health():
+    """[김선화] 감사팀의 재무 보고서(Excel)를 로드하여 주요 지표를 캐싱합니다."""
+    global financial_cache
+    if financial_cache: return financial_cache
+    
+    file_path = r'c:\Python\cowork\Report\20260412.xlsx'
+    try:
+        import pandas as pd
+        df = pd.read_excel(file_path)
+        # 종목코드를 6자리 문자열로 변환 (0 채우기)
+        df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
+        
+        for _, row in df.iterrows():
+            financial_cache[row['종목코드']] = {
+                'audit': str(row.get('회계감사의견', 'N/A')),
+                'roe': row.get('ROE', 0),
+                'debt': row.get('부채비율', 0),
+                'risk': 'HIGH' if str(row.get('회계감사의견', '')) in ['의견거절', '한정의견'] else 'LOW'
+            }
+        print(f"✅ 감사팀 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
+    except Exception as e:
+        print(f"⚠️ 재무 데이터 로드 실패: {e}")
+    return financial_cache
 
 def get_etf_codes():
     """네이버 API에서 전체 ETF 리스트 가져오기 (1시간 캐싱)"""
@@ -210,12 +240,18 @@ def get_market_movers():
     """시장 전체에서 급등/급락 종목 가져오기 (네이버 금융 상위 종목)"""
     movers = []
     try:
-        # [김선화] 탐지 정밀도를 높이기 위해 '거래량 상위', '상승 상위', '시가총액 상위' 페이지를 모두 스캔합니다.
-        targets = [
-            'sise_quant.naver?sosok=0', 'sise_quant.naver?sosok=1', # 거래량 상위
-            'sise_rise.naver?sosok=0', 'sise_rise.naver?sosok=1',   # 상승 상위
-            'sise_market_sum.naver?sosok=0', 'sise_market_sum.naver?sosok=1' # 시가총액 상위
-        ]
+        # [김선화] 시간대에 따라 스캔 대상 조정 (16:00~18:00은 시간외 단일가 스캔)
+        now = datetime.now()
+        is_after_hours = now.hour >= 16 and now.hour < 18
+        
+        if is_after_hours:
+            targets = [f'sise_low_up.naver?menu=danjiga&sosok={sosok}' for sosok in [0, 1]]
+        else:
+            targets = [
+                'sise_quant.naver?sosok=0', 'sise_quant.naver?sosok=1', # 거래량 상위
+                'sise_rise.naver?sosok=0', 'sise_rise.naver?sosok=1',   # 상승 상위
+                'sise_market_sum.naver?sosok=0', 'sise_market_sum.naver?sosok=1' # 시가총액 상위
+            ]
         
         for t_url in targets:
             url = f"https://finance.naver.com/sise/{t_url}"
@@ -228,8 +264,24 @@ def get_market_movers():
             for row in rows:
                 cols = row.select("td")
                 if len(cols) < 6: continue
-                name = cols[1].text.strip()
-                code_el = cols[1].find('a')
+                
+                # [김선화] 시간대별 컬럼 인덱스 대응
+                if is_after_hours:
+                    # sise_low_up.naver?menu=danjiga 기준: 1:시간외등락률, 2:종목명, 3:시간외단가, 8:기준가(당일종가), 9:거래량
+                    # cols[1]=기준가대비 시간외 전용 등락률, cols[5]=전일대비 등락률(정규장 포함) → cols[1] 사용
+                    name = cols[2].text.strip()
+                    code_el = cols[2].find('a')
+                    price_str = cols[3].text.strip().replace(",", "")
+                    change_rate_str = cols[1].text.strip().replace("%", "").replace("+", "")
+                    volume_str = cols[9].text.strip().replace(",", "")
+                else:
+                    # sise_quant.naver 등 일반 페이지 기준: 1:종목명, 2:현재가, 4:등락률, 5:거래량
+                    name = cols[1].text.strip()
+                    code_el = cols[1].find('a')
+                    price_str = cols[2].text.strip().replace(",", "")
+                    change_rate_str = cols[4].text.strip().replace("%", "").replace("+", "")
+                    volume_str = cols[5].text.strip().replace(",", "")
+
                 if not code_el: continue
                 code = code_el['href'].split('=')[-1]
                 
@@ -237,17 +289,17 @@ def get_market_movers():
                 if code in etf_codes or any(x in name.upper() for x in ['ETF', 'ETN', '스팩', 'SPAC']):
                     continue
                 
-                # [김선화] 등락률 컬럼 인덱스 수정 (5 -> 4) 및 파싱 로직 보완
-                price_str = cols[2].text.strip().replace(',', '') # [김선화] 현재가 (Index 2)
-                change_rate_str = cols[4].text.strip().replace('%', '').replace('+', '').replace(',', '')
-                volume_str = cols[5].text.strip().replace(',', '') # [김선화] 거래량 (Index 5)
                 try:
                     price = int(price_str)
                     change_rate = float(change_rate_str)
                     volume = int(volume_str)
                     
+                    # [김선화] 시간대에 맞는 설정값 적용
+                    current_threshold = monitor_threshold_ah if is_after_hours else monitor_threshold
+                    current_min_volume = monitor_min_volume_ah if is_after_hours else monitor_min_volume
+                    
                     # [김선화] 임계치 이상 && 최소 거래량 이상일 때만 포착
-                    if change_rate >= monitor_threshold and volume >= monitor_min_volume:
+                    if change_rate >= current_threshold and volume >= current_min_volume:
                         movers.append({
                             'code': code, 
                             'name': name, 
@@ -262,12 +314,12 @@ def get_market_movers():
     return movers
 
 def is_market_open():
-    """장 운영 시간 확인 (09:00 ~ 15:30, 주말 제외)"""
+    """장 운영 시간 확인 (정규장 09:00~15:30 + 시간외 16:00~18:00)"""
     now = datetime.now()
     if now.weekday() >= 5: # 토, 일
         return False
     start_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
-    end_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    end_time = now.replace(hour=18, minute=0, second=0, microsecond=0) # [김선화] 시간외 단일가 종료까지 연장
     return start_time <= now <= end_time
 
 def run_realtime_monitor():
@@ -297,14 +349,22 @@ def run_realtime_monitor():
                 """, (m['code'],))
                 if cursor.fetchone(): continue
                 
-                # [김선화] 업종 정보 수집 (상세 페이지 1회 조회)
+                # [김선화] 업종 및 재무 건전성 정보 수집
                 industry = get_industry_naver(m['code'])
+                load_financial_health() # 캐시 확인
+                fin = financial_cache.get(m['code'], {'audit': 'N/A', 'risk': 'UNKNOWN', 'roe': 0})
                 
-                print(f"📡 [전시장 포착] {m['name']}({m['code']}) [{industry}] {m['price']:,}원 {m['change_rate']}% 급등 중! (거래량: {m['volume']:,})")
+                # [김선화] 알림 타입 설정 (시간외 여부 포함)
+                now = datetime.now()
+                is_after_hours = now.hour >= 16 and now.hour < 18
+                alert_type = 'after_hours' if is_after_hours else 'spike'
+                
+                print(f"📡 [{alert_type.upper()}] {m['name']}({m['code']}) [{industry}] 감사:{fin['audit']} {m['price']:,}원 {m['change_rate']}% 급등! (거래량: {m['volume']:,})")
+                
                 cursor.execute("""
                     INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (m['code'], m['name'], m['type'], m['change_rate'], m['price'], m['volume'], industry, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                """, (m['code'], m['name'], alert_type, m['change_rate'], m['price'], m['volume'], industry, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             
             conn.commit()
             conn.close()
@@ -351,35 +411,41 @@ def api_stop_monitor():
 
 @app.route('/api/monitor/threshold', methods=['GET', 'POST'])
 def api_monitor_threshold():
-    """[김선화] 탐지 임계치 조회 및 설정"""
-    global monitor_threshold
+    """[김선화] 탐지 임계치 조회 및 설정 (정규장/시간외 분리)"""
+    global monitor_threshold, monitor_threshold_ah
     if request.method == 'POST':
         try:
             data = request.get_json()
-            val = float(data.get('threshold', 7.0))
-            if val <= 0:
-                return jsonify({"status": "error", "message": "임계치는 0보다 커야 합니다."}), 400
-            monitor_threshold = val
-            return jsonify({"status": "success", "message": f"임계치가 {val}%로 변경되었습니다.", "threshold": monitor_threshold})
+            if 'threshold' in data: monitor_threshold = float(data['threshold'])
+            if 'threshold_ah' in data: monitor_threshold_ah = float(data['threshold_ah'])
+            return jsonify({
+                "status": "success", 
+                "message": "임계치 설정이 변경되었습니다.",
+                "threshold": monitor_threshold,
+                "threshold_ah": monitor_threshold_ah
+            })
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 400
-    return jsonify({"threshold": monitor_threshold})
+    return jsonify({"threshold": monitor_threshold, "threshold_ah": monitor_threshold_ah})
 
 @app.route('/api/monitor/min_volume', methods=['GET', 'POST'])
 def api_monitor_min_volume():
-    """[김선화] 최소 거래량 필터 조회 및 설정"""
-    global monitor_min_volume
+    """[김선화] 최소 거래량 필터 조회 및 설정 (정규장/시간외 분리)"""
+    global monitor_min_volume, monitor_min_volume_ah
     if request.method == 'POST':
         try:
             data = request.get_json()
-            val = int(data.get('min_volume', 50000))
-            if val < 0:
-                return jsonify({"status": "error", "message": "거래량은 0 이상이어야 합니다."}), 400
-            monitor_min_volume = val
-            return jsonify({"status": "success", "message": f"최소 거래량이 {val:,}주로 변경되었습니다.", "min_volume": monitor_min_volume})
+            if 'min_volume' in data: monitor_min_volume = int(data['min_volume'])
+            if 'min_volume_ah' in data: monitor_min_volume_ah = int(data['min_volume_ah'])
+            return jsonify({
+                "status": "success", 
+                "message": "거래량 필터 설정이 변경되었습니다.",
+                "min_volume": monitor_min_volume,
+                "min_volume_ah": monitor_min_volume_ah
+            })
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 400
-    return jsonify({"min_volume": monitor_min_volume})
+    return jsonify({"min_volume": monitor_min_volume, "min_volume_ah": monitor_min_volume_ah})
 
 @app.route('/api/monitor/status')
 def api_monitor_status():
@@ -388,24 +454,53 @@ def api_monitor_status():
 
 @app.route('/api/alerts')
 def get_alerts():
-    """최근 알림 목록 조회 (현재 설정값으로 실시간 필터링 및 정렬)"""
-    sort_by = request.args.get('sort', 'change_rate') # 기본값: 상승률순
+    """최근 알림 목록 조회 (현재 시간대 설정값으로 실시간 필터링 및 정렬)"""
+    sort_by = request.args.get('sort', 'change_rate') # 기본값: 수익률순
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
+    # [김선화] 현재 시간대에 맞는 필터값 결정
+    now = datetime.now()
+    is_after_hours = now.hour >= 16 and now.hour < 18
+    current_threshold = monitor_threshold_ah if is_after_hours else monitor_threshold
+    current_min_volume = monitor_min_volume_ah if is_after_hours else monitor_min_volume
     
     # 정렬 기준 설정
     order_clause = "change_rate DESC" if sort_by == 'change_rate' else "created_at DESC"
     
-    # [김선화] 사용자가 설정한 현재 임계치와 최소 거래량을 만족하는 알림만 반환
+    # [김선화] 현재 시간대의 임계치와 최소 거래량을 만족하는 알림만 반환
     query = f"""
         SELECT * FROM price_alerts 
         WHERE change_rate >= ? AND volume >= ?
         ORDER BY {order_clause} LIMIT 50
     """
-    cursor.execute(query, (monitor_threshold, monitor_min_volume))
+    cursor.execute(query, (current_threshold, current_min_volume))
     alerts = [dict(zip([column[0] for column in cursor.description], row)) for row in cursor.fetchall()]
     conn.close()
     return jsonify(alerts)
+
+@app.route('/api/targets/tomorrow')
+def get_tomorrow_targets():
+    """[김선화] 내일 공략할 후보군(오늘의 시간외 급등주) 목록을 가져옵니다."""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        # 오늘 날짜
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # 오늘 16:00 이후 발생한 시간외 알림 중 상위 10개 추출
+        query = """
+            SELECT * FROM price_alerts 
+            WHERE type = 'after_hours' AND created_at >= ?
+            ORDER BY change_rate DESC LIMIT 10
+        """
+        cursor.execute(query, (f"{today} 16:00:00",))
+        targets = [dict(zip([column[0] for column in cursor.description], row)) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify(targets)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', year=None, report_types=None):
     """백그라운드에서 데이터 수집 실행"""

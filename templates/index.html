@@ -99,6 +99,10 @@
             <button class="tab-btn" data-tab="myStocks" onclick="switchTab('myStocks')">⭐ 내 종목 관리</button>
             <button class="tab-btn" data-tab="realtime" onclick="switchTab('realtime')">⚡ 실시간 시세</button>
             <button class="tab-btn" data-tab="monitor" onclick="switchTab('monitor')">🚨 급등주 탐지</button>
+            <button class="tab-btn" data-tab="targets" onclick="switchTab('targets')" style="position: relative;">
+                🎯 내일의 공략주
+                <span id="targetBadge" style="display: none; position: absolute; top: -5px; right: -5px; width: 10px; height: 10px; background: #ef4444; border-radius: 50%; border: 2px solid #0f172a;"></span>
+            </button>
         </div>
 
         <!-- Tab 1: Stock Analysis -->
@@ -443,32 +447,54 @@
                         </div>
                         <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1);"></div>
                         <div id="marketTimeInfo" style="font-size: 13px; color: var(--text-muted);">
-                            장 운영 시간: 평일 09:00 - 15:30 (자동 절전 적용)
+                            장 운영 시간: 평일 09:00 - 18:00 (정규+시간외)
                         </div>
                     </div>
-                    
-                    <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
-                        <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
-                            <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">상승률:</span>
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                <input type="number" id="monitorThreshold" value="7.0" step="0.1" min="0.1"
-                                    style="width: 60px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; padding: 4px 8px; font-size: 14px; font-weight: 700; text-align: center;">
-                                <span style="font-size: 14px; color: var(--text-muted);">% ↑</span>
-                            </div>
-                        </div>
+                </div>
 
-                        <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
-                            <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">최소 거래량:</span>
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                <input type="number" id="monitorMinVolume" value="50000" step="10000" min="0"
-                                    style="width: 80px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; padding: 4px 8px; font-size: 14px; font-weight: 700; text-align: center;">
-                                <span style="font-size: 14px; color: var(--text-muted);">주 이상</span>
+                <div style="margin-bottom: 32px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 20px; align-items: stretch;">
+                    <!-- [김선화] 정규장 설정 영역 -->
+                    <div style="background: rgba(255,255,255,0.03); padding: 16px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);">
+                        <div style="font-size: 12px; color: var(--primary); font-weight: 800; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                            <span style="width: 8px; height: 8px; background: var(--primary); border-radius: 50%;"></span> 정규장 설정 (09:00 - 15:30)
+                        </div>
+                        <div style="display: flex; gap: 16px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 12px; color: var(--text-muted);">상승률:</span>
+                                <input type="number" id="monitorThreshold" value="7.0" step="0.1"
+                                    style="width: 50px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: white; padding: 4px; font-size: 13px; text-align: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">%</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 12px; color: var(--text-muted);">최소거래량:</span>
+                                <input type="number" id="monitorMinVolume" value="50000" step="10000"
+                                    style="width: 70px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: white; padding: 4px; font-size: 13px; text-align: center;">
                             </div>
                         </div>
-                        
-                        <button class="btn" style="height: auto; padding: 10px 24px; font-size: 14px; background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.4);"
-                            onclick="applyMonitorSettings()">설정 적용</button>
                     </div>
+
+                    <!-- [김선화] 시간외 단일가 설정 영역 -->
+                    <div style="background: rgba(245, 158, 11, 0.05); padding: 16px; border-radius: 16px; border: 1px solid rgba(245, 158, 11, 0.2);">
+                        <div style="font-size: 12px; color: #f59e0b; font-weight: 800; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                            <span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> 시간외 설정 (16:00 - 18:00)
+                        </div>
+                        <div style="display: flex; gap: 16px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 12px; color: var(--text-muted);">상승률:</span>
+                                <input type="number" id="monitorThresholdAH" value="2.0" step="0.1"
+                                    style="width: 50px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: white; padding: 4px; font-size: 13px; text-align: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">%</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 12px; color: var(--text-muted);">최소거래량:</span>
+                                <input type="number" id="monitorMinVolumeAH" value="1000" step="1000"
+                                    style="width: 70px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: white; padding: 4px; font-size: 13px; text-align: center;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn" style="height: 100%; padding: 0 24px; font-size: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255,255,255,0.1);"
+                        onclick="applyMonitorSettings()">설정 적용</button>
                 </div>
 
                 <div class="results-section">
@@ -490,6 +516,21 @@
                             <p>탐지된 이상 징후가 없습니다.</p>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- [김선화] Tab 5: 내일의 공략주 (Tomorrow's Targets) -->
+        <div id="targetsTab" class="tab-content">
+            <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(245, 158, 11, 0.1)); border: 1px solid rgba(255,255,255,0.1); border-radius: 32px; padding: 40px; margin-bottom: 32px; text-align: center;">
+                <h2 style="margin: 0; color: white; font-size: 28px; font-weight: 800;">🎯 Tomorrow's Priority Targets</h2>
+                <p style="margin-top: 12px; color: var(--text-muted); font-size: 16px;">오늘 시간외 단일가에서 포착된 상위 10개 종목입니다. 내일 시초가 공략의 핵심 후보군입니다.</p>
+            </div>
+
+            <div id="targetsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;">
+                <!-- 타겟 카드가 여기에 동적으로 생성됩니다 -->
+                <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 80px;">
+                    <p>오늘 시간외 포착 내역이 아직 없습니다.</p>
                 </div>
             </div>
         </div>
@@ -624,12 +665,19 @@
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
             });
-            document.getElementById(tabId + 'Tab').classList.add('active');
+            const targetContent = document.getElementById(tabId + 'Tab');
+            if (targetContent) targetContent.classList.add('active');
 
             if (tabId === 'realtime') {
                 startRealtimePolling();
+                stopMonitorPolling();
             } else if (tabId === 'monitor') {
                 startMonitorPolling();
+                stopRealtimePolling();
+            } else if (tabId === 'targets') {
+                fetchTomorrowTargets();
+                stopRealtimePolling();
+                stopMonitorPolling();
             } else {
                 stopRealtimePolling();
                 stopMonitorPolling();
@@ -2027,6 +2075,7 @@
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                                     <div>
                                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                            ${alert.type === 'after_hours' ? '<span style="font-size: 10px; padding: 2px 8px; background: #f59e0b; color: white; border-radius: 4px; font-weight: 700;">🕒 시간외</span>' : ''}
                                             <span style="font-size: 10px; padding: 2px 8px; background: var(--primary); color: white; border-radius: 4px; font-weight: 700;">${alert.industry || '기타'}</span>
                                             <span style="font-size: 13px; color: var(--text-muted);">${alert.code}</span>
                                         </div>
@@ -2054,6 +2103,52 @@
                             </div>
                         `;
                     }).join('');
+                });
+        }
+
+        function fetchTomorrowTargets() {
+            fetch('/api/targets/tomorrow')
+                .then(res => res.json())
+                .then(data => {
+                    const list = document.getElementById('targetsList');
+                    if (!list) return;
+                    if (!data || data.length === 0) {
+                        list.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 80px;"><p>오늘 시간외 포착 내역이 아직 없습니다.</p></div>';
+                        return;
+                    }
+
+                    list.innerHTML = data.map(target => `
+                        <div class="result-card" style="padding: 32px; background: rgba(255,255,255,0.03); border-radius: 28px; border: 1px solid rgba(255,255,255,0.05); position: relative; overflow: hidden;">
+                            <div style="position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: linear-gradient(to bottom, #f59e0b, #d97706);"></div>
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                <div>
+                                    <div style="font-size: 13px; color: #f59e0b; font-weight: 800; margin-bottom: 8px;">🕒 AFTER-HOURS MOVER</div>
+                                    <div style="font-size: 24px; font-weight: 900; color: white; margin-bottom: 4px;">${target.name}</div>
+                                    <div style="font-size: 14px; color: var(--text-muted);">${target.code} | ${target.industry || '기타'}</div>
+                                    
+                                    <div style="margin-top: 24px; padding: 16px; background: rgba(0,0,0,0.2); border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);">
+                                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                            <span style="font-size: 13px; color: var(--text-muted);">시간외 종가</span>
+                                            <span style="font-size: 15px; color: white; font-weight: 700;">${target.price.toLocaleString()}원</span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between;">
+                                            <span style="font-size: 13px; color: var(--text-muted);">시간외 거래량</span>
+                                            <span style="font-size: 15px; color: #10b981; font-weight: 700;">${target.volume.toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="font-size: 28px; font-weight: 900; color: #ef4444; font-family: 'Outfit', sans-serif;">
+                                        ▲ ${target.change_rate.toFixed(2)}%
+                                    </div>
+                                    <button onclick="openChartModal('${target.code}', '${target.name}')" 
+                                        style="margin-top: 20px; width: 100%; padding: 10px; border-radius: 12px; background: var(--primary); color: white; font-weight: 700; border: none; cursor: pointer;">
+                                        시나리오 확인
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
                 });
         }
 
@@ -2085,10 +2180,8 @@
             fetch('/api/monitor/threshold')
                 .then(res => res.json())
                 .then(data => {
-                    const input = document.getElementById('monitorThreshold');
-                    if (input && data.threshold) {
-                        input.value = data.threshold;
-                    }
+                    if (data.threshold) document.getElementById('monitorThreshold').value = data.threshold;
+                    if (data.threshold_ah) document.getElementById('monitorThresholdAH').value = data.threshold_ah;
                 });
         }
 
@@ -2096,42 +2189,39 @@
             fetch('/api/monitor/min_volume')
                 .then(res => res.json())
                 .then(data => {
-                    const input = document.getElementById('monitorMinVolume');
-                    if (input && data.min_volume !== undefined) {
-                        input.value = data.min_volume;
-                    }
+                    if (data.min_volume !== undefined) document.getElementById('monitorMinVolume').value = data.min_volume;
+                    if (data.min_volume_ah !== undefined) document.getElementById('monitorMinVolumeAH').value = data.min_volume_ah;
                 });
         }
 
         function applyMonitorSettings() {
             const threshold = document.getElementById('monitorThreshold').value;
+            const thresholdAH = document.getElementById('monitorThresholdAH').value;
             const minVolume = document.getElementById('monitorMinVolume').value;
+            const minVolumeAH = document.getElementById('monitorMinVolumeAH').value;
             
-            if (!threshold || threshold <= 0) {
-                showToast('유효한 상승률 임계치를 입력해주세요.', 'error');
-                return;
-            }
-            
-            // 두 설정을 순차적으로 적용
             Promise.all([
                 fetch('/api/monitor/threshold', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ threshold: parseFloat(threshold) })
+                    body: JSON.stringify({ threshold: parseFloat(threshold), threshold_ah: parseFloat(thresholdAH) })
                 }).then(res => res.json()),
                 fetch('/api/monitor/min_volume', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ min_volume: parseInt(minVolume) })
+                    body: JSON.stringify({ min_volume: parseInt(minVolume), min_volume_ah: parseInt(minVolumeAH) })
                 }).then(res => res.json())
             ]).then(results => {
-                const success = results.every(r => r.status === 'success');
-                if (success) {
-                    showToast('탐지 설정이 저장되었습니다.');
+                const allSuccess = results.every(r => r.status === 'success');
+                if (allSuccess) {
+                    showToast('모니터링 설정이 저장되었습니다.', 'success');
                     fetchAlerts();
                 } else {
-                    showToast('설정 저장 중 일부 오류가 발생했습니다.', 'error');
+                    showToast('설정 저장 중 오류가 발생했습니다.', 'error');
                 }
+            }).catch(err => {
+                console.error(err);
+                showToast('서버 통신 오류가 발생했습니다.', 'error');
             });
         }
 
