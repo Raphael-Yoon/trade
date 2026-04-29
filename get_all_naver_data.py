@@ -93,7 +93,12 @@ def get_all_naver_data(ticker):
         'rsi': 0,
         'price_position_52w': 0,
         'treasury_shares': 0,
-        'treasury_ratio': 0
+        'treasury_ratio': 0,
+        
+        # [김선화] 단타 전용 지표
+        'intensity': 0.0,      # 체결강도
+        'industry_id': '',     # 업종 ID (동기화용)
+        'industry_name': ''    # 업종명
     }
 
     try:
@@ -168,6 +173,23 @@ def get_all_naver_data(ticker):
                             data['trading_value'] = int(val_nums[0].replace(',', ''))
                 except Exception as e:
                     print(f"DD 파싱 오류: {e}")
+
+        # ===================================================================
+        # 1.1 [김선화] 업종 정보 및 체결강도 (description 및 _intensity)
+        # ===================================================================
+        industry_a = soup.select_one('a[href*="sise_group_detail.naver?type=upjong&no="]')
+        if industry_a:
+            data['industry_name'] = industry_a.get_text(strip=True)
+            match = re.search(r'no=(\d+)', industry_a['href'])
+            if match:
+                data['industry_id'] = match.group(1)
+        
+        intensity_el = soup.select_one('#_intensity')
+        if intensity_el:
+            try:
+                data['intensity'] = float(intensity_el.get_text(strip=True).replace(',', ''))
+            except:
+                pass
 
         # ===================================================================
         # 2. 시가총액 테이블 (테이블 6)
@@ -488,8 +510,9 @@ def get_all_naver_data(ticker):
 def get_moving_averages(ticker, headers):
     """
     네이버 금융 일별 시세 페이지에서 최근 20일 종가를 가져와 5일, 20일 이동평균선을 계산합니다.
+    추가로 전일(어제)의 등락률도 계산합니다.
     """
-    ma_data = {'ma5': 0, 'ma20': 0, 'ma5_diff': 0, 'ma20_diff': 0}
+    ma_data = {'ma5': 0, 'ma20': 0, 'ma5_diff': 0, 'ma20_diff': 0, 'prev_change_rate': 0.0}
     try:
         url = f"https://finance.naver.com/item/sise_day.naver?code={ticker}&page=1"
         res = requests.get(url, headers=headers, timeout=5)
@@ -505,6 +528,30 @@ def get_moving_averages(ticker, headers):
                     prices.append(price)
                 except: continue
         
+        # 전일 등락률 계산 (어제 종가 vs 그저께 종가)
+        if len(prices) >= 2:
+            yesterday_price = prices[0] # 가장 최근 종가 (오늘 장중이면 오늘 가격일 수 있으나 일별 시세 페이지 특성상 보통 어제 종가가 첫번째)
+            # 만약 장중이라면 prices[0]이 오늘 가격일 수 있음. 
+            # 네이버 일별 시세 페이지는 장중에도 오늘 가격을 첫번째 행에 보여줌.
+            # 전일 상승률을 구하려면 '어제 vs 그저께'가 필요함.
+            
+            # 장중(09:00~15:30) 여부 확인하여 인덱스 조정
+            from datetime import datetime
+            now = datetime.now()
+            is_trading = now.weekday() < 5 and 9 <= now.hour < 16
+            
+            if is_trading:
+                # 장중이면 prices[0]은 오늘, prices[1]은 어제, prices[2]는 그저께
+                if len(prices) >= 3:
+                    y_close = prices[1]
+                    db_close = prices[2]
+                    ma_data['prev_change_rate'] = round((y_close - db_close) / db_close * 100, 2)
+            else:
+                # 장 마감 후면 prices[0]은 오늘(또는 가장 최근 거래일), prices[1]은 어제
+                y_close = prices[0]
+                db_close = prices[1]
+                ma_data['prev_change_rate'] = round((y_close - db_close) / db_close * 100, 2)
+
         if len(prices) >= 5:
             ma5 = sum(prices[:5]) / 5
             ma_data['ma5'] = round(ma5, 2)

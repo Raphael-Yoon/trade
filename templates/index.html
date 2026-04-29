@@ -452,63 +452,46 @@
                     </div>
                 </div>
 
-                <div style="margin-bottom: 32px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 20px; align-items: stretch;">
-                    <!-- [김선화] 정규장 설정 영역 -->
-                    <div style="background: rgba(255,255,255,0.03); padding: 16px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);">
-                        <div style="font-size: 12px; color: var(--primary); font-weight: 800; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
-                            <span style="width: 8px; height: 8px; background: var(--primary); border-radius: 50%;"></span> 정규장 설정 (09:00 - 15:30)
+                <!-- [김선화] 정규장 실시간 탐지 설정 (인라인 디자인) -->
+                <div style="margin-bottom: 32px; display: flex; justify-content: center;">
+                    <div style="display: inline-flex; gap: 20px; align-items: center; background: rgba(0,0,0,0.3); padding: 12px 24px; border-radius: 24px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                        <div style="font-size: 13px; color: var(--primary); font-weight: 800; display: flex; align-items: center; gap: 6px;">
+                            <span style="width: 8px; height: 8px; background: var(--primary); border-radius: 50%; box-shadow: 0 0 8px var(--primary);"></span> 정규장 스캔 조건:
                         </div>
-                        <div style="display: flex; gap: 16px;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 12px; color: var(--text-muted);">상승률:</span>
-                                <input type="number" id="monitorThreshold" value="7.0" step="0.1"
-                                    style="width: 50px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: white; padding: 4px; font-size: 13px; text-align: center;">
-                                <span style="font-size: 12px; color: var(--text-muted);">%</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 12px; color: var(--text-muted);">최소거래량:</span>
-                                <input type="number" id="monitorMinVolume" value="50000" step="10000"
-                                    style="width: 70px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: white; padding: 4px; font-size: 13px; text-align: center;">
-                            </div>
+                        <div style="display: flex; gap: 12px; align-items: center;">
+                            <span style="font-size: 12px; color: var(--text-muted);">상승률</span>
+                            <input type="number" id="monitorThreshold" value="7.0" step="0.1"
+                                style="width: 45px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
+                            <span style="font-size: 12px; color: var(--text-muted);">% ↑</span>
                         </div>
+                        <div style="display: flex; gap: 12px; align-items: center;">
+                            <span style="font-size: 12px; color: var(--text-muted);">최소거래량</span>
+                            <input type="number" id="monitorMinVolume" value="50000" step="10000"
+                                style="width: 70px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
+                            <span style="font-size: 12px; color: var(--text-muted);">주 ↑</span>
+                        </div>
+                        <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
+                        <button class="btn" style="padding: 6px 20px; font-size: 12px; background: var(--primary); border: none; color: white; height: 32px;"
+                            onclick="applyMonitorSettings()">설정 저장</button>
                     </div>
-
-                    <!-- [김선화] 시간외 단일가 설정 영역 -->
-                    <div style="background: rgba(245, 158, 11, 0.05); padding: 16px; border-radius: 16px; border: 1px solid rgba(245, 158, 11, 0.2);">
-                        <div style="font-size: 12px; color: #f59e0b; font-weight: 800; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
-                            <span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> 시간외 설정 (16:00 - 18:00)
-                        </div>
-                        <div style="display: flex; gap: 16px;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 12px; color: var(--text-muted);">상승률:</span>
-                                <input type="number" id="monitorThresholdAH" value="2.0" step="0.1"
-                                    style="width: 50px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: white; padding: 4px; font-size: 13px; text-align: center;">
-                                <span style="font-size: 12px; color: var(--text-muted);">%</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 12px; color: var(--text-muted);">최소거래량:</span>
-                                <input type="number" id="monitorMinVolumeAH" value="1000" step="1000"
-                                    style="width: 70px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: white; padding: 4px; font-size: 13px; text-align: center;">
-                            </div>
-                        </div>
-                    </div>
-
-                    <button class="btn" style="height: 100%; padding: 0 24px; font-size: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255,255,255,0.1);"
-                        onclick="applyMonitorSettings()">설정 적용</button>
                 </div>
 
                 <div class="results-section">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                         <h4 style="margin: 0; font-size: 18px; color: var(--primary);">📡 실시간 이상 징후 포착 내역</h4>
                         <div style="display: flex; gap: 8px; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
-                            <button id="sortMomentumBtn" class="sub-tab-btn active" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('change_rate')">📈 수익률순</button>
+                            <button id="sortRecommendBtn" class="sub-tab-btn active" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('recommend')">⭐ 추천순</button>
+                            <button id="sortMomentumBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('change_rate')">📈 수익률순</button>
                             <button id="sortTimeBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('time')">🕒 최신순</button>
                         </div>
                     </div>
                     
                     <!-- [김선화] 섹터 모멘텀 분석 영역 -->
-                    <div id="sectorMomentumArea" style="margin-bottom: 24px; display: flex; gap: 12px; flex-wrap: wrap;">
-                        <!-- 섹터 요약 배지가 여기에 생성됩니다 -->
+                    <div style="margin-bottom: 24px; background: rgba(255,255,255,0.03); border-radius: 20px; padding: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                        <h5 style="margin: 0 0 12px 0; font-size: 14px; color: var(--text-muted);">🔥 섹터별 급등 포착 모멘텀</h5>
+                        <div id="sectorMomentumArea" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <!-- 섹터 요약 배지가 여기에 생성됩니다 -->
+                        </div>
                     </div>
                     <div id="alertsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
                         <!-- 알림 카드가 여기에 동적으로 생성됩니다 -->
@@ -522,9 +505,36 @@
 
         <!-- [김선화] Tab 5: 내일의 공략주 (Tomorrow's Targets) -->
         <div id="targetsTab" class="tab-content">
-            <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(245, 158, 11, 0.1)); border: 1px solid rgba(255,255,255,0.1); border-radius: 32px; padding: 40px; margin-bottom: 32px; text-align: center;">
-                <h2 style="margin: 0; color: white; font-size: 28px; font-weight: 800;">🎯 Tomorrow's Priority Targets</h2>
-                <p style="margin-top: 12px; color: var(--text-muted); font-size: 16px;">오늘 시간외 단일가에서 포착된 상위 10개 종목입니다. 내일 시초가 공략의 핵심 후보군입니다.</p>
+            <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(245, 158, 11, 0.1)); border: 1px solid rgba(255,255,255,0.1); border-radius: 32px; padding: 40px; margin-bottom: 32px; position: relative;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="text-align: left;">
+                        <h2 style="margin: 0; color: white; font-size: 28px; font-weight: 800;">🎯 Tomorrow's Priority Targets</h2>
+                        <p style="margin-top: 12px; color: var(--text-muted); font-size: 16px;">오늘 시간외 단일가에서 포착된 상위 10개 종목입니다.</p>
+                    </div>
+                    <button id="ahMonitorBtn" class="btn" style="padding: 12px 32px; background: #f59e0b; border: none; font-weight: 800;" onclick="toggleAHMonitor()">
+                        🕒 시간외 탐지 시작
+                    </button>
+                </div>
+                
+                <div style="margin-top: 24px; display: flex; gap: 20px; align-items: center; background: rgba(0,0,0,0.3); padding: 12px 24px; border-radius: 20px; border: 1px solid rgba(245, 158, 11, 0.2);">
+                    <div style="font-size: 13px; color: #f59e0b; font-weight: 800; display: flex; align-items: center; gap: 6px;">
+                        <span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> 스캔 조건:
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <span style="font-size: 12px; color: var(--text-muted);">상승률</span>
+                        <input type="number" id="monitorThresholdAH" value="2.0" step="0.1"
+                            style="width: 45px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
+                        <span style="font-size: 12px; color: var(--text-muted);">% ↑</span>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <span style="font-size: 12px; color: var(--text-muted);">최소거래량</span>
+                        <input type="number" id="monitorMinVolumeAH" value="1000" step="1000"
+                            style="width: 65px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
+                        <span style="font-size: 12px; color: var(--text-muted);">주 ↑</span>
+                    </div>
+                    <button class="btn" style="padding: 6px 16px; font-size: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white;"
+                        onclick="applyMonitorSettings()">설정 저장</button>
+                </div>
             </div>
 
             <div id="targetsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;">
@@ -1968,11 +1978,11 @@
         let alertsTimer = null;
 
         function startMonitorPolling() {
-            updateMonitorStatus();
+            checkMonitorStatus();
             fetchAlerts();
             if (monitorStatusTimer) clearInterval(monitorStatusTimer);
             if (alertsTimer) clearInterval(alertsTimer);
-            monitorStatusTimer = setInterval(updateMonitorStatus, 5000);
+            monitorStatusTimer = setInterval(checkMonitorStatus, 5000);
             alertsTimer = setInterval(fetchAlerts, 10000);
         }
 
@@ -1981,56 +1991,78 @@
             if (alertsTimer) clearInterval(alertsTimer);
         }
 
-        function updateMonitorStatus() {
-            fetch('/api/monitor/status')
+        function toggleMonitor() {
+            fetch('/api/monitor/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: 'market' })
+            })
                 .then(res => res.json())
                 .then(data => {
-                    const btn = document.getElementById('monitorToggleBtn');
-                    const indicator = document.getElementById('monitorStatusIndicator');
-                    const statusText = document.getElementById('monitorStatusText');
-                    if (!btn || !indicator || !statusText) return;
+                    updateMonitorStatus(data.active, 'market');
+                });
+        }
 
-                    if (data.running) {
-                        btn.innerHTML = '⏹ 탐지 엔진 중지';
-                        btn.style.background = 'rgba(239, 68, 68, 0.2)';
-                        btn.style.borderColor = '#ef4444';
-                        btn.style.color = '#ef4444';
+        function toggleAHMonitor() {
+            fetch('/api/monitor/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: 'ah' })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    updateMonitorStatus(data.active, 'ah');
+                });
+        }
+
+        function updateMonitorStatus(active, target) {
+            if (target === 'market') {
+                const btn = document.getElementById('monitorToggleBtn');
+                const indicator = document.getElementById('monitorStatusIndicator');
+                const text = document.getElementById('monitorStatusText');
+                if (btn) {
+                    if (active) {
+                        btn.innerHTML = '🛑 탐지 엔진 중지';
+                        btn.style.background = '#ef4444';
                         indicator.style.background = '#10b981';
-                        indicator.style.boxShadow = '0 0 10px #10b981';
-                        statusText.innerText = '엔진 가동 중';
-                        statusText.style.color = '#10b981';
+                        text.innerHTML = '엔진 가동 중';
+                        text.style.color = '#10b981';
                     } else {
                         btn.innerHTML = '🚀 탐지 엔진 가동';
-                        btn.style.background = 'linear-gradient(135deg, var(--primary), var(--primary-hover))';
-                        btn.style.borderColor = 'transparent';
-                        btn.style.color = 'white';
+                        btn.style.background = 'var(--primary)';
                         indicator.style.background = '#64748b';
-                        indicator.style.boxShadow = 'none';
-                        statusText.innerText = '엔진 중지됨';
-                        statusText.style.color = 'var(--text-muted)';
+                        text.innerHTML = '엔진 중지됨';
+                        text.style.color = '#64748b';
                     }
-                });
+                }
+            } else {
+                const btn = document.getElementById('ahMonitorBtn');
+                if (btn) {
+                    if (active) {
+                        btn.innerHTML = '🛑 시간외 탐지 중지';
+                        btn.style.background = '#ef4444';
+                    } else {
+                        btn.innerHTML = '🕒 시간외 탐지 시작';
+                        btn.style.background = '#f59e0b';
+                    }
+                }
+            }
         }
 
-        function toggleMonitor() {
+        function checkMonitorStatus() {
             fetch('/api/monitor/status')
                 .then(res => res.json())
                 .then(data => {
-                    const action = data.running ? 'stop' : 'start';
-                    fetch(`/api/monitor/${action}`, { method: 'POST' })
-                        .then(res => res.json())
-                        .then(resData => {
-                            showToast(resData.message, resData.status);
-                            updateMonitorStatus();
-                            if (action === 'start') fetchAlerts();
-                        });
+                    updateMonitorStatus(data.market_active, 'market');
+                    updateMonitorStatus(data.ah_active, 'ah');
                 });
         }
 
-        let currentAlertSort = 'change_rate';
+        let currentAlertSort = 'recommend';
 
         function setAlertSort(sortType) {
             currentAlertSort = sortType;
+            document.getElementById('sortRecommendBtn').classList.toggle('active', sortType === 'recommend');
             document.getElementById('sortMomentumBtn').classList.toggle('active', sortType === 'change_rate');
             document.getElementById('sortTimeBtn').classList.toggle('active', sortType === 'time');
             fetchAlerts();
@@ -2065,45 +2097,97 @@
                         </div>
                     `).join('');
 
-                    list.innerHTML = data.map(alert => {
-                        const isSpike = alert.type === 'spike';
-                        const color = isSpike ? '#ef4444' : '#3b82f6';
-                        const sign = isSpike ? '▲' : '▼';
-                        
-                        return `
-                            <div class="result-card" style="padding: 24px; background: rgba(255,255,255,0.05); border-radius: 24px; border-left: 4px solid ${color};">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                    <div>
-                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                                            ${alert.type === 'after_hours' ? '<span style="font-size: 10px; padding: 2px 8px; background: #f59e0b; color: white; border-radius: 4px; font-weight: 700;">🕒 시간외</span>' : ''}
-                                            <span style="font-size: 10px; padding: 2px 8px; background: var(--primary); color: white; border-radius: 4px; font-weight: 700;">${alert.industry || '기타'}</span>
-                                            <span style="font-size: 13px; color: var(--text-muted);">${alert.code}</span>
-                                        </div>
-                                        <div style="font-size: 20px; font-weight: 800; color: white;">${alert.name}</div>
-                                        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 8px;">
-                                            <div style="font-size: 14px; color: white; font-weight: 700;">
-                                                💰 포착가: ${alert.price ? alert.price.toLocaleString() : '0'}원
-                                            </div>
-                                            <div style="display: flex; gap: 12px; align-items: center;">
-                                                <span style="font-size: 12px; color: #10b981; font-weight: 600;">📊 거래량: ${alert.volume ? alert.volume.toLocaleString() : '0'}</span>
-                                                <span style="font-size: 11px; color: var(--text-muted);">🕒 ${alert.created_at}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div style="text-align: right;">
-                                        <div style="font-size: 24px; font-weight: 900; color: ${color}; font-family: 'Outfit', sans-serif;">
-                                            ${sign} ${alert.change_rate ? alert.change_rate.toFixed(2) : '0.00'}%
-                                        </div>
-                                        <button onclick="openChartModal('${alert.code}', '${alert.name}')" 
-                                            style="margin-top: 16px; padding: 6px 12px; font-size: 11px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; cursor: pointer;">
-                                            📊 차트
-                                        </button>
-                                    </div>
-                                </div>
+                    // [김선화] 상한가 종목 분리 (단타 진입 불필요 종목은 아래로)
+                    const limitUpStocks = data.filter(item => item.change_rate >= 29.5);
+                    const activeStocks = data.filter(item => item.change_rate < 29.5);
+
+                    let html = '';
+                    
+                    // 1. 매수 가능한 급등주 출력
+                    html += activeStocks.map(alert => renderAlertCard(alert)).join('');
+                    
+                    // 2. 상한가 종목 구분자 및 출력
+                    if (limitUpStocks.length > 0) {
+                        html += `
+                            <div style="grid-column: 1/-1; margin-top: 32px; margin-bottom: 16px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 24px;">
+                                <h4 style="margin: 0; font-size: 16px; color: var(--text-muted); display: flex; align-items: center; gap: 8px;">
+                                    🔒 상한가 도달 종목 (매수 주의) <span style="font-size: 12px; background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 6px;">${limitUpStocks.length}</span>
+                                </h4>
                             </div>
                         `;
-                    }).join('');
+                        html += limitUpStocks.map(alert => renderAlertCard(alert, true)).join('');
+                    }
+
+                    list.innerHTML = html;
                 });
+        }
+
+        function renderAlertCard(alert, isLocked = false) {
+            const isSpike = alert.type === 'spike';
+            const color = isLocked ? '#64748b' : (isSpike ? '#ef4444' : '#3b82f6');
+            const sign = isSpike ? '▲' : '▼';
+            const opacity = isLocked ? '0.7' : '1';
+            
+            // 체결강도 색상 및 뱃지
+            const intensity = alert.intensity || 0;
+            const intensityColor = intensity >= 100 ? '#ef4444' : '#3b82f6';
+            const intensityLabel = intensity >= 120 ? '🔥 강력매수' : (intensity >= 100 ? '📈 매수우위' : '📉 매도우위');
+
+            // 관련 종목 (테마 동기화)
+            let relatedHtml = '';
+            if (alert.related_stocks) {
+                try {
+                    const related = JSON.parse(alert.related_stocks);
+                    if (related && related.length > 0) {
+                        relatedHtml = `
+                            <div style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.03);">
+                                <span style="font-size: 10px; color: var(--text-muted); width: 100%;">⚡ 연관 종목:</span>
+                                ${related.map(r => `
+                                    <span style="font-size: 11px; padding: 2px 8px; background: rgba(255,255,255,0.03); border-radius: 6px; color: ${r.rate.includes('-') ? '#3b82f6' : '#ef4444'}; border: 1px solid rgba(255,255,255,0.05);">
+                                        ${r.name} ${r.rate}%
+                                    </span>
+                                `).join('')}
+                            </div>
+                        `;
+                    }
+                } catch(e) { console.error(e); }
+            }
+            
+            return `
+                <div class="result-card" style="padding: 24px; background: rgba(255,255,255,0.05); border-radius: 24px; border-left: 4px solid ${color}; opacity: ${opacity};">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+                                ${alert.type === 'after_hours' ? '<span style="font-size: 10px; padding: 2px 8px; background: #f59e0b; color: white; border-radius: 4px; font-weight: 700;">🕒 시간외</span>' : ''}
+                                <span style="font-size: 10px; padding: 2px 8px; background: ${isLocked ? '#475569' : 'var(--primary)'}; color: white; border-radius: 4px; font-weight: 700;">${alert.industry || '기타'}</span>
+                                <span style="font-size: 10px; padding: 2px 8px; background: ${intensityColor}22; color: ${intensityColor}; border: 1px solid ${intensityColor}44; border-radius: 4px; font-weight: 700;">${intensityLabel} ${intensity}%</span>
+                                <span style="font-size: 10px; padding: 2px 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; font-weight: 700;">전일: ${alert.prev_change_rate ? (alert.prev_change_rate > 0 ? '+' : '') + alert.prev_change_rate.toFixed(2) : '0.00'}%</span>
+                                ${alert.recommend_score ? `<span style="font-size: 10px; padding: 2px 8px; background: rgba(255,215,0,0.1); color: #ffd700; border: 1px solid rgba(255,215,0,0.3); border-radius: 4px; font-weight: 700;">⭐ 추천점수: ${alert.recommend_score}</span>` : ''}
+                            </div>
+                            <div style="font-size: 20px; font-weight: 800; color: ${isLocked ? '#94a3b8' : 'white'};">${alert.name}</div>
+                            <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 8px;">
+                                <div style="font-size: 14px; color: white; font-weight: 700;">
+                                    💰 포착가: ${alert.price ? alert.price.toLocaleString() : '0'}원
+                                </div>
+                                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                                    <span style="font-size: 12px; color: #10b981; font-weight: 600;">📊 거래량: ${alert.volume ? alert.volume.toLocaleString() : '0'}</span>
+                                    <span style="font-size: 11px; color: var(--text-muted);">🕒 ${alert.created_at}</span>
+                                </div>
+                            </div>
+                            ${relatedHtml}
+                        </div>
+                        <div style="text-align: right; min-width: 100px;">
+                            <div style="font-size: 24px; font-weight: 900; color: ${color}; font-family: 'Outfit', sans-serif;">
+                                ${sign} ${alert.change_rate ? alert.change_rate.toFixed(2) : '0.00'}%
+                            </div>
+                            <button onclick="openChartModal('${alert.code}', '${alert.name}')" 
+                                style="margin-top: 16px; padding: 6px 12px; font-size: 11px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; cursor: pointer;">
+                                📊 차트
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
         function fetchTomorrowTargets() {
@@ -2228,6 +2312,14 @@
         function updateMonitorThreshold() {
             applyMonitorSettings(); // 기존 함수 대체
         }
+
+        // [김선화] 모니터링 탭 데이터 주기적 갱신 (단타 거래 지원)
+        setInterval(() => {
+            const activeTab = document.querySelector('.tab-btn.active');
+            if (activeTab && activeTab.getAttribute('data-tab') === 'monitor') {
+                fetchAlerts();
+            }
+        }, 10000); // 10초마다 갱신
 
     </script>
 </body>

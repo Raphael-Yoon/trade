@@ -38,9 +38,10 @@ if not os.path.exists(RESULTS_DIR):
 DB_FILE = os.path.join(os.path.dirname(__file__), 'trade.db')
 
 def get_db():
-    """요청별 DB 연결 관리"""
+    """요청별 DB 연결 관리 (동시성 향상을 위해 timeout 및 WAL 모드 적용)"""
     if 'db' not in g:
-        g.db = sqlite3.connect(DB_FILE)
+        g.db = sqlite3.connect(DB_FILE, timeout=30)
+        g.db.execute("PRAGMA journal_mode=WAL")
         g.db.row_factory = sqlite3.Row
     return g.db
 
@@ -53,7 +54,8 @@ def close_db(e=None):
 
 def init_db():
     """데이터베이스 초기화 및 테이블 생성"""
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
     
     # 내 종목 테이블
@@ -139,6 +141,22 @@ def init_db():
         cursor.execute("ALTER TABLE price_alerts ADD COLUMN industry TEXT")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE price_alerts ADD COLUMN intensity REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE price_alerts ADD COLUMN related_stocks TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE price_alerts ADD COLUMN recommend_score REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE price_alerts ADD COLUMN prev_change_rate REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
     
     conn.commit()
     
@@ -148,9 +166,11 @@ def init_db():
 # DB 초기화 실행
 init_db()
 
-# 실시간 모니터링 관리
-monitor_running = False
-monitor_thread = None
+# 실시간 모니터링 관리 (정규장/시간외 분리)
+monitor_active_market = False
+monitor_active_ah = False
+monitor_thread_market = None
+monitor_thread_ah = None
 # [김선화] 정규장 및 시간외 설정 분리
 monitor_threshold = 7.0 # 정규장 임계치
 monitor_min_volume = 50000 # 정규장 최소 거래량
@@ -235,6 +255,37 @@ def get_industry_naver(code):
     except Exception as e:
         print(f"업종 수집 오류 ({code}): {e}")
     return "기타"
+
+def get_industry_leaders(industry_id):
+    """[김선화] 해당 업종의 상위 등락률 종목 3개를 가져옵니다."""
+    if not industry_id: return "[]"
+    try:
+        url = f"https://finance.naver.com/sise/sise_group_detail.naver?type=upjong&no={industry_id}"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        leaders = []
+        table = soup.select_one("table.type_5")
+        if table:
+            rows = table.select("tbody tr")
+            for row in rows:
+                name_tag = row.select_one("td a")
+                if not name_tag: continue
+                
+                name = name_tag.get_text(strip=True)
+                code = name_tag['href'].split('=')[-1]
+                
+                # 등락률 추출
+                rate_tag = row.select_one("td.number span")
+                rate = rate_tag.get_text(strip=True).replace('%', '') if rate_tag else "0.0"
+                
+                leaders.append({'name': name, 'code': code, 'rate': rate})
+                if len(leaders) >= 3: break
+        
+        return json.dumps(leaders, ensure_ascii=False)
+    except Exception as e:
+        print(f"업종 리더 수집 오류: {e}")
+        return "[]"
 
 def get_market_movers():
     """시장 전체에서 급등/급락 종목 가져오기 (네이버 금융 상위 종목)"""
@@ -322,12 +373,9 @@ def is_market_open():
     end_time = now.replace(hour=18, minute=0, second=0, microsecond=0) # [김선화] 시간외 단일가 종료까지 연장
     return start_time <= now <= end_time
 
-def run_realtime_monitor():
-    """실시간 급등주 모니터링 백그라운드 태스크 (전시장 스캔)"""
-    global monitor_running
-    print("🚀 시장 전수 모니터링 스레드 시작")
-    
-    while monitor_running:
+def run_market_monitor():
+    global monitor_active_market
+    while monitor_active_market:
         try:
             # 장 시간이 아니면 대기
             if not is_market_open():
@@ -337,77 +385,236 @@ def run_realtime_monitor():
 
             # 1. 시장 전체 급등주 스캔 (Top Movers)
             movers = get_market_movers()
+            mover_codes = [m['code'] for m in movers]
+            
+            # [김선화] 오늘 이미 포착된 종목들 목록 가져오기 (강제 업데이트용)
+            # 이 단계는 조회가 필요하므로 짧게 DB 열고 닫음
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            conn = sqlite3.connect(DB_FILE, timeout=30)
+            cursor = conn.cursor()
+            cursor.execute("SELECT code, name FROM price_alerts WHERE created_at LIKE ?", (f'{today_str}%',))
+            today_alerts = cursor.fetchall()
+            conn.close()
+            
+            # 2. 오늘 포착된 종목 중 Movers에 없는 종목들도 현재가 업데이트 대상에 포함
+            for alert_code, alert_name in today_alerts:
+                if alert_code not in mover_codes:
+                    # 상세 정보를 가져와서 업데이트 목록에 추가
+                    det = get_detailed_price(alert_code)
+                    if det['current_price'] > 0:
+                        movers.append({
+                            'code': alert_code,
+                            'name': alert_name,
+                            'price': det['current_price'],
+                            'change_rate': det['change_rate'],
+                            'volume': 0,
+                            'is_update_only': True
+                        })
+
+            # 3. 모든 종목의 상세 정보(업종, 재무 등)를 먼저 수집 (DB 연결 없이)
+            # 이 과정이 네트워크 통신 때문에 오래 걸림
+            update_data = []
+            for m in movers:
+                details = get_all_naver_data(m['code'])
+                industry = details.get('industry_name', '기타')
+                intensity = details.get('intensity', 0.0)
+                prev_change_rate = details.get('prev_change_rate', 0.0)
+                industry_id = details.get('industry_id', '')
+                related_stocks = get_industry_leaders(industry_id)
+                
+                load_financial_health() # 캐시 확인
+                fin = financial_cache.get(m['code'], {'audit': 'N/A', 'risk': 'UNKNOWN', 'roe': 0})
+                
+                # 추천 점수 계산
+                score = m['change_rate']
+                if intensity > 100: score += min((intensity - 100) / 5, 10)
+                if fin['audit'] == '적정의견': score += 5
+                if m['change_rate'] > 25: score -= 10
+                recommend_score = round(score, 2)
+                
+                update_data.append({
+                    'm': m,
+                    'industry': industry,
+                    'intensity': intensity,
+                    'prev_change_rate': prev_change_rate,
+                    'related_stocks': related_stocks,
+                    'recommend_score': recommend_score,
+                    'audit': fin['audit']
+                })
+
+            # 4. 마지막에 DB를 열어 한꺼번에 업데이트 (최소 시간 소요)
+            conn = sqlite3.connect(DB_FILE, timeout=30)
+            conn.execute("PRAGMA journal_mode=WAL")
+            cursor = conn.cursor()
+            
+            for item in update_data:
+                m = item['m']
+                now = datetime.now()
+                is_after_hours = now.hour >= 16 and now.hour < 18
+                alert_type = 'after_hours' if is_after_hours else 'spike'
+                
+                cursor.execute("""
+                    SELECT id FROM price_alerts 
+                    WHERE code = ? AND created_at LIKE ?
+                """, (m['code'], f'{today_str}%'))
+                existing = cursor.fetchone()
+                
+                if existing:
+                    cursor.execute("""
+                        UPDATE price_alerts 
+                        SET change_rate = ?, price = ?, volume = CASE WHEN ? > 0 THEN ? ELSE volume END, 
+                            intensity = ?, related_stocks = ?, recommend_score = ?, prev_change_rate = ?, created_at = ?
+                        WHERE id = ?
+                    """, (m['change_rate'], m['price'], m['volume'], m['volume'], item['intensity'], item['related_stocks'], item['recommend_score'], item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
+                elif not m.get('is_update_only'):
+                    print(f"📡 [{alert_type.upper()}] {m['name']}({m['code']}) [{item['industry']}] 점수:{item['recommend_score']} 전일:{item['prev_change_rate']}% {m['price']:,}원 {m['change_rate']}% 급등!")
+                    cursor.execute("""
+                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, intensity, related_stocks, recommend_score, prev_change_rate, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (m['code'], m['name'], alert_type, m['change_rate'], m['price'], m['volume'], item['industry'], item['intensity'], item['related_stocks'], item['recommend_score'], item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            
+            conn.commit()
+            conn.close()
+            time.sleep(180)
+        except Exception as e:
+            print(f"정규장 모니터링 오류: {e}")
+            time.sleep(30)
+
+def run_ah_monitor():
+    """[김선화] 시간외 단일가 급등주 탐지 엔진 (16:00 - 18:00)"""
+    global monitor_active_ah
+    print("🌙 시간외 단일가 탐지 엔진 가동 시작...")
+    
+    while monitor_active_ah:
+        try:
+            now = datetime.now()
+            # 시간외 운영 시간 체크
+            if now.hour < 16 or now.hour >= 18:
+                time.sleep(60)
+                continue
+
+            movers = get_market_movers_filtered(is_after_hours=True)
             
             conn = sqlite3.connect(DB_FILE)
             cursor = conn.cursor()
             
             for m in movers:
-                # 이미 오늘 알림이 울린 종목은 중복 방지 (최근 1시간 내)
+                if not monitor_active_ah: break
+                
+                today_str = datetime.now().strftime('%Y-%m-%d')
                 cursor.execute("""
                     SELECT id FROM price_alerts 
-                    WHERE code = ? AND created_at > datetime('now', '-1 hour')
-                """, (m['code'],))
-                if cursor.fetchone(): continue
-                
-                # [김선화] 업종 및 재무 건전성 정보 수집
-                industry = get_industry_naver(m['code'])
-                load_financial_health() # 캐시 확인
-                fin = financial_cache.get(m['code'], {'audit': 'N/A', 'risk': 'UNKNOWN', 'roe': 0})
-                
-                # [김선화] 알림 타입 설정 (시간외 여부 포함)
-                now = datetime.now()
-                is_after_hours = now.hour >= 16 and now.hour < 18
-                alert_type = 'after_hours' if is_after_hours else 'spike'
-                
-                print(f"📡 [{alert_type.upper()}] {m['name']}({m['code']}) [{industry}] 감사:{fin['audit']} {m['price']:,}원 {m['change_rate']}% 급등! (거래량: {m['volume']:,})")
-                
-                cursor.execute("""
-                    INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (m['code'], m['name'], alert_type, m['change_rate'], m['price'], m['volume'], industry, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    WHERE code = ? AND type = 'after_hours' AND created_at LIKE ?
+                """, (m['code'], f'{today_str}%'))
+                existing = cursor.fetchone()
+
+                if existing:
+                    cursor.execute("""
+                        UPDATE price_alerts SET change_rate = ?, price = ?, volume = ?, updated_at = ?
+                        WHERE id = ?
+                    """, (m['change_rate'], m['price'], m['volume'], datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
+                else:
+                    cursor.execute("""
+                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (m['code'], m['name'], 'after_hours', m['change_rate'], m['price'], m['volume'], datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             
             conn.commit()
             conn.close()
-            
-            time.sleep(180) # 시장 전수 스캔은 3분 간격
-            
+            time.sleep(60) # 1분 간격
         except Exception as e:
-            print(f"시장 모니터링 루프 오류: {e}")
+            print(f"시간외 모니터링 오류: {e}")
             time.sleep(30)
 
-def start_monitor():
-    global monitor_running, monitor_thread
-    if not monitor_running:
-        monitor_running = True
-        monitor_thread = threading.Thread(target=run_realtime_monitor, daemon=True)
-        monitor_thread.start()
-
-@app.route('/api/monitor/start', methods=['POST'])
-def api_start_monitor():
-    """모니터링 시작 ([김선화] 시작 시 기존 알림 초기화 및 즉시 재조회)"""
-    global monitor_running, monitor_thread
-    if not monitor_running:
-        # [김선화] 재조회 요청에 따라 기존 알림 내역 초기화 (Clean Start)
-        try:
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM price_alerts")
-            conn.commit()
-            conn.close()
-        except: pass
+def get_market_movers_filtered(is_after_hours=False):
+    """[김선화] 조건에 맞는 시장 급등주 목록 수집"""
+    movers = []
+    try:
+        if is_after_hours:
+            targets = [f'sise_low_up.naver?menu=danjiga&sosok={sosok}' for sosok in [0, 1]]
+        else:
+            targets = ['sise_quant.naver?sosok=0', 'sise_quant.naver?sosok=1', 'sise_rise.naver?sosok=0', 'sise_rise.naver?sosok=1']
         
-        monitor_running = True
-        monitor_thread = threading.Thread(target=run_realtime_monitor, daemon=True)
-        monitor_thread.start()
-        return jsonify({"status": "success", "message": "모니터링이 시작되었습니다. 시장을 재조회합니다."})
-    return jsonify({"status": "info", "message": "이미 모니터링이 실행 중입니다."})
+        for t_url in targets:
+            url = f"https://finance.naver.com/sise/{t_url}"
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            soup = BeautifulSoup(res.text, 'html.parser')
+            rows = soup.select("table.type_2 tr")
+            
+            for row in rows:
+                cols = row.select("td")
+                if len(cols) < 6: continue
+                
+                if is_after_hours:
+                    name = cols[2].text.strip()
+                    code_el = cols[2].find('a')
+                    price_str = cols[3].text.strip().replace(",", "")
+                    change_rate_str = cols[1].text.strip().replace("%", "").replace("+", "")
+                    volume_str = cols[9].text.strip().replace(",", "")
+                else:
+                    name = cols[1].text.strip()
+                    code_el = cols[1].find('a')
+                    price_str = cols[2].text.strip().replace(",", "")
+                    change_rate_str = cols[4].text.strip().replace("%", "").replace("+", "")
+                    volume_str = cols[5].text.strip().replace(",", "")
 
-@app.route('/api/monitor/stop', methods=['POST'])
-def api_stop_monitor():
-    """모니터링 중지"""
-    global monitor_running
-    monitor_running = False
-    return jsonify({"status": "success", "message": "모니터링이 중지되었습니다."})
+                if not code_el: continue
+                code = code_el['href'].split('=')[-1]
+                if any(x in name.upper() for x in ['ETF', 'ETN', '스팩', 'SPAC']): continue
+                
+                try:
+                    price = int(price_str)
+                    change_rate = float(change_rate_str)
+                    volume = int(volume_str)
+                    
+                    threshold = monitor_threshold_ah if is_after_hours else monitor_threshold
+                    min_vol = monitor_min_volume_ah if is_after_hours else monitor_min_volume
+                    
+                    if change_rate >= threshold and volume >= min_vol:
+                        movers.append({'code': code, 'name': name, 'price': price, 'change_rate': change_rate, 'volume': volume})
+                except: continue
+    except: pass
+    return movers
+
+@app.route('/api/monitor/toggle', methods=['POST'])
+def api_toggle_monitor():
+    """모니터링 토글 (target: market/ah)"""
+    global monitor_active_market, monitor_active_ah, monitor_thread_market, monitor_thread_ah
+    data = request.get_json() or {}
+    target = data.get('target', 'market')
+    
+    if target == 'market':
+        monitor_active_market = not monitor_active_market
+        if monitor_active_market:
+            # [김선화] 시작 시 기존 알림 초기화
+            try:
+                conn = sqlite3.connect(DB_FILE)
+                conn.cursor().execute("DELETE FROM price_alerts WHERE type='spike'")
+                conn.commit()
+                conn.close()
+            except: pass
+            monitor_thread_market = threading.Thread(target=run_market_monitor, daemon=True)
+            monitor_thread_market.start()
+        return jsonify({"active": monitor_active_market, "target": "market"})
+    else:
+        monitor_active_ah = not monitor_active_ah
+        if monitor_active_ah:
+            try:
+                conn = sqlite3.connect(DB_FILE)
+                conn.cursor().execute("DELETE FROM price_alerts WHERE type='after_hours'")
+                conn.commit()
+                conn.close()
+            except: pass
+            monitor_thread_ah = threading.Thread(target=run_ah_monitor, daemon=True)
+            monitor_thread_ah.start()
+        return jsonify({"active": monitor_active_ah, "target": "ah"})
+
+@app.route('/api/monitor/status')
+def api_monitor_status():
+    return jsonify({
+        "market_active": monitor_active_market,
+        "ah_active": monitor_active_ah
+    })
 
 @app.route('/api/monitor/threshold', methods=['GET', 'POST'])
 def api_monitor_threshold():
@@ -447,10 +654,6 @@ def api_monitor_min_volume():
             return jsonify({"status": "error", "message": str(e)}), 400
     return jsonify({"min_volume": monitor_min_volume, "min_volume_ah": monitor_min_volume_ah})
 
-@app.route('/api/monitor/status')
-def api_monitor_status():
-    """모니터링 상태 조회"""
-    return jsonify({"running": monitor_running})
 
 @app.route('/api/alerts')
 def get_alerts():
@@ -459,6 +662,9 @@ def get_alerts():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
+    # [김선화] 오늘 날짜 기준 필터 추가 (장 시작 전 어제 데이터 노출 방지)
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    
     # [김선화] 현재 시간대에 맞는 필터값 결정
     now = datetime.now()
     is_after_hours = now.hour >= 16 and now.hour < 18
@@ -466,15 +672,20 @@ def get_alerts():
     current_min_volume = monitor_min_volume_ah if is_after_hours else monitor_min_volume
     
     # 정렬 기준 설정
-    order_clause = "change_rate DESC" if sort_by == 'change_rate' else "created_at DESC"
+    if sort_by == 'change_rate':
+        order_clause = "change_rate DESC"
+    elif sort_by == 'recommend':
+        order_clause = "recommend_score DESC"
+    else:
+        order_clause = "created_at DESC"
     
-    # [김선화] 현재 시간대의 임계치와 최소 거래량을 만족하는 알림만 반환
+    # [김선화] 오늘 날짜의 임계치와 최소 거래량을 만족하는 알림만 반환
     query = f"""
         SELECT * FROM price_alerts 
-        WHERE change_rate >= ? AND volume >= ?
+        WHERE created_at LIKE ? AND change_rate >= ? AND volume >= ?
         ORDER BY {order_clause} LIMIT 50
     """
-    cursor.execute(query, (current_threshold, current_min_volume))
+    cursor.execute(query, (f'{today_str}%', current_threshold, current_min_volume))
     alerts = [dict(zip([column[0] for column in cursor.description], row)) for row in cursor.fetchall()]
     conn.close()
     return jsonify(alerts)
