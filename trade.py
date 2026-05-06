@@ -182,29 +182,78 @@ etf_cache = {'codes': [], 'last_updated': 0}
 
 # [김선화] 감사팀 재무 데이터 캐시
 financial_cache = {}
+industry_cache = {}
 
 def load_financial_health():
-    """[김선화] 감사팀의 재무 보고서(Excel)를 로드하여 주요 지표를 캐싱합니다."""
+    """[김선화] 감사팀의 재무 보고서(Excel)를 구글 드라이브 또는 로컬에서 로드하여 주요 지표를 캐싱합니다."""
     global financial_cache
     if financial_cache: return financial_cache
     
-    file_path = r'c:\Python\cowork\Report\20260412.xlsx'
+    # 1. 구글 드라이브에서 최신 데이터 시도 (개발2팀 연결 방식 적용)
     try:
+        from drive_sync import list_files_in_folder, download_from_drive
+        import io
         import pandas as pd
-        df = pd.read_excel(file_path)
-        # 종목코드를 6자리 문자열로 변환 (0 채우기)
-        df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
         
-        for _, row in df.iterrows():
-            financial_cache[row['종목코드']] = {
-                'audit': str(row.get('회계감사의견', 'N/A')),
-                'roe': row.get('ROE', 0),
-                'debt': row.get('부채비율', 0),
-                'risk': 'HIGH' if str(row.get('회계감사의견', '')) in ['의견거절', '한정의견'] else 'LOW'
-            }
-        print(f"✅ 감사팀 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
+        print("🔍 구글 드라이브에서 최신 재무 데이터 검색 중...")
+        files = list_files_in_folder("Stock_Analysis_Results")
+        if files:
+            # 구글 시트(spreadsheet) 타입의 최신 파일 검색
+            latest_file = None
+            for f in files:
+                if f['mimeType'] == 'application/vnd.google-apps.spreadsheet':
+                    latest_file = f
+                    break
+            
+            if latest_file:
+                print(f"📥 구글 드라이브 최신 파일 발견: {latest_file['name']}")
+                file_content = download_from_drive(latest_file['id'])
+                if file_content:
+                    df = pd.read_excel(io.BytesIO(file_content))
+                    # 종목코드를 6자리 문자열로 변환 (0 채우기)
+                    df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
+                    
+                    for _, row in df.iterrows():
+                        financial_cache[row['종목코드']] = {
+                            'audit': str(row.get('회계감사의견', 'N/A')),
+                            'internal': str(row.get('내부통제의견', 'N/A')),
+                            'roe': row.get('ROE', 0),
+                            'debt_ratio': row.get('부채비율', 0),
+                            'risk': 'HIGH' if str(row.get('회계감사의견', '')) in ['의견거절', '한정의견'] else 'LOW'
+                        }
+                    print(f"✅ 구글 드라이브 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
+                    return financial_cache
     except Exception as e:
-        print(f"⚠️ 재무 데이터 로드 실패: {e}")
+        print(f"⚠️ 구글 드라이브 데이터 로드 실패: {e}. 로컬 데이터로 전환합니다.")
+
+    # 2. 로컬 데이터 폴백 (가장 최신 파일 탐색)
+    try:
+        report_dir = r'c:\Python\cowork\Report'
+        if os.path.exists(report_dir):
+            local_files = [os.path.join(report_dir, f) for f in os.listdir(report_dir) if f.endswith('.xlsx')]
+            if local_files:
+                local_files.sort(key=os.path.getmtime, reverse=True)
+                file_path = local_files[0]
+                print(f"📂 로컬 최신 데이터 사용: {file_path}")
+                
+                df = pd.read_excel(file_path)
+                df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
+                for _, row in df.iterrows():
+                    financial_cache[row['종목코드']] = {
+                        'audit': str(row.get('회계감사의견', 'N/A')),
+                        'internal': str(row.get('내부통제의견', 'N/A')),
+                        'roe': row.get('ROE', 0),
+                        'debt_ratio': row.get('부채비율', 0),
+                        'risk': 'HIGH' if str(row.get('회계감사의견', '')) in ['의견거절', '한정의견'] else 'LOW'
+                    }
+                print(f"✅ 로컬 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
+                return financial_cache
+            else:
+                print(f"⚠️ {report_dir} 폴더에 Excel 파일이 없습니다.")
+        else:
+            print(f"⚠️ 로컬 보고서 경로가 존재하지 않습니다: {report_dir}")
+    except Exception as e:
+        print(f"⚠️ 로컬 데이터 로드 실패: {e}")
     return financial_cache
 
 def get_etf_codes():
@@ -374,105 +423,96 @@ def is_market_open():
     return start_time <= now <= end_time
 
 def run_market_monitor():
-    global monitor_active_market
+    """[김선화] 정규장 실시간 급등주 탐지 엔진 (09:00 - 15:30)"""
+    global monitor_active_market, industry_cache
+    print("🚀 정규장 모니터링 엔진 가동 시작...")
+    
     while monitor_active_market:
         try:
-            # 장 시간이 아니면 대기
-            if not is_market_open():
-                print("💤 장 운영 시간이 아닙니다. 대기 중...")
-                time.sleep(300) # 5분 대기
+            now = datetime.now()
+            if now.hour < 9 or (now.hour >= 15 and now.minute > 30) or now.hour >= 16:
+                if now.minute % 10 == 0 and now.second < 10:
+                    print(f"💤 장 운영 시간이 아닙니다. (현재 {now.strftime('%H:%M')})")
+                time.sleep(10)
                 continue
 
-            # 1. 시장 전체 급등주 스캔 (Top Movers)
+            # 1. 시장 전체 급등주 스캔
             movers = get_market_movers()
-            mover_codes = [m['code'] for m in movers]
+            mover_codes = {m['code'] for m in movers}
             
-            # [김선화] 오늘 이미 포착된 종목들 목록 가져오기 (강제 업데이트용)
-            # 이 단계는 조회가 필요하므로 짧게 DB 열고 닫음
-            today_str = datetime.now().strftime('%Y-%m-%d')
+            # 2. 오늘 이미 포착된 종목들 목록 가져오기
+            today_str = now.strftime('%Y-%m-%d')
             conn = sqlite3.connect(DB_FILE, timeout=30)
             cursor = conn.cursor()
-            cursor.execute("SELECT code, name FROM price_alerts WHERE created_at LIKE ?", (f'{today_str}%',))
+            cursor.execute("SELECT code, name, industry FROM price_alerts WHERE created_at LIKE ?", (f'{today_str}%',))
             today_alerts = cursor.fetchall()
             conn.close()
-            
-            # 2. 오늘 포착된 종목 중 Movers에 없는 종목들도 현재가 업데이트 대상에 포함
-            for alert_code, alert_name in today_alerts:
+
+            # 캐시 업데이트
+            for code, name, ind in today_alerts:
+                if code not in industry_cache: industry_cache[code] = ind
+
+            # 포착된 종목 중 Movers에 없는 종목 업데이트 대상 포함
+            for alert_code, alert_name, _ in today_alerts:
                 if alert_code not in mover_codes:
-                    # 상세 정보를 가져와서 업데이트 목록에 추가
                     det = get_detailed_price(alert_code)
                     if det['current_price'] > 0:
                         movers.append({
-                            'code': alert_code,
-                            'name': alert_name,
-                            'price': det['current_price'],
-                            'change_rate': det['change_rate'],
-                            'volume': 0,
-                            'is_update_only': True
+                            'code': alert_code, 'name': alert_name, 'price': det['current_price'],
+                            'change_rate': det['change_rate'], 'volume': 0, 'is_update_only': True
                         })
 
-            # 3. 모든 종목의 상세 정보(업종, 재무 등)를 먼저 수집 (DB 연결 없이)
-            # 이 과정이 네트워크 통신 때문에 오래 걸림
+            print(f"📊 [SCAN] 정규장 스캔 중... (대상: {len(movers)} 종목)")
+
+            # 3. 상세 정보 수집
             update_data = []
             for m in movers:
-                details = get_all_naver_data(m['code'])
-                industry = details.get('industry_name', '기타')
-                intensity = details.get('intensity', 0.0)
-                prev_change_rate = details.get('prev_change_rate', 0.0)
-                industry_id = details.get('industry_id', '')
-                related_stocks = get_industry_leaders(industry_id)
-                
-                load_financial_health() # 캐시 확인
-                fin = financial_cache.get(m['code'], {'audit': 'N/A', 'risk': 'UNKNOWN', 'roe': 0})
-                
-                # 추천 점수 계산
-                score = m['change_rate']
-                if intensity > 100: score += min((intensity - 100) / 5, 10)
-                if fin['audit'] == '적정의견': score += 5
-                if m['change_rate'] > 25: score -= 10
-                recommend_score = round(score, 2)
+                if m['code'] not in industry_cache:
+                    details = get_all_naver_data(m['code'])
+                    industry = details.get('industry_name', '기타')
+                    industry_cache[m['code']] = industry
+                    intensity = details.get('intensity', 0.0)
+                    prev_change_rate = details.get('prev_change_rate', 0.0)
+                else:
+                    industry = industry_cache[m['code']]
+                    intensity = 0.0
+                    prev_change_rate = 0.0
                 
                 update_data.append({
-                    'm': m,
-                    'industry': industry,
-                    'intensity': intensity,
-                    'prev_change_rate': prev_change_rate,
-                    'related_stocks': related_stocks,
-                    'recommend_score': recommend_score,
-                    'audit': fin['audit']
+                    'm': m, 'industry': industry, 'intensity': intensity,
+                    'prev_change_rate': prev_change_rate
                 })
 
-            # 4. 마지막에 DB를 열어 한꺼번에 업데이트 (최소 시간 소요)
+            # 4. DB 일괄 업데이트
             conn = sqlite3.connect(DB_FILE, timeout=30)
             conn.execute("PRAGMA journal_mode=WAL")
             cursor = conn.cursor()
-            
             for item in update_data:
                 m = item['m']
-                now = datetime.now()
-                is_after_hours = now.hour >= 16 and now.hour < 18
-                alert_type = 'after_hours' if is_after_hours else 'spike'
-                
-                cursor.execute("""
-                    SELECT id FROM price_alerts 
-                    WHERE code = ? AND created_at LIKE ?
-                """, (m['code'], f'{today_str}%'))
+                cursor.execute("SELECT id FROM price_alerts WHERE code = ? AND created_at LIKE ?", (m['code'], f'{today_str}%'))
                 existing = cursor.fetchone()
+                
+                # [김선화] 상세 데이터 보강 (추천 점수 등)
+                fin = load_financial_health().get(m['code'], {'audit': 'N/A'})
+                score = 10.0
+                if item['prev_change_rate'] < 0: score += 5
+                if item['intensity'] > 100: score += min((item['intensity'] - 100) / 5, 10)
+                if fin['audit'] == '적정의견': score += 5
+                recommend_score = round(score, 2)
                 
                 if existing:
                     cursor.execute("""
                         UPDATE price_alerts 
                         SET change_rate = ?, price = ?, volume = CASE WHEN ? > 0 THEN ? ELSE volume END, 
-                            intensity = ?, related_stocks = ?, recommend_score = ?, prev_change_rate = ?, created_at = ?
+                            intensity = ?, recommend_score = ?, prev_change_rate = ?, created_at = ?
                         WHERE id = ?
-                    """, (m['change_rate'], m['price'], m['volume'], m['volume'], item['intensity'], item['related_stocks'], item['recommend_score'], item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
+                    """, (m['change_rate'], m['price'], m['volume'], m['volume'], item['intensity'], recommend_score, item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
                 elif not m.get('is_update_only'):
-                    print(f"📡 [{alert_type.upper()}] {m['name']}({m['code']}) [{item['industry']}] 점수:{item['recommend_score']} 전일:{item['prev_change_rate']}% {m['price']:,}원 {m['change_rate']}% 급등!")
+                    print(f"📡 [SPIKE] {m['name']}({m['code']}) [{item['industry']}] {m['price']:,}원 {m['change_rate']}% 탐지!")
                     cursor.execute("""
-                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, intensity, related_stocks, recommend_score, prev_change_rate, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (m['code'], m['name'], alert_type, m['change_rate'], m['price'], m['volume'], item['industry'], item['intensity'], item['related_stocks'], item['recommend_score'], item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-            
+                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, intensity, recommend_score, prev_change_rate, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (m['code'], m['name'], 'spike', m['change_rate'], m['price'], m['volume'], item['industry'], item['intensity'], recommend_score, item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             conn.commit()
             conn.close()
             time.sleep(180)
@@ -482,46 +522,97 @@ def run_market_monitor():
 
 def run_ah_monitor():
     """[김선화] 시간외 단일가 급등주 탐지 엔진 (16:00 - 18:00)"""
-    global monitor_active_ah
+    global monitor_active_ah, industry_cache
     print("🌙 시간외 단일가 탐지 엔진 가동 시작...")
     
     while monitor_active_ah:
         try:
             now = datetime.now()
-            # 시간외 운영 시간 체크
             if now.hour < 16 or now.hour >= 18:
-                time.sleep(60)
+                if now.minute % 10 == 0 and now.second < 10:
+                    print(f"💤 시간외 운영 시간이 아닙니다. (현재 {now.strftime('%H:%M')})")
+                time.sleep(10)
                 continue
 
-            movers = get_market_movers_filtered(is_after_hours=True)
-            
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            
-            for m in movers:
-                if not monitor_active_ah: break
-                
-                today_str = datetime.now().strftime('%Y-%m-%d')
-                cursor.execute("""
-                    SELECT id FROM price_alerts 
-                    WHERE code = ? AND type = 'after_hours' AND created_at LIKE ?
-                """, (m['code'], f'{today_str}%'))
-                existing = cursor.fetchone()
+            print(f"🔍 [SCAN] 시간외 시장 스캔 시작... ({now.strftime('%H:%M:%S')})")
 
+            # 1. 시간외 급등주 스캔
+            movers = get_market_movers_filtered(is_after_hours=True)
+            mover_codes = {m['code'] for m in movers}
+
+            # 2. 오늘 이미 포착된 종목들 목록 가져오기
+            today_str = now.strftime('%Y-%m-%d')
+            conn = sqlite3.connect(DB_FILE, timeout=30)
+            cursor = conn.cursor()
+            cursor.execute("SELECT code, name, industry FROM price_alerts WHERE created_at LIKE ?", (f'{today_str}%',))
+            today_alerts = cursor.fetchall()
+            conn.close()
+
+            # 오늘 포착된 종목 중 Movers에 없는 종목 업데이트 대상 포함
+            for alert_code, alert_name, ind in today_alerts:
+                if alert_code not in industry_cache: industry_cache[alert_code] = ind
+                if alert_code not in mover_codes:
+                    det = get_detailed_price(alert_code)
+                    if det['current_price'] > 0:
+                        movers.append({
+                            'code': alert_code, 'name': alert_name, 'price': det['current_price'],
+                            'change_rate': det['change_rate'], 'volume': 0, 'is_update_only': True
+                        })
+
+            print(f"📊 [DATA] 상세 정보 수집 중... (대상: {len(movers)} 종목)")
+
+            # 3. 상세 정보 수집 (최적화)
+            update_data = []
+            for m in movers:
+                if m['code'] not in industry_cache:
+                    details = get_all_naver_data(m['code'])
+                    industry = details.get('industry_name', '기타')
+                    industry_cache[m['code']] = industry
+                    intensity = details.get('intensity', 0.0)
+                    prev_change_rate = details.get('prev_change_rate', 0.0)
+                else:
+                    industry = industry_cache[m['code']]
+                    intensity = 0.0
+                    prev_change_rate = 0.0 
+                
+                update_data.append({
+                    'm': m, 'industry': industry, 'intensity': intensity,
+                    'prev_change_rate': prev_change_rate
+                })
+
+            # 4. DB 일괄 업데이트
+            conn = sqlite3.connect(DB_FILE, timeout=30)
+            conn.execute("PRAGMA journal_mode=WAL")
+            cursor = conn.cursor()
+            for item in update_data:
+                m = item['m']
+                cursor.execute("SELECT id FROM price_alerts WHERE code = ? AND created_at LIKE ?", (m['code'], f'{today_str}%'))
+                existing = cursor.fetchone()
+                
+                # [김선화] 시간외 점수 산출 보강
+                fin = load_financial_health().get(m['code'], {'audit': 'N/A'})
+                score = 10.0
+                if item['prev_change_rate'] < 0: score += 3
+                if fin['audit'] == '적정의견': score += 2
+                recommend_score = round(score, 2)
+                
                 if existing:
                     cursor.execute("""
-                        UPDATE price_alerts SET change_rate = ?, price = ?, volume = ?, updated_at = ?
+                        UPDATE price_alerts 
+                        SET change_rate = ?, price = ?, volume = CASE WHEN ? > 0 THEN ? ELSE volume END, 
+                            intensity = ?, recommend_score = ?, prev_change_rate = ?, created_at = ?
                         WHERE id = ?
-                    """, (m['change_rate'], m['price'], m['volume'], datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
-                else:
+                    """, (m['change_rate'], m['price'], m['volume'], m['volume'], item['intensity'], recommend_score, item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
+                elif not m.get('is_update_only'):
+                    print(f"📡 [AFTER_HOURS] {m['name']}({m['code']}) [{item['industry']}] {m['price']:,}원 {m['change_rate']}% 탐지!")
                     cursor.execute("""
-                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (m['code'], m['name'], 'after_hours', m['change_rate'], m['price'], m['volume'], datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-            
+                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, intensity, recommend_score, prev_change_rate, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (m['code'], m['name'], 'after_hours', m['change_rate'], m['price'], m['volume'], item['industry'], item['intensity'], recommend_score, item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             conn.commit()
             conn.close()
-            time.sleep(60) # 1분 간격
+            print(f"✅ [DONE] 시간외 업데이트 완료. 3분 뒤 재스캔합니다.")
+            time.sleep(180)
         except Exception as e:
             print(f"시간외 모니터링 오류: {e}")
             time.sleep(30)
@@ -657,38 +748,46 @@ def api_monitor_min_volume():
 
 @app.route('/api/alerts')
 def get_alerts():
-    """최근 알림 목록 조회 (현재 시간대 설정값으로 실시간 필터링 및 정렬)"""
-    sort_by = request.args.get('sort', 'change_rate') # 기본값: 수익률순
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
-    # [김선화] 오늘 날짜 기준 필터 추가 (장 시작 전 어제 데이터 노출 방지)
-    today_str = datetime.now().strftime('%Y-%m-%d')
-    
-    # [김선화] 현재 시간대에 맞는 필터값 결정
-    now = datetime.now()
-    is_after_hours = now.hour >= 16 and now.hour < 18
-    current_threshold = monitor_threshold_ah if is_after_hours else monitor_threshold
-    current_min_volume = monitor_min_volume_ah if is_after_hours else monitor_min_volume
-    
-    # 정렬 기준 설정
-    if sort_by == 'change_rate':
+    """최근 알림 목록 조회 (필터링 조건 최적화 및 안정화)"""
+    sort_by = request.args.get('sort', 'change_rate')
+    try:
+        conn = sqlite3.connect(DB_FILE, timeout=30)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        now = datetime.now()
+        is_after_hours = now.hour >= 16 and now.hour < 18
+        
+        # [김선화] 필터링 조건 완화 (DB에는 모두 저장하되, 조회 시에만 유연하게 필터링)
+        current_threshold = float(monitor_threshold_ah if is_after_hours else monitor_threshold)
+        current_min_volume = int(monitor_min_volume_ah if is_after_hours else monitor_min_volume)
+        
         order_clause = "change_rate DESC"
-    elif sort_by == 'recommend':
-        order_clause = "recommend_score DESC"
-    else:
-        order_clause = "created_at DESC"
-    
-    # [김선화] 오늘 날짜의 임계치와 최소 거래량을 만족하는 알림만 반환
-    query = f"""
-        SELECT * FROM price_alerts 
-        WHERE created_at LIKE ? AND change_rate >= ? AND volume >= ?
-        ORDER BY {order_clause} LIMIT 50
-    """
-    cursor.execute(query, (f'{today_str}%', current_threshold, current_min_volume))
-    alerts = [dict(zip([column[0] for column in cursor.description], row)) for row in cursor.fetchall()]
-    conn.close()
-    return jsonify(alerts)
+        if sort_by == 'recommend': order_clause = "recommend_score DESC"
+        elif sort_by == 'time': order_clause = "created_at DESC"
+        
+        query = f"""
+            SELECT * FROM price_alerts 
+            WHERE created_at LIKE ? AND change_rate >= ?
+            ORDER BY {order_clause} LIMIT 100
+        """
+        cursor.execute(query, (f'{today_str}%', current_threshold))
+        
+        # [김선화] 거래량 필터는 Python 레벨에서 한 번 더 체크 (DB 타입 이슈 방지)
+        rows = cursor.fetchall()
+        alerts = []
+        for row in rows:
+            alert = dict(row)
+            # 시간외의 경우 거래량 조건이 다를 수 있으므로 유연하게 처리
+            if alert['volume'] >= current_min_volume or is_after_hours:
+                alerts.append(alert)
+                
+        conn.close()
+        return jsonify(alerts)
+    except Exception as e:
+        print(f"API 오류(get_alerts): {e}")
+        return jsonify([])
 
 @app.route('/api/targets/tomorrow')
 def get_tomorrow_targets():
@@ -1507,6 +1606,10 @@ def get_my_stocks_status():
                 'ma5': detail.get('ma5', 0),
                 'ma20': detail.get('ma20', 0),
                 'ma5_diff': detail.get('ma5_diff', 0),
+                'audit_opinion_team': audit_data.get(stock['code'], {}).get('audit', 'N/A'),
+                'internal_control_team': audit_data.get(stock['code'], {}).get('internal', 'N/A'),
+                'roe_team': audit_data.get(stock['code'], {}).get('roe', 0),
+                'debt_ratio_team': audit_data.get(stock['code'], {}).get('debt_ratio', 0),
                 'ma20_diff': detail.get('ma20_diff', 0)
             })
             
@@ -2038,12 +2141,12 @@ def get_realtime_prices():
         cursor = db.cursor()
         
         # 보유 종목 가져오기
-        cursor.execute("SELECT code, name FROM my_stocks")
-        portfolio_stocks = [{'code': s['code'], 'name': s['name'], 'type': 'portfolio'} for s in cursor.fetchall()]
+        cursor.execute("SELECT code, name, purchase_price, quantity FROM my_stocks")
+        portfolio_stocks = [{'code': s['code'], 'name': s['name'], 'purchase_price': s['purchase_price'], 'quantity': s['quantity'], 'type': 'portfolio'} for s in cursor.fetchall()]
         
         # 관심 종목 가져오기
         cursor.execute("SELECT code, name FROM watchlist")
-        watchlist_stocks = [{'code': s['code'], 'name': s['name'], 'type': 'watchlist'} for s in cursor.fetchall()]
+        watchlist_stocks = [{'code': s['code'], 'name': s['name'], 'purchase_price': 0, 'quantity': 0, 'type': 'watchlist'} for s in cursor.fetchall()]
         
         all_stocks = portfolio_stocks + watchlist_stocks
         if not all_stocks:
@@ -2056,13 +2159,27 @@ def get_realtime_prices():
                 stock = future_to_stock[future]
                 try:
                     price_info = future.result()
+                    current_price = price_info['current_price']
+                    purchase_price = stock['purchase_price']
+                    quantity = stock.get('quantity', 0)
+                    
+                    profit_rate = 0
+                    profit = 0
+                    if stock['type'] == 'portfolio' and purchase_price > 0:
+                        profit_rate = round(((current_price - purchase_price) / purchase_price) * 100, 2)
+                        profit = (current_price - purchase_price) * quantity
+
                     results.append({
                         'code': stock['code'],
                         'name': stock['name'],
-                        'price': price_info['current_price'],
+                        'price': current_price,
                         'prev_close': price_info['prev_close'],
                         'change': price_info['change'],
                         'change_rate': price_info['change_rate'],
+                        'purchase_price': purchase_price,
+                        'quantity': quantity,
+                        'profit_rate': profit_rate,
+                        'profit': profit,
                         'type': stock['type']
                     })
                 except Exception:
