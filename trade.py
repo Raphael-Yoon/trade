@@ -66,25 +66,40 @@ def init_db():
             added_at TEXT,
             purchase_price REAL DEFAULT 0,
             quantity INTEGER DEFAULT 0,
-            stop_loss_ratio REAL DEFAULT 0
+            stop_loss_ratio REAL DEFAULT 0,
+            is_favorite INTEGER DEFAULT 0
         )
     ''')
     
-    # 기존 테이블에 컬럼이 없는 경우 추가 (스키마 업데이트)
-    try:
-        cursor.execute("ALTER TABLE my_stocks ADD COLUMN purchase_price REAL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-        
-    try:
-        cursor.execute("ALTER TABLE my_stocks ADD COLUMN quantity INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        cursor.execute("ALTER TABLE my_stocks ADD COLUMN stop_loss_ratio REAL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
+    # 관심 종목 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS watchlist (
+            code TEXT PRIMARY KEY,
+            name TEXT,
+            added_at TEXT,
+            is_favorite INTEGER DEFAULT 0
+        )
+    ''')
+    
+    # [김선화] 즐겨찾기(별표) 기능 및 기존 스키마 업데이트
+    columns_to_add = {
+        'my_stocks': [
+            ('purchase_price', 'REAL DEFAULT 0'),
+            ('quantity', 'INTEGER DEFAULT 0'),
+            ('stop_loss_ratio', 'REAL DEFAULT 0'),
+            ('is_favorite', 'INTEGER DEFAULT 0')
+        ],
+        'watchlist': [
+            ('is_favorite', 'INTEGER DEFAULT 0')
+        ]
+    }
+    
+    for table, cols in columns_to_add.items():
+        for col_name, col_type in cols:
+            try:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass
     
     # 분석 결과 테이블
     cursor.execute('''
@@ -159,8 +174,6 @@ def init_db():
         pass
     
     conn.commit()
-    
-    conn.commit()
     conn.close()
 
 # DB 초기화 실행
@@ -183,6 +196,10 @@ etf_cache = {'codes': [], 'last_updated': 0}
 # [김선화] 감사팀 재무 데이터 캐시
 financial_cache = {}
 industry_cache = {}
+
+# [김선화] 보유 기간 중 최고가(Trailing Stop 기준) 캐시
+# 형식: {code: {'high': 0, 'last_updated': 0}}
+holding_high_cache = {}
 
 def load_financial_health():
     """[김선화] 감사팀의 재무 보고서(Excel)를 구글 드라이브 또는 로컬에서 로드하여 주요 지표를 캐싱합니다."""
@@ -1353,13 +1370,27 @@ def get_detailed_price(ticker):
                     if nums:
                         prev_close = int(nums[0].replace(',', ''))
 
-        # 3. 등락액, 등락률 계산
+        # 3. 고가/저가 추출
+        high_price = 0
+        low_price = 0
+        if info_area:
+            for td in info_area.select('td'):
+                if '고가' in td.text and '52주' not in td.text:
+                    val_elem = td.select_one('.blind')
+                    if val_elem: high_price = int(re.sub(r'[^0-9]', '', val_elem.text))
+                elif '저가' in td.text and '52주' not in td.text:
+                    val_elem = td.select_one('.blind')
+                    if val_elem: low_price = int(re.sub(r'[^0-9]', '', val_elem.text))
+
+        # 4. 등락액, 등락률 계산
         change = current_price - prev_close if prev_close > 0 else 0
         change_rate = (change / prev_close * 100) if prev_close > 0 else 0
         
         return {
             'current_price': current_price,
             'prev_close': prev_close,
+            'high_price': high_price,
+            'low_price': low_price,
             'change': change,
             'change_rate': round(change_rate, 2)
         }
@@ -1422,8 +1453,8 @@ def get_my_stocks():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def get_daily_prices(code, pages=2):
-    """네이버 금융에서 일별 시세를 가져옵니다."""
+def get_daily_prices(code, pages=3):
+    """네이버 금융에서 일별 시세를 가져옵니다. (고가 정보 포함)"""
     headers = {'User-Agent': 'Mozilla/5.0'}
     prices = []
     try:
@@ -1438,11 +1469,39 @@ def get_daily_prices(code, pages=2):
                     try:
                         date = tds[0].get_text(strip=True).replace('.', '-')
                         close = int(tds[1].get_text(strip=True).replace(',', ''))
-                        prices.append({'date': date, 'close': close})
+                        high = int(tds[4].get_text(strip=True).replace(',', '')) # [김선화] 고가 추가
+                        prices.append({'date': date, 'close': close, 'high': high})
                     except: continue
         return prices
     except:
         return []
+
+def get_holding_high(code, added_at, current_price, purchase_price):
+    """[김선화] 보유 시점(added_at) 이후의 최고 종가를 계산하거나 캐시에서 가져옵니다."""
+    global holding_high_cache
+    
+    # 캐시 확인
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    if code in holding_high_cache and holding_high_cache[code]['date'] == today_str:
+        return holding_high_cache[code]['high']
+    
+    # 3페이지(약 30거래일) 데이터 호출
+    daily_prices = get_daily_prices(code, pages=3)
+    
+    # added_at 이후의 모든 종가(close)들 수집
+    added_date = added_at[:10]
+    closes = [p['close'] for p in daily_prices if p['date'] >= added_date]
+    
+    # [김선화] 취득가(purchase_price)와 과거 종가 기록 중 최댓값을 선택
+    # 이렇게 해야 취득 이후 계속 하락한 종목도 취득가 기준으로 손절선이 잡힙니다.
+    max_price = max(closes) if closes else 0
+    max_price = max(max_price, purchase_price)
+    
+    holding_high_cache[code] = {
+        'high': max_price,
+        'date': today_str
+    }
+    return max_price
 
 def get_kospi_daily(pages=2):
     """네이버 금융에서 코스피 일별 시세를 가져옵니다."""
@@ -2133,6 +2192,26 @@ def promote_to_portfolio():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+@app.route('/api/stocks/favorite', methods=['POST'])
+def toggle_stock_favorite():
+    """[김선화] 종목의 즐겨찾기(별표) 상태를 토글합니다."""
+    try:
+        data = request.get_json()
+        code = data.get('code')
+        is_favorite = data.get('is_favorite', 0)
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        # 양쪽 테이블 모두 업데이트 시도
+        cursor.execute("UPDATE my_stocks SET is_favorite = ? WHERE code = ?", (is_favorite, code))
+        cursor.execute("UPDATE watchlist SET is_favorite = ? WHERE code = ?", (is_favorite, code))
+        
+        db.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/realtime/prices', methods=['GET'])
 def get_realtime_prices():
     """[김정음] 내 종목 및 관심 종목의 실시간 주가 정보를 상세히 반환합니다."""
@@ -2140,13 +2219,30 @@ def get_realtime_prices():
         db = get_db()
         cursor = db.cursor()
         
-        # 보유 종목 가져오기
-        cursor.execute("SELECT code, name, purchase_price, quantity FROM my_stocks")
-        portfolio_stocks = [{'code': s['code'], 'name': s['name'], 'purchase_price': s['purchase_price'], 'quantity': s['quantity'], 'type': 'portfolio'} for s in cursor.fetchall()]
+        # [김선화] 효율적 실시간 모니터링을 위해 손절 설정치, 즐겨찾기, 추가일자 조회
+        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, is_favorite, added_at FROM my_stocks")
+        portfolio_stocks = [{
+            'code': s['code'], 
+            'name': s['name'], 
+            'purchase_price': s['purchase_price'], 
+            'quantity': s['quantity'], 
+            'stop_loss_ratio': s['stop_loss_ratio'],
+            'is_favorite': s['is_favorite'],
+            'added_at': s['added_at'],
+            'type': 'portfolio'
+        } for s in cursor.fetchall()]
         
         # 관심 종목 가져오기
-        cursor.execute("SELECT code, name FROM watchlist")
-        watchlist_stocks = [{'code': s['code'], 'name': s['name'], 'purchase_price': 0, 'quantity': 0, 'type': 'watchlist'} for s in cursor.fetchall()]
+        cursor.execute("SELECT code, name, is_favorite FROM watchlist")
+        watchlist_stocks = [{
+            'code': s['code'], 
+            'name': s['name'], 
+            'purchase_price': 0, 
+            'quantity': 0, 
+            'stop_loss_ratio': 0,
+            'is_favorite': s['is_favorite'],
+            'type': 'watchlist'
+        } for s in cursor.fetchall()]
         
         all_stocks = portfolio_stocks + watchlist_stocks
         if not all_stocks:
@@ -2162,24 +2258,41 @@ def get_realtime_prices():
                     current_price = price_info['current_price']
                     purchase_price = stock['purchase_price']
                     quantity = stock.get('quantity', 0)
+                    stop_loss_ratio = stock.get('stop_loss_ratio', 0)
                     
                     profit_rate = 0
                     profit = 0
+                    is_stop_loss = False
+                    holding_high = 0
+                    
                     if stock['type'] == 'portfolio' and purchase_price > 0:
                         profit_rate = round(((current_price - purchase_price) / purchase_price) * 100, 2)
                         profit = (current_price - purchase_price) * quantity
+                        
+                        # [김선화] 보유 기간 최고가 기반 Trailing Stop-Loss 계산 (취득가 포함)
+                        holding_high = get_holding_high(stock['code'], stock['added_at'], current_price, purchase_price)
+                        
+                        if stop_loss_ratio > 0:
+                            # 최근 최고가 대비 손절 (Trailing Stop)
+                            # 취득가 역시 최고가의 범위에 포함되므로 이 조건 하나로 통합 관리
+                            if holding_high > 0 and current_price <= holding_high * (1 - stop_loss_ratio / 100):
+                                is_stop_loss = True
 
                     results.append({
                         'code': stock['code'],
                         'name': stock['name'],
                         'price': current_price,
                         'prev_close': price_info['prev_close'],
+                        'holding_high': holding_high, # [김선화] 보유 기간 최고가
                         'change': price_info['change'],
                         'change_rate': price_info['change_rate'],
                         'purchase_price': purchase_price,
                         'quantity': quantity,
                         'profit_rate': profit_rate,
                         'profit': profit,
+                        'stop_loss_ratio': stop_loss_ratio,
+                        'is_favorite': stock.get('is_favorite', 0),
+                        'is_stop_loss': is_stop_loss,
                         'type': stock['type']
                     })
                 except Exception:
@@ -2190,6 +2303,13 @@ def get_realtime_prices():
                         'prev_close': 0, 
                         'change': 0, 
                         'change_rate': 0, 
+                        'purchase_price': stock['purchase_price'],
+                        'quantity': stock.get('quantity', 0),
+                        'profit_rate': 0,
+                        'profit': 0,
+                        'stop_loss_ratio': stock.get('stop_loss_ratio', 0),
+                        'is_favorite': stock.get('is_favorite', 0),
+                        'is_stop_loss': False,
                         'type': stock['type']
                     })
                     

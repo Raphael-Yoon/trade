@@ -394,12 +394,16 @@
                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
                     <h3 style="margin: 0; font-size: 28px; color: var(--text-main); font-family: 'Outfit', sans-serif;">
                         ⚡ 실시간 시세 현황</h3>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span id="updateTimer"
-                            style="font-size: 13px; color: var(--text-muted); font-family: 'Consolas', monospace;">다음
-                            업데이트: 5s</span>
-                        <div id="liveIndicator"
-                            style="width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 8px #10b981; animation: pulse 2s infinite;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <button class="btn" onclick="manualRealtimeRefresh()" style="padding: 8px 16px; font-size: 13px; height: auto; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); color: white; display: flex; align-items: center; gap: 6px;">
+                            <span>🔄</span> 수동 갱신
+                        </button>
+                        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                            <span id="updateTimer"
+                                style="font-size: 11px; color: var(--text-muted); font-family: 'Consolas', monospace;">다음 업데이트: 5s</span>
+                            <div id="liveIndicator"
+                                style="width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 8px #10b981; animation: pulse 2s infinite;">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -407,6 +411,42 @@
                 <div class="market-indices-sticky">
                     <div id="marketIndices" style="display: flex; gap: 20px; padding: 0 40px;">
                         <!-- KOSPI, KOSDAQ 카드가 여기에 동적으로 생성됩니다 -->
+                    </div>
+                </div>
+
+                <!-- [김선화] 실시간 포트폴리오 요약 대시보드 (공간 효율화 버전) -->
+                <div id="realtimePortfolioSummary" style="margin-bottom: 24px; padding: 18px 24px; background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 20px; display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 32px; flex-wrap: wrap;">
+                        <div style="display: flex; gap: 24px;">
+                            <div class="summary-item" style="background: none; border: none; padding: 0;">
+                                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">총 투자</div>
+                                <div id="rtTotalInvested" style="font-size: 15px; font-weight: 800; color: white;">0원</div>
+                            </div>
+                            <div class="summary-item" style="background: none; border: none; padding: 0;">
+                                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">실시간 평가</div>
+                                <div id="rtTotalValue" style="font-size: 15px; font-weight: 800; color: white;">0원</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 32px; flex: 1; justify-content: flex-end; align-items: center;">
+                            <!-- [김선화] 즐겨찾기 전용 요약: 초슬림 2단 버전 -->
+                            <div id="favSummaryArea" style="display: none; text-align: right; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 24px;">
+                                <div style="font-size: 11px; color: #fbbf24; font-weight: 800; margin-bottom: 2px;">⭐ 즐겨찾기(누적|당일)</div>
+                                <div style="font-size: 14px; font-weight: 900; color: white; display: flex; gap: 8px; justify-content: flex-end;">
+                                    <span id="favTotalProfit">0%</span>
+                                    <span style="color: rgba(255,255,255,0.2); font-weight: 300;">|</span>
+                                    <span id="favTodayProfit">0%</span>
+                                </div>
+                            </div>
+                            
+                            <div class="summary-item" style="background: none; border: none; padding: 0; text-align: right; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 24px;">
+                                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">누적 총 손익</div>
+                                <div id="rtTotalProfit" style="font-size: 16px; font-weight: 900; color: #ef4444;">0% (0원)</div>
+                            </div>
+                            <div class="summary-item" style="background: none; border: none; padding: 0; text-align: right; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 24px;">
+                                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">당일 손익</div>
+                                <div id="rtTodayProfit" style="font-size: 16px; font-weight: 900; color: #10b981;">0% (0원)</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -723,6 +763,8 @@
             loadMarketIndices();
         }
 
+        let realtimeSecondsRemaining = 5;
+
         function startRealtimePolling() {
             // [김정음] 탭 클릭 시 즉시 업데이트 수행
             updateRealtimePrices();
@@ -730,20 +772,30 @@
 
             if (realtimeTimer) clearInterval(realtimeTimer);
 
-            let seconds = 5;
+            realtimeSecondsRemaining = 5;
             // 타이머 UI 초기화
             const timerEl = document.getElementById('updateTimer');
-            if (timerEl) timerEl.innerText = `다음 업데이트: ${seconds}s`;
+            if (timerEl) timerEl.innerText = `다음 업데이트: ${realtimeSecondsRemaining}s`;
 
             realtimeTimer = setInterval(() => {
-                seconds--;
-                if (seconds <= 0) {
+                realtimeSecondsRemaining--;
+                if (realtimeSecondsRemaining <= 0) {
                     updateRealtimePrices();
                     loadMarketIndices();
-                    seconds = 5;
+                    realtimeSecondsRemaining = 5;
                 }
-                if (timerEl) timerEl.innerText = `다음 업데이트: ${seconds}s`;
+                if (timerEl) timerEl.innerText = `다음 업데이트: ${realtimeSecondsRemaining}s`;
             }, 1000);
+        }
+
+        // [김선화] 수동 갱신 기능 추가
+        function manualRealtimeRefresh() {
+            showToast('데이터를 수동 갱신합니다...', 'success');
+            updateRealtimePrices();
+            loadMarketIndices();
+            realtimeSecondsRemaining = 5; // 타이머 초기화
+            const timerEl = document.getElementById('updateTimer');
+            if (timerEl) timerEl.innerText = `다음 업데이트: ${realtimeSecondsRemaining}s`;
         }
 
         function stopRealtimePolling() {
@@ -792,10 +844,12 @@
                     if (data.error) return;
                     const portfolioGrid = document.getElementById('realtimeGridPortfolio');
                     const watchlistGrid = document.getElementById('realtimeGridWatchlist');
+                    const summaryArea = document.getElementById('realtimePortfolioSummary');
 
                     if (!data || data.length === 0) {
                         portfolioGrid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 20px;">등록된 종목이 없습니다.</p>';
                         watchlistGrid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 20px;">등록된 종목이 없습니다.</p>';
+                        if (summaryArea) summaryArea.style.display = 'none';
                         return;
                     }
 
@@ -803,15 +857,30 @@
                     portfolioGrid.innerHTML = '';
                     watchlistGrid.innerHTML = '';
 
-                    // [김정음] 결과 순서가 뒤바뀌지 않도록 종목명 순으로 정렬 (이름 없으면 코드로)
-                    data.sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'ko'));
+                    // [김선화] 즐겨찾기(is_favorite) 우선 정렬 후 종목명 순 정렬
+                    data.sort((a, b) => {
+                        if (b.is_favorite !== a.is_favorite) return b.is_favorite - a.is_favorite;
+                        return (a.name || a.code).localeCompare(b.name || b.code, 'ko');
+                    });
+
+                    let totalInvested = 0;
+                    let totalValue = 0;
+                    let totalTodayProfit = 0;
+                    let portfolioCount = 0;
+                    
+                    // [김선화] 즐겨찾기 전용 집계 변수
+                    let favInvested = 0;
+                    let favValue = 0;
+                    let favTodayProfit = 0;
+                    let favCount = 0;
 
                     data.forEach(stock => {
                         const card = document.createElement('div');
                         card.id = `rt-card-${stock.code}`;
                         card.className = 'result-card';
                         card.style.padding = '24px';
-                        card.style.background = 'rgba(255,255,255,0.05)';
+                        card.style.background = stock.is_stop_loss ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255,255,255,0.05)';
+                        card.style.border = stock.is_stop_loss ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid transparent';
                         card.style.borderRadius = '20px';
                         card.style.transition = 'all 0.3s ease';
 
@@ -834,37 +903,71 @@
                         const profitColor = profitRate > 0 ? '#ef4444' : (profitRate < 0 ? '#3b82f6' : 'var(--text-muted)');
                         const profitSign = profitRate > 0 ? '+' : '';
 
+                        // [김선화] 당일 손익 계산
+                        const todayProfit = (stock.change || 0) * (stock.quantity || 0);
+                        const todayProfitColor = todayProfit > 0 ? '#ef4444' : (todayProfit < 0 ? '#3b82f6' : 'var(--text-muted)');
+
+                        if (stock.type === 'portfolio') {
+                            totalInvested += (stock.purchase_price * stock.quantity);
+                            totalValue += (stock.price * stock.quantity);
+                            totalTodayProfit += todayProfit;
+                            portfolioCount++;
+                            
+                            // 즐겨찾기(포트폴리오 내) 집계
+                            if (stock.is_favorite === 1) {
+                                favInvested += (stock.purchase_price * stock.quantity);
+                                favValue += (stock.price * stock.quantity);
+                                favTodayProfit += todayProfit;
+                                favCount++;
+                            }
+                        }
+
                         card.innerHTML = `
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                                <div>
-                                    <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 2px; font-weight: 500;">${stock.code}</div>
-                                    <div style="font-size: 18px; font-weight: 800; color: white; font-family: 'Outfit', sans-serif;">${stock.name}</div>
+                            <!-- 상단: 종목명 및 즐겨찾기 -->
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+                                    <div style="cursor: pointer; font-size: 22px; transition: transform 0.2s; z-index: 10; flex-shrink: 0;" 
+                                         onclick="toggleFavorite('${stock.code}', ${stock.is_favorite === 1 ? 0 : 1}); event.stopPropagation();"
+                                         title="우선순위(즐겨찾기) 토글">
+                                        ${stock.is_favorite === 1 ? '⭐' : '☆'}
+                                    </div>
+                                    <div style="min-width: 0; flex: 1;">
+                                        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 1px; font-weight: 500;">
+                                            ${stock.code} ${stock.is_stop_loss ? '<span style="color:#ef4444; font-weight:800; font-size:10px; background:rgba(239,68,68,0.1); padding:1px 4px; border-radius:4px;">STOP-LOSS</span>' : ''}
+                                        </div>
+                                        <div style="font-size: 19px; font-weight: 800; color: white; font-family: 'Outfit', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${stock.name}">${stock.name}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 중단: 현재가 및 등락 정보 (한 줄 아래로 배치) -->
+                            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; padding: 0 4px;">
+                                <div class="price-badge ${flashClass}" style="font-size: 24px; font-weight: 900; font-family: 'Outfit', sans-serif; color: white;">
+                                    ${newPrice ? newPrice.toLocaleString() : '0'}
                                 </div>
                                 <div style="text-align: right;">
-                                    <div class="price-badge ${flashClass}" style="font-size: 20px; font-weight: 900; font-family: 'Outfit', sans-serif; display: inline-block;">
-                                        ${newPrice ? newPrice.toLocaleString() : '0'}
+                                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 500; margin-bottom: 2px;">
+                                        ${stock.type === 'portfolio' ? `<span style="color: #ef4444; font-weight: 700;">최고 ${stock.holding_high ? stock.holding_high.toLocaleString() : '-'}</span>` : ''}
+                                        <span style="margin-left: 4px; padding-left: 4px; border-left: 1px solid rgba(255,255,255,0.1);">어제 ${prevClose.toLocaleString()}</span>
                                     </div>
-                                    <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px;">
-                                        <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">어제 ${prevClose.toLocaleString()}</span>
-                                        <span style="font-size: 13px; font-weight: 800; color: ${changeColor}; font-family: 'Outfit', sans-serif;">
-                                            ${changeSign} ${Math.abs(change).toLocaleString()} (${changeRate > 0 ? '+' : ''}${changeRate}%)
-                                        </span>
+                                    <div style="font-size: 14px; font-weight: 800; color: ${changeColor}; font-family: 'Outfit', sans-serif;">
+                                        ${changeSign} ${Math.abs(change).toLocaleString()} (${changeRate > 0 ? '+' : ''}${changeRate}%)
                                     </div>
                                 </div>
                             </div>
 
                             ${stock.type === 'portfolio' ? `
-                            <div style="display: flex; flex-direction: column; gap: 4px; background: rgba(255,255,255,0.05); padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                            <div style="display: flex; flex-direction: column; gap: 6px; background: rgba(255,255,255,0.05); padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.05);">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <div style="font-size: 12px; color: var(--text-muted); font-weight: 600;">나의 수익률</div>
-                                    <div style="font-size: 15px; font-weight: 900; color: ${profitColor}; font-family: 'Outfit', sans-serif;">
-                                        ${profitSign}${profitRate}%
+                                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">누적 수익</div>
+                                    <div style="font-size: 14px; font-weight: 900; color: ${profitColor}; font-family: 'Outfit', sans-serif;">
+                                        ${profit > 0 ? '+' : ''}${profit.toLocaleString()} (${profitSign}${profitRate}%)
                                     </div>
                                 </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); pt: 4px; margin-top: 4px;">
-                                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 500;">추정 손익</div>
-                                    <div style="font-size: 13px; font-weight: 700; color: ${profitColor};">
-                                        ${profit > 0 ? '+' : ''}${profit.toLocaleString()}원
+                                <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
+                                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">당일 수익</div>
+                                    <div style="font-size: 14px; font-weight: 900; color: ${todayProfitColor}; font-family: 'Outfit', sans-serif;">
+                                        ${todayProfit > 0 ? '+' : ''}${todayProfit.toLocaleString()} (${stock.change_rate > 0 ? '+' : ''}${stock.change_rate}%)
                                     </div>
                                 </div>
                             </div>` : ''}
@@ -889,6 +992,45 @@
                             watchlistGrid.appendChild(card);
                         }
                     });
+
+                    // [김선화] 실시간 요약 업데이트 (누적 + 당일 수익 종합)
+                    if (summaryArea && portfolioCount > 0) {
+                        summaryArea.style.display = 'block';
+                        document.getElementById('rtTotalInvested').innerText = totalInvested.toLocaleString() + '원';
+                        document.getElementById('rtTotalValue').innerText = totalValue.toLocaleString() + '원';
+                        
+                        // 누적 손익
+                        const totalProfit = totalValue - totalInvested;
+                        const totalProfitRate = totalInvested > 0 ? (totalProfit / totalInvested * 100).toFixed(2) : '0.00';
+                        const profitEl = document.getElementById('rtTotalProfit');
+                        profitEl.innerText = `${totalProfit > 0 ? '+' : ''}${totalProfit.toLocaleString()}원 (${totalProfitRate}%)`;
+                        profitEl.style.color = totalProfit > 0 ? '#ef4444' : (totalProfit < 0 ? '#3b82f6' : 'white');
+
+                        // 당일 손익
+                        const todayProfitRate = (totalValue - totalTodayProfit) > 0 ? (totalTodayProfit / (totalValue - totalTodayProfit) * 100).toFixed(2) : '0.00';
+                        const todayProfitEl = document.getElementById('rtTodayProfit');
+                        todayProfitEl.innerText = `${totalTodayProfit > 0 ? '+' : ''}${totalTodayProfit.toLocaleString()}원 (${todayProfitRate > 0 ? '+' : ''}${todayProfitRate}%)`;
+                        todayProfitEl.style.color = totalTodayProfit > 0 ? '#ef4444' : (totalTodayProfit < 0 ? '#3b82f6' : 'white');
+
+                        // [김선화] 즐겨찾기(별표) 전용 요약 업데이트
+                        const favArea = document.getElementById('favSummaryArea');
+                        if (favCount > 0) {
+                            favArea.style.display = 'block';
+                            const fProfit = favValue - favInvested;
+                            const fProfitRate = favInvested > 0 ? (fProfit / favInvested * 100).toFixed(2) : '0.00';
+                            const fTodayRate = (favValue - favTodayProfit) > 0 ? (favTodayProfit / (favValue - favTodayProfit) * 100).toFixed(2) : '0.00';
+                            
+                            const ftpEl = document.getElementById('favTotalProfit');
+                            ftpEl.innerHTML = `<span style="color: ${fProfit >= 0 ? '#ef4444' : '#3b82f6'}">${fProfit >= 0 ? '+' : ''}${fProfit.toLocaleString()}원(${fProfitRate}%)</span>`;
+                            
+                            const ftpTodayEl = document.getElementById('favTodayProfit');
+                            ftpTodayEl.innerHTML = `<span style="color: ${favTodayProfit >= 0 ? '#ef4444' : '#3b82f6'}">${favTodayProfit >= 0 ? '+' : ''}${favTodayProfit.toLocaleString()}원(${fTodayRate}%)</span>`;
+                        } else {
+                            favArea.style.display = 'none';
+                        }
+                    } else if (summaryArea) {
+                        summaryArea.style.display = 'none';
+                    }
                 });
         }
 
@@ -915,6 +1057,23 @@
                         </div>
                     `).join('');
                 });
+        }
+
+        // [김선화] 즐겨찾기 상태 토글
+        function toggleFavorite(code, newState) {
+            fetch('/api/stocks/favorite', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code, is_favorite: newState })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    updateRealtimePrices(); // 즉시 UI 갱신
+                } else {
+                    showToast('즐겨찾기 변경 실패', 'error');
+                }
+            });
         }
 
         function addToWatchlist() {
