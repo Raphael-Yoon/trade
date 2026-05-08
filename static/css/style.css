@@ -139,7 +139,7 @@ body::before {
     border: 1px solid var(--glass-border);
     border-radius: 40px;
     padding: 60px;
-    max-width: 1300px;
+    max-width: 1600px;
     width: 100%;
     box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.7);
     animation: containerFadeIn 1s cubic-bezier(0.22, 1, 0.36, 1);

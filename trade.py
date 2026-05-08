@@ -81,16 +81,18 @@ def init_db():
         )
     ''')
     
-    # [김선화] 즐겨찾기(별표) 기능 및 기존 스키마 업데이트
+    # [김선화] 즐겨찾기(별표) 및 소유주(나, 경미, 유주) 기능 스키마 업데이트
     columns_to_add = {
         'my_stocks': [
             ('purchase_price', 'REAL DEFAULT 0'),
             ('quantity', 'INTEGER DEFAULT 0'),
             ('stop_loss_ratio', 'REAL DEFAULT 0'),
-            ('is_favorite', 'INTEGER DEFAULT 0')
+            ('is_favorite', 'INTEGER DEFAULT 0'),
+            ('owner', "TEXT DEFAULT '나'")
         ],
         'watchlist': [
-            ('is_favorite', 'INTEGER DEFAULT 0')
+            ('is_favorite', 'INTEGER DEFAULT 0'),
+            ('owner', "TEXT DEFAULT '나'")
         ]
     }
     
@@ -100,6 +102,21 @@ def init_db():
                 cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
             except sqlite3.OperationalError:
                 pass
+                
+    # [김선화] 종목별 일자별 히스토리 테이블 추가
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS stock_daily_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT,
+            code TEXT,
+            name TEXT,
+            purchase_price REAL,
+            current_price REAL,
+            quantity INTEGER,
+            owner TEXT,
+            recorded_at TEXT
+        )
+    ''')
     
     # 분석 결과 테이블
     cursor.execute('''
@@ -1447,7 +1464,7 @@ def get_my_stocks():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT code, name, added_at, purchase_price, quantity, stop_loss_ratio FROM my_stocks ORDER BY added_at DESC")
+        cursor.execute("SELECT code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner FROM my_stocks ORDER BY added_at DESC")
         stocks = [dict(row) for row in cursor.fetchall()]
         return jsonify(stocks)
     except Exception as e:
@@ -1669,7 +1686,8 @@ def get_my_stocks_status():
                 'internal_control_team': audit_data.get(stock['code'], {}).get('internal', 'N/A'),
                 'roe_team': audit_data.get(stock['code'], {}).get('roe', 0),
                 'debt_ratio_team': audit_data.get(stock['code'], {}).get('debt_ratio', 0),
-                'ma20_diff': detail.get('ma20_diff', 0)
+                'ma20_diff': detail.get('ma20_diff', 0),
+                'owner': stock.get('owner', '나')
             })
             
         return jsonify(results)
@@ -1684,13 +1702,14 @@ def add_my_stock():
     purchase_price = data.get('purchase_price', 0)
     quantity = data.get('quantity', 0)
     stop_loss_ratio = data.get('stop_loss_ratio', 0)
+    owner = data.get('owner', '나')
     if not code:
         return jsonify({'success': False, 'message': '종목 코드가 필요합니다.'}), 400
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio) VALUES (?, ?, ?, ?, ?, ?)", 
-                       (code, name, datetime.now().isoformat(), purchase_price, quantity, stop_loss_ratio))
+        cursor.execute("INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+                       (code, name, datetime.now().isoformat(), purchase_price, quantity, stop_loss_ratio, owner))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -1713,6 +1732,7 @@ def update_my_stock(code_val):
     purchase_price = data.get('purchase_price')
     quantity = data.get('quantity')
     stop_loss_ratio = data.get('stop_loss_ratio')
+    owner = data.get('owner')
     
     try:
         db = get_db()
@@ -1729,6 +1749,9 @@ def update_my_stock(code_val):
         if stop_loss_ratio is not None:
             updates.append("stop_loss_ratio = ?")
             params.append(stop_loss_ratio)
+        if owner is not None:
+            updates.append("owner = ?")
+            params.append(owner)
             
         if not updates:
             return jsonify({'success': False, 'message': '수정할 데이터가 없습니다.'}), 400
@@ -2177,13 +2200,14 @@ def promote_to_portfolio():
         price = data.get('purchase_price', 0)
         qty = data.get('quantity', 0)
         stop_loss = data.get('stop_loss_ratio', 0)
+        owner = data.get('owner', '나')
         
         db = get_db()
         cursor = db.cursor()
         # 1. 포트폴리오에 추가
         cursor.execute(
-            "INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio) VALUES (?, ?, ?, ?, ?, ?)",
-            (code, name, datetime.now().isoformat(), price, qty, stop_loss)
+            "INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (code, name, datetime.now().isoformat(), price, qty, stop_loss, owner)
         )
         # 2. 관심 종목에서 삭제
         cursor.execute("DELETE FROM watchlist WHERE code = ?", (code,))
@@ -2192,20 +2216,20 @@ def promote_to_portfolio():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-@app.route('/api/stocks/favorite', methods=['POST'])
-def toggle_stock_favorite():
-    """[김선화] 종목의 즐겨찾기(별표) 상태를 토글합니다."""
+@app.route('/api/stocks/owner', methods=['POST'])
+def update_stock_owner():
+    """[김선화] 종목의 소유주(나, 경미, 유주) 상태를 업데이트합니다."""
     try:
         data = request.get_json()
         code = data.get('code')
-        is_favorite = data.get('is_favorite', 0)
+        owner = data.get('owner', '나')
         
         db = get_db()
         cursor = db.cursor()
         
         # 양쪽 테이블 모두 업데이트 시도
-        cursor.execute("UPDATE my_stocks SET is_favorite = ? WHERE code = ?", (is_favorite, code))
-        cursor.execute("UPDATE watchlist SET is_favorite = ? WHERE code = ?", (is_favorite, code))
+        cursor.execute("UPDATE my_stocks SET owner = ? WHERE code = ?", (owner, code))
+        cursor.execute("UPDATE watchlist SET owner = ? WHERE code = ?", (owner, code))
         
         db.commit()
         return jsonify({'success': True})
@@ -2219,28 +2243,28 @@ def get_realtime_prices():
         db = get_db()
         cursor = db.cursor()
         
-        # [김선화] 효율적 실시간 모니터링을 위해 손절 설정치, 즐겨찾기, 추가일자 조회
-        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, is_favorite, added_at FROM my_stocks")
+        # [김선화] 효율적 실시간 모니터링을 위해 손절 설정치, 소유주, 추가일자 조회
+        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, owner, added_at FROM my_stocks")
         portfolio_stocks = [{
             'code': s['code'], 
             'name': s['name'], 
             'purchase_price': s['purchase_price'], 
             'quantity': s['quantity'], 
             'stop_loss_ratio': s['stop_loss_ratio'],
-            'is_favorite': s['is_favorite'],
+            'owner': s['owner'],
             'added_at': s['added_at'],
             'type': 'portfolio'
         } for s in cursor.fetchall()]
         
         # 관심 종목 가져오기
-        cursor.execute("SELECT code, name, is_favorite FROM watchlist")
+        cursor.execute("SELECT code, name, owner FROM watchlist")
         watchlist_stocks = [{
             'code': s['code'], 
             'name': s['name'], 
             'purchase_price': 0, 
             'quantity': 0, 
             'stop_loss_ratio': 0,
-            'is_favorite': s['is_favorite'],
+            'owner': s['owner'],
             'type': 'watchlist'
         } for s in cursor.fetchall()]
         
@@ -2291,7 +2315,7 @@ def get_realtime_prices():
                         'profit_rate': profit_rate,
                         'profit': profit,
                         'stop_loss_ratio': stop_loss_ratio,
-                        'is_favorite': stock.get('is_favorite', 0),
+                        'owner': stock.get('owner', '나'),
                         'is_stop_loss': is_stop_loss,
                         'type': stock['type']
                     })
@@ -2308,7 +2332,7 @@ def get_realtime_prices():
                         'profit_rate': 0,
                         'profit': 0,
                         'stop_loss_ratio': stock.get('stop_loss_ratio', 0),
-                        'is_favorite': stock.get('is_favorite', 0),
+                        'owner': stock.get('owner', '나'),
                         'is_stop_loss': False,
                         'type': stock['type']
                     })
@@ -2316,6 +2340,82 @@ def get_realtime_prices():
         return jsonify(results)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/history/snapshot', methods=['POST'])
+def record_daily_snapshot():
+    """[김선화] 현재 보유 종목의 상태를 종목별로 일자별 히스토리에 기록"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        # 1. 보유 종목 및 소유주 정보 가져오기
+        cursor.execute("SELECT code, name, purchase_price, quantity, owner FROM my_stocks")
+        stocks = [dict(row) for row in cursor.fetchall()]
+        
+        if not stocks:
+            return jsonify({'success': False, 'message': '기록할 종목이 없습니다.'}), 400
+            
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # 2. 실시간 가격 정보 수집 (병렬 처리)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            details = list(executor.map(lambda s: get_portfolio_details(s['code']), stocks))
+            
+        recorded_at = datetime.now().isoformat()
+        
+        # 3. 히스토리 저장
+        for i, stock in enumerate(stocks):
+            detail = details[i] if details[i] else {}
+            current_price = detail.get('current_price', 0)
+            
+            # 같은 날짜, 같은 종목 데이터가 이미 있으면 업데이트, 없으면 삽입
+            cursor.execute("SELECT id FROM stock_daily_history WHERE date = ? AND code = ?", (today, stock['code']))
+            existing = cursor.fetchone()
+            
+            if existing:
+                cursor.execute('''
+                    UPDATE stock_daily_history SET 
+                    purchase_price = ?, current_price = ?, quantity = ?, owner = ?, recorded_at = ?
+                    WHERE id = ?
+                ''', (stock['purchase_price'], current_price, stock['quantity'], stock['owner'], recorded_at, existing[0]))
+            else:
+                cursor.execute('''
+                    INSERT INTO stock_daily_history 
+                    (date, code, name, purchase_price, current_price, quantity, owner, recorded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (today, stock['code'], stock['name'], stock['purchase_price'], current_price, stock['quantity'], stock['owner'], recorded_at))
+            
+        db.commit()
+        return jsonify({'success': True, 'message': f'{today} 기준 {len(stocks)}개 종목 데이터가 기록되었습니다.'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/history/dates', methods=['GET'])
+def get_history_dates():
+    """[김선화] 데이터가 기록된 날짜 목록 조회 (최신순)"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT DISTINCT date FROM stock_daily_history ORDER BY date DESC")
+        dates = [row['date'] for row in cursor.fetchall()]
+        return jsonify({'success': True, 'dates': dates})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/history/data', methods=['GET'])
+def get_history_data():
+    """[김선화] 특정 날짜의 종목별 상세 데이터 조회"""
+    date = request.args.get('date')
+    if not date:
+        return jsonify({'success': False, 'message': '날짜를 지정해주세요.'}), 400
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM stock_daily_history WHERE date = ? ORDER BY owner, name", (date,))
+        history = [dict(row) for row in cursor.fetchall()]
+        return jsonify({'success': True, 'data': history})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/sync', methods=['POST'])
 def sync_data():
@@ -2327,7 +2427,65 @@ def sync_data():
         return jsonify({'success': True, 'added': added, 'removed': removed})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500 
+def auto_snapshot_scheduler():
+    """[김선화] 매일 장 마감(15:40) 후 자동 스냅샷 기록 스케줄러"""
+    print("[김선화] 자동 스냅샷 스케줄러 가동 중 (평일 15:40 예정)")
+    while True:
+        try:
+            now = datetime.now()
+            # 평일(0-4: 월-금)이고 15:40분인 경우 실행
+            if now.weekday() < 5 and now.hour == 15 and now.minute == 40:
+                print(f"[김선화] {now.strftime('%Y-%m-%d')} 장 마감 자동 스냅샷 실행 중...")
+                with app.app_context():
+                    # 내부 함수 호출 (API 로직 재사용)
+                    try:
+                        # db = get_db() logic duplicated here for internal use
+                        conn = sqlite3.connect(DB_FILE, timeout=30)
+                        conn.execute("PRAGMA journal_mode=WAL")
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT code, name, purchase_price, quantity, owner FROM my_stocks")
+                        stocks = [dict(zip([column[0] for column in cursor.description], row)) for row in cursor.fetchall()]
+                        
+                        if stocks:
+                            with ThreadPoolExecutor(max_workers=10) as executor:
+                                details = list(executor.map(lambda s: get_portfolio_details(s['code']), stocks))
+                            
+                            today = now.strftime('%Y-%m-%d')
+                            recorded_at = now.isoformat()
+                            
+                            for i, stock in enumerate(stocks):
+                                detail = details[i] if details[i] else {}
+                                current_price = detail.get('current_price', 0)
+                                
+                                cursor.execute("SELECT id FROM stock_daily_history WHERE date = ? AND code = ?", (today, stock['code']))
+                                existing = cursor.fetchone()
+                                if existing:
+                                    cursor.execute("UPDATE stock_daily_history SET purchase_price=?, current_price=?, quantity=?, owner=?, recorded_at=? WHERE id=?", 
+                                                 (stock['purchase_price'], current_price, stock['quantity'], stock['owner'], recorded_at, existing[0]))
+                                else:
+                                    cursor.execute("INSERT INTO stock_daily_history (date, code, name, purchase_price, current_price, quantity, owner, recorded_at) VALUES (?,?,?,?,?,?,?,?)",
+                                                 (today, stock['code'], stock['name'], stock['purchase_price'], current_price, stock['quantity'], stock['owner'], recorded_at))
+                            conn.commit()
+                            print(f"[김선화] {today} 자동 스냅샷 기록 완료 ({len(stocks)}개 종목)")
+                        conn.close()
+                    except Exception as ex:
+                        print(f"[김선화] 자동 스냅샷 실패: {ex}")
+                
+                # 1분간 대기하여 중복 실행 방지
+                time.sleep(65)
+            
+            # 30초마다 체크
+            time.sleep(30)
+        except Exception as e:
+            print(f"[김선화] 스케줄러 루프 오류: {e}")
+            time.sleep(60)
+
 if __name__ == '__main__':
     init_db()  # [김정음] 스타트업 시 DB 초기화 보장
+    
+    # [김선화] 자동 스케줄러 쓰레드 시작
+    scheduler_thread = threading.Thread(target=auto_snapshot_scheduler, daemon=True)
+    scheduler_thread.start()
+    
     app.run(debug=True, host='0.0.0.0', port=5000)
         
