@@ -189,6 +189,10 @@ def init_db():
         cursor.execute("ALTER TABLE price_alerts ADD COLUMN prev_change_rate REAL DEFAULT 0.0")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE price_alerts ADD COLUMN foreign_net_buy INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     
     conn.commit()
     conn.close()
@@ -461,6 +465,16 @@ def run_market_monitor():
     global monitor_active_market, industry_cache
     print("🚀 정규장 모니터링 엔진 가동 시작...")
     
+    # [김선화] 엔진 시작 시 기존 알림 초기화 (API 지연 방지를 위해 쓰레드 내부로 이동)
+    try:
+        conn = sqlite3.connect(DB_FILE, timeout=30)
+        conn.cursor().execute("DELETE FROM price_alerts WHERE type='spike'")
+        conn.commit()
+        conn.close()
+        print("🧹 기존 정규장 탐지 내역 초기화 완료")
+    except Exception as e:
+        print(f"⚠️ 초기화 오류: {e}")
+    
     while monitor_active_market:
         try:
             now = datetime.now()
@@ -501,20 +515,18 @@ def run_market_monitor():
             # 3. 상세 정보 수집
             update_data = []
             for m in movers:
-                if m['code'] not in industry_cache:
-                    details = get_all_naver_data(m['code'])
-                    industry = details.get('industry_name', '기타')
-                    industry_cache[m['code']] = industry
-                    intensity = details.get('intensity', 0.0)
-                    prev_change_rate = details.get('prev_change_rate', 0.0)
-                else:
-                    industry = industry_cache[m['code']]
-                    intensity = 0.0
-                    prev_change_rate = 0.0
+                # [김선화] 수급 및 강도 데이터 실시간 반영을 위해 상세 조회 수행
+                details = get_all_naver_data(m['code'])
+                industry = details.get('industry_name', industry_cache.get(m['code'], '기타'))
+                industry_cache[m['code']] = industry
+                intensity = details.get('intensity', 0.0)
+                prev_change_rate = details.get('prev_change_rate', 0.0)
+                f_buy = details.get('foreign_net_buy_today', 0)
                 
                 update_data.append({
                     'm': m, 'industry': industry, 'intensity': intensity,
-                    'prev_change_rate': prev_change_rate
+                    'prev_change_rate': prev_change_rate,
+                    'foreign_net_buy': f_buy
                 })
 
             # 4. DB 일괄 업데이트
@@ -532,21 +544,27 @@ def run_market_monitor():
                 if item['prev_change_rate'] < 0: score += 5
                 if item['intensity'] > 100: score += min((item['intensity'] - 100) / 5, 10)
                 if fin['audit'] == '적정의견': score += 5
+                
+                # [김선화] 외국인 수급 가중치 반영
+                f_buy = item.get('foreign_net_buy', 0)
+                if f_buy > 0: score += 5
+                if f_buy > 100000000: score += 5 # 1억 이상 매수 시 추가 가중치
+                
                 recommend_score = round(score, 2)
                 
                 if existing:
                     cursor.execute("""
                         UPDATE price_alerts 
                         SET change_rate = ?, price = ?, volume = CASE WHEN ? > 0 THEN ? ELSE volume END, 
-                            intensity = ?, recommend_score = ?, prev_change_rate = ?, created_at = ?
+                            intensity = ?, recommend_score = ?, prev_change_rate = ?, foreign_net_buy = ?, created_at = ?
                         WHERE id = ?
-                    """, (m['change_rate'], m['price'], m['volume'], m['volume'], item['intensity'], recommend_score, item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
+                    """, (m['change_rate'], m['price'], m['volume'], m['volume'], item['intensity'], recommend_score, item['prev_change_rate'], f_buy, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
                 elif not m.get('is_update_only'):
-                    print(f"📡 [SPIKE] {m['name']}({m['code']}) [{item['industry']}] {m['price']:,}원 {m['change_rate']}% 탐지!")
+                    print(f"📡 [SPIKE] {m['name']}({m['code']}) [{item['industry']}] {m['price']:,}원 {m['change_rate']}% (외인: {f_buy:,}원) 탐지!")
                     cursor.execute("""
-                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, intensity, recommend_score, prev_change_rate, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (m['code'], m['name'], 'spike', m['change_rate'], m['price'], m['volume'], item['industry'], item['intensity'], recommend_score, item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, intensity, recommend_score, prev_change_rate, foreign_net_buy, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (m['code'], m['name'], 'spike', m['change_rate'], m['price'], m['volume'], item['industry'], item['intensity'], recommend_score, item['prev_change_rate'], f_buy, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             conn.commit()
             conn.close()
             time.sleep(180)
@@ -558,6 +576,16 @@ def run_ah_monitor():
     """[김선화] 시간외 단일가 급등주 탐지 엔진 (16:00 - 18:00)"""
     global monitor_active_ah, industry_cache
     print("🌙 시간외 단일가 탐지 엔진 가동 시작...")
+    
+    # [김선화] 엔진 시작 시 기존 알림 초기화
+    try:
+        conn = sqlite3.connect(DB_FILE, timeout=30)
+        conn.cursor().execute("DELETE FROM price_alerts WHERE type='after_hours'")
+        conn.commit()
+        conn.close()
+        print("🧹 기존 시간외 탐지 내역 초기화 완료")
+    except Exception as e:
+        print(f"⚠️ 초기화 오류: {e}")
     
     while monitor_active_ah:
         try:
@@ -598,20 +626,18 @@ def run_ah_monitor():
             # 3. 상세 정보 수집 (최적화)
             update_data = []
             for m in movers:
-                if m['code'] not in industry_cache:
-                    details = get_all_naver_data(m['code'])
-                    industry = details.get('industry_name', '기타')
-                    industry_cache[m['code']] = industry
-                    intensity = details.get('intensity', 0.0)
-                    prev_change_rate = details.get('prev_change_rate', 0.0)
-                else:
-                    industry = industry_cache[m['code']]
-                    intensity = 0.0
-                    prev_change_rate = 0.0 
+                # [김선화] 수급 데이터 실시간 반영을 위해 상세 조회
+                details = get_all_naver_data(m['code'])
+                industry = details.get('industry_name', industry_cache.get(m['code'], '기타'))
+                industry_cache[m['code']] = industry
+                intensity = details.get('intensity', 0.0)
+                prev_change_rate = details.get('prev_change_rate', 0.0)
+                f_buy = details.get('foreign_net_buy_today', 0)
                 
                 update_data.append({
                     'm': m, 'industry': industry, 'intensity': intensity,
-                    'prev_change_rate': prev_change_rate
+                    'prev_change_rate': prev_change_rate,
+                    'foreign_net_buy': f_buy
                 })
 
             # 4. DB 일괄 업데이트
@@ -628,21 +654,26 @@ def run_ah_monitor():
                 score = 10.0
                 if item['prev_change_rate'] < 0: score += 3
                 if fin['audit'] == '적정의견': score += 2
+                
+                # [김선화] 외국인 수급 가중치 반영
+                f_buy = item.get('foreign_net_buy', 0)
+                if f_buy > 0: score += 3
+                
                 recommend_score = round(score, 2)
                 
                 if existing:
                     cursor.execute("""
                         UPDATE price_alerts 
                         SET change_rate = ?, price = ?, volume = CASE WHEN ? > 0 THEN ? ELSE volume END, 
-                            intensity = ?, recommend_score = ?, prev_change_rate = ?, created_at = ?
+                            intensity = ?, recommend_score = ?, prev_change_rate = ?, foreign_net_buy = ?, created_at = ?
                         WHERE id = ?
-                    """, (m['change_rate'], m['price'], m['volume'], m['volume'], item['intensity'], recommend_score, item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
+                    """, (m['change_rate'], m['price'], m['volume'], m['volume'], item['intensity'], recommend_score, item['prev_change_rate'], f_buy, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
                 elif not m.get('is_update_only'):
-                    print(f"📡 [AFTER_HOURS] {m['name']}({m['code']}) [{item['industry']}] {m['price']:,}원 {m['change_rate']}% 탐지!")
+                    print(f"📡 [AFTER_HOURS] {m['name']}({m['code']}) [{item['industry']}] {m['price']:,}원 {m['change_rate']}% (외인: {f_buy:,}원) 탐지!")
                     cursor.execute("""
-                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, intensity, recommend_score, prev_change_rate, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (m['code'], m['name'], 'after_hours', m['change_rate'], m['price'], m['volume'], item['industry'], item['intensity'], recommend_score, item['prev_change_rate'], datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, intensity, recommend_score, prev_change_rate, foreign_net_buy, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (m['code'], m['name'], 'after_hours', m['change_rate'], m['price'], m['volume'], item['industry'], item['intensity'], recommend_score, item['prev_change_rate'], f_buy, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             conn.commit()
             conn.close()
             print(f"✅ [DONE] 시간외 업데이트 완료. 3분 뒤 재스캔합니다.")
@@ -711,25 +742,14 @@ def api_toggle_monitor():
     if target == 'market':
         monitor_active_market = not monitor_active_market
         if monitor_active_market:
-            # [김선화] 시작 시 기존 알림 초기화
-            try:
-                conn = sqlite3.connect(DB_FILE)
-                conn.cursor().execute("DELETE FROM price_alerts WHERE type='spike'")
-                conn.commit()
-                conn.close()
-            except: pass
+            # [김선화] 즉시 응답을 위해 DB 초기화 및 쓰레드 시작을 비동기화 고민했으나, 
+            # 쓰레드 내부에서 초기화하도록 구조 변경하여 API 지연 해소
             monitor_thread_market = threading.Thread(target=run_market_monitor, daemon=True)
             monitor_thread_market.start()
         return jsonify({"active": monitor_active_market, "target": "market"})
     else:
         monitor_active_ah = not monitor_active_ah
         if monitor_active_ah:
-            try:
-                conn = sqlite3.connect(DB_FILE)
-                conn.cursor().execute("DELETE FROM price_alerts WHERE type='after_hours'")
-                conn.commit()
-                conn.close()
-            except: pass
             monitor_thread_ah = threading.Thread(target=run_ah_monitor, daemon=True)
             monitor_thread_ah.start()
         return jsonify({"active": monitor_active_ah, "target": "ah"})
@@ -799,6 +819,7 @@ def get_alerts():
         
         order_clause = "change_rate DESC"
         if sort_by == 'recommend': order_clause = "recommend_score DESC"
+        elif sort_by == 'foreign_net_buy': order_clause = "foreign_net_buy DESC"
         elif sort_by == 'time': order_clause = "created_at DESC"
         
         query = f"""
@@ -825,26 +846,39 @@ def get_alerts():
 
 @app.route('/api/targets/tomorrow')
 def get_tomorrow_targets():
-    """[김선화] 내일 공략할 후보군(오늘의 시간외 급등주) 목록을 가져옵니다."""
+    """[감사팀 협업] 감사팀에서 선정한 우량주 후보군 목록을 가져옵니다."""
+    target_date = request.args.get('date') # 특정 일자 조회 지원
     try:
         conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # 오늘 날짜
-        today = datetime.now().strftime('%Y-%m-%d')
-        
-        # 오늘 16:00 이후 발생한 시간외 알림 중 상위 10개 추출
-        query = """
-            SELECT * FROM price_alerts 
-            WHERE type = 'after_hours' AND created_at >= ?
-            ORDER BY change_rate DESC LIMIT 10
-        """
-        cursor.execute(query, (f"{today} 16:00:00",))
-        targets = [dict(zip([column[0] for column in cursor.description], row)) for row in cursor.fetchall()]
+        if target_date:
+            query = "SELECT * FROM audit_recommendations WHERE data_date = ? ORDER BY upside DESC"
+            cursor.execute(query, (target_date,))
+        else:
+            # 일자 지정이 없으면 가장 최신 데이터 조회
+            query = "SELECT * FROM audit_recommendations ORDER BY data_date DESC, upside DESC LIMIT 10"
+            cursor.execute(query)
+            
+        targets = [dict(row) for row in cursor.fetchall()]
         conn.close()
         return jsonify(targets)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/audit/dates')
+def get_audit_dates():
+    """[감사팀 협업] 추천 데이터가 있는 일자 목록을 가져옵니다."""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT data_date FROM audit_recommendations ORDER BY data_date DESC")
+        dates = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        return jsonify(dates)
+    except Exception as e:
+        return jsonify([])
 
 def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', year=None, report_types=None):
     """백그라운드에서 데이터 수집 실행"""
@@ -1462,10 +1496,12 @@ def get_market_indices_api():
 @app.route('/api/my_stocks', methods=['GET'])
 def get_my_stocks():
     try:
-        db = get_db()
+        db = sqlite3.connect(DB_FILE, timeout=30)
+        db.row_factory = sqlite3.Row
         cursor = db.cursor()
         cursor.execute("SELECT code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner FROM my_stocks ORDER BY added_at DESC")
         stocks = [dict(row) for row in cursor.fetchall()]
+        db.close()
         return jsonify(stocks)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1826,7 +1862,7 @@ def update_master():
                 print(f"ETF 마스터 수집 중 오류: {etf_e}")
             
             if all_stocks:
-                conn = sqlite3.connect(DB_FILE)
+                conn = sqlite3.connect(DB_FILE, timeout=30)
                 cursor = conn.cursor()
                 cursor.executemany("INSERT OR REPLACE INTO stocks_master (code, name, market) VALUES (?, ?, ?)", all_stocks)
                 conn.commit()
