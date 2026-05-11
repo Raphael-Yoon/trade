@@ -119,7 +119,7 @@ def init_db():
             cumulative_profit REAL DEFAULT 0
         )
     ''')
-    for col in [('day_profit', 'REAL DEFAULT 0'), ('cumulative_profit', 'REAL DEFAULT 0')]:
+    for col in [('day_profit', 'REAL DEFAULT 0'), ('cumulative_profit', 'REAL DEFAULT 0'), ('change_rate', 'REAL DEFAULT 0')]:
         try:
             cursor.execute(f"ALTER TABLE stock_daily_history ADD COLUMN {col[0]} {col[1]}")
         except Exception:
@@ -2496,7 +2496,18 @@ def get_realtime_prices():
 def record_daily_snapshot():
     """[김선화] 프론트에서 넘긴 실시간 시세 데이터를 그대로 히스토리에 저장"""
     try:
-        stocks = request.get_json()
+        body = request.get_json()
+        if not body:
+            return jsonify({'success': False, 'message': '저장할 데이터가 없습니다.'}), 400
+
+        # force 플래그와 stocks 배열 분리 (구버전 호환: 배열 직접 전송도 허용)
+        if isinstance(body, list):
+            stocks = body
+            force = False
+        else:
+            stocks = body.get('stocks', [])
+            force = body.get('force', False)
+
         if not stocks:
             return jsonify({'success': False, 'message': '저장할 데이터가 없습니다.'}), 400
 
@@ -2507,33 +2518,53 @@ def record_daily_snapshot():
         db = get_db()
         cursor = db.cursor()
         today = datetime.now().strftime('%Y-%m-%d')
+
+        # 오늘 데이터 이미 존재 여부 확인
+        cursor.execute("SELECT COUNT(*) as cnt FROM stock_daily_history WHERE date = ?", (today,))
+        existing_count = cursor.fetchone()['cnt']
+        if existing_count > 0 and not force:
+            return jsonify({'success': False, 'exists': True,
+                            'message': f'{today} 날짜의 데이터가 이미 존재합니다. 덮어쓰시겠습니까?'})
+
         recorded_at = datetime.now().isoformat()
+
+        # 덮어쓰기: 기존 날짜 데이터 전체 삭제 후 재삽입
+        if existing_count > 0:
+            cursor.execute("DELETE FROM stock_daily_history WHERE date = ?", (today,))
 
         for s in portfolio:
             day_profit = s.get('change', 0) * s.get('quantity', 0)
+            change_rate = s.get('change_rate', 0)
             cumulative_profit = s.get('profit', 0)
-
-            cursor.execute("SELECT id FROM stock_daily_history WHERE date = ? AND code = ?", (today, s['code']))
-            existing = cursor.fetchone()
-
-            if existing:
-                cursor.execute('''
-                    UPDATE stock_daily_history SET
-                    purchase_price = ?, current_price = ?, quantity = ?, owner = ?, recorded_at = ?,
-                    day_profit = ?, cumulative_profit = ?
-                    WHERE id = ?
-                ''', (s['purchase_price'], s['price'], s['quantity'], s.get('owner', '나'),
-                      recorded_at, day_profit, cumulative_profit, existing[0]))
-            else:
-                cursor.execute('''
-                    INSERT INTO stock_daily_history
-                    (date, code, name, purchase_price, current_price, quantity, owner, recorded_at, day_profit, cumulative_profit)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (today, s['code'], s['name'], s['purchase_price'], s['price'],
-                      s['quantity'], s.get('owner', '나'), recorded_at, day_profit, cumulative_profit))
+            cursor.execute('''
+                INSERT INTO stock_daily_history
+                (date, code, name, purchase_price, current_price, quantity, owner, recorded_at, day_profit, change_rate, cumulative_profit)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (today, s['code'], s['name'], s['purchase_price'], s['price'],
+                  s['quantity'], s.get('owner', '나'), recorded_at, day_profit, change_rate, cumulative_profit))
 
         db.commit()
-        return jsonify({'success': True, 'message': f'{today} 기준 {len(portfolio)}개 종목 데이터가 기록되었습니다.'})
+        action = '덮어쓰기' if existing_count > 0 else '기록'
+        return jsonify({'success': True, 'message': f'{today} 기준 {len(portfolio)}개 종목 데이터가 {action}되었습니다.'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/history/delete', methods=['DELETE'])
+def delete_history():
+    """[김정음] 특정 날짜의 히스토리 데이터 전체 삭제"""
+    try:
+        date = request.args.get('date')
+        if not date:
+            return jsonify({'success': False, 'message': '날짜를 지정해주세요.'}), 400
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("DELETE FROM stock_daily_history WHERE date = ?", (date,))
+        db.commit()
+        deleted = cursor.rowcount
+        if deleted == 0:
+            return jsonify({'success': False, 'message': f'{date} 날짜의 데이터가 없습니다.'})
+        return jsonify({'success': True, 'message': f'{date} 날짜의 데이터 {deleted}건이 삭제되었습니다.'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 

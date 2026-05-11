@@ -407,10 +407,14 @@
                     </div>
                     <div style="display: flex; align-items: center; gap: 16px;">
                         <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">조회 날짜:</span>
-                        <select id="historyDateSelect" onchange="loadHistoryData(this.value)" 
+                        <select id="historyDateSelect" onchange="loadHistoryData(this.value)"
                             style="padding: 10px 20px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 180px;">
                             <option value="">데이터를 불러오는 중...</option>
                         </select>
+                        <button onclick="deleteHistory(document.getElementById('historyDateSelect').value)"
+                            style="padding: 10px 18px; border-radius: 12px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                            🗑️ 선택 날짜 삭제
+                        </button>
                     </div>
                 </div>
 
@@ -867,15 +871,36 @@
         }
 
         // [김선화] 오늘 종목별 데이터 스냅샷 기록
-        function takeSnapshot() {
-            if (!confirm('현재 시점의 포트폴리오 데이터를 오늘 히스토리로 기록하시겠습니까?')) return;
+        function takeSnapshot(force = false) {
+            if (!force && !confirm('현재 시점의 포트폴리오 데이터를 오늘 히스토리로 기록하시겠습니까?')) return;
 
             showToast('데이터 기록 중...', 'success');
             fetch('/api/history/snapshot', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(lastRealtimeData)
+                body: JSON.stringify({ stocks: lastRealtimeData, force: force })
             })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast(data.message, 'success');
+                        loadHistoryDates();
+                    } else if (data.exists) {
+                        if (confirm(data.message)) {
+                            takeSnapshot(true);
+                        }
+                    } else {
+                        showToast(data.message, 'error');
+                    }
+                })
+                .catch(err => showToast('기록 실패: ' + err, 'error'));
+        }
+
+        // [유병욱] 히스토리 날짜 삭제
+        function deleteHistory(date) {
+            if (!date) { showToast('삭제할 날짜를 선택해주세요.', 'error'); return; }
+            if (!confirm(`${date} 날짜의 히스토리 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+            fetch(`/api/history/delete?date=${date}`, { method: 'DELETE' })
                 .then(res => res.json())
                 .then(data => {
                     if (data.success) {
@@ -885,7 +910,7 @@
                         showToast(data.message, 'error');
                     }
                 })
-                .catch(err => showToast('기록 실패: ' + err, 'error'));
+                .catch(err => showToast('삭제 실패: ' + err, 'error'));
         }
 
         // [김선화] 히스토리 날짜 목록 로드 및 최신 날짜 자동 선택
@@ -904,6 +929,8 @@
                         loadHistoryData(latestDate);
                     } else {
                         select.innerHTML = '<option value="">기록된 데이터 없음</option>';
+                        document.getElementById('historyContent').innerHTML =
+                            '<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: var(--text-muted);"><span style="font-size: 48px; margin-bottom: 16px;">📅</span><p>저장된 히스토리 데이터가 없습니다.</p></div>';
                     }
                 })
                 .catch(err => {
@@ -977,6 +1004,14 @@
 
                     // 소유주별 테이블
                     for (const owner in grouped) {
+                        const items = grouped[owner];
+                        const subInvested = items.reduce((s, i) => s + i.purchase_price * i.quantity, 0);
+                        const subDayProfit = items.reduce((s, i) => s + (i.day_profit || 0), 0);
+                        const subCumProfit = items.reduce((s, i) => s + (i.cumulative_profit || 0), 0);
+                        const subCumRate = subInvested > 0 ? (subCumProfit / subInvested * 100).toFixed(2) : 0;
+                        const subDayColor = subDayProfit >= 0 ? '#ef4444' : '#3b82f6';
+                        const subCumColor = subCumProfit >= 0 ? '#ef4444' : '#3b82f6';
+
                         html += `
                             <div style="margin-bottom: 40px;">
                                 <h4 style="font-size: 18px; color: #fbbf24; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
@@ -995,10 +1030,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${grouped[owner].map(item => {
-                                            const profit = (item.current_price - item.purchase_price) * item.quantity;
-                                            const rate = item.purchase_price > 0 ? ((item.current_price - item.purchase_price) / item.purchase_price * 100).toFixed(2) : 0;
-                                            const color = profit >= 0 ? '#ef4444' : '#3b82f6';
+                                        ${items.map(item => {
                                             const dayProfit = item.day_profit || 0;
                                             const cumProfit = item.cumulative_profit || 0;
                                             const cumRate = item.purchase_price > 0 ? (cumProfit / (item.purchase_price * item.quantity) * 100).toFixed(2) : 0;
@@ -1023,6 +1055,22 @@
                                             `;
                                         }).join('')}
                                     </tbody>
+                                    <tfoot>
+                                        <tr style="border-top: 2px solid rgba(255,255,255,0.15); background: rgba(251,191,36,0.06);">
+                                            <td colspan="4" style="padding: 12px 12px; font-weight: 900; color: #fbbf24; font-size: 13px; letter-spacing: 0.5px;">
+                                                📊 ${owner} 소계 (${items.length}종목)
+                                            </td>
+                                            <td style="padding: 12px; text-align: right; color: ${subDayColor}; font-weight: 900; font-size: 14px;">
+                                                ${subDayProfit > 0 ? '+' : ''}${Math.floor(subDayProfit).toLocaleString()}원
+                                            </td>
+                                            <td style="padding: 12px; text-align: right; color: ${subCumColor}; font-weight: 900; font-size: 14px;">
+                                                ${subCumProfit > 0 ? '+' : ''}${Math.floor(subCumProfit).toLocaleString()}원
+                                            </td>
+                                            <td style="padding: 12px; text-align: right; color: ${subCumColor}; font-weight: 900; font-size: 14px;">
+                                                ${subCumRate}%
+                                            </td>
+                                        </tr>
+                                    </tfoot>
                                 </table>
                             </div>
                         `;
