@@ -12,6 +12,7 @@ results/
 credentials.json
 token.pickle
 .env
-trade.db
+trade.db-shm
+trade.db-wal
 
 

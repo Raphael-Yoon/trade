@@ -114,9 +114,16 @@ def init_db():
             current_price REAL,
             quantity INTEGER,
             owner TEXT,
-            recorded_at TEXT
+            recorded_at TEXT,
+            day_profit REAL DEFAULT 0,
+            cumulative_profit REAL DEFAULT 0
         )
     ''')
+    for col in [('day_profit', 'REAL DEFAULT 0'), ('cumulative_profit', 'REAL DEFAULT 0')]:
+        try:
+            cursor.execute(f"ALTER TABLE stock_daily_history ADD COLUMN {col[0]} {col[1]}")
+        except Exception:
+            pass
     
     # 분석 결과 테이블
     cursor.execute('''
@@ -193,6 +200,21 @@ def init_db():
         cursor.execute("ALTER TABLE price_alerts ADD COLUMN foreign_net_buy INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+
+    # [감사팀 협업] 감사팀 추천 종목 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS audit_recommendations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT,
+            name TEXT,
+            current_price REAL,
+            target_price REAL,
+            upside REAL,
+            opinion TEXT,
+            data_date TEXT, -- 데이터 기준 일자 (예: 2026-05-10)
+            created_at TEXT
+        )
+    ''')
     
     conn.commit()
     conn.close()
@@ -222,10 +244,13 @@ industry_cache = {}
 # 형식: {code: {'high': 0, 'last_updated': 0}}
 holding_high_cache = {}
 
-def load_financial_health():
+def load_financial_health(force=False):
     """[김선화] 감사팀의 재무 보고서(Excel)를 구글 드라이브 또는 로컬에서 로드하여 주요 지표를 캐싱합니다."""
     global financial_cache
-    if financial_cache: return financial_cache
+    if not force and financial_cache: return financial_cache
+    
+    # [김선화] 강제 로드 시 기존 캐시 초기화
+    if force: financial_cache = {}
     
     # 1. 구글 드라이브에서 최신 데이터 시도 (개발2팀 연결 방식 적용)
     try:
@@ -252,13 +277,17 @@ def load_financial_health():
                     df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
                     
                     for _, row in df.iterrows():
-                        financial_cache[row['종목코드']] = {
+                        code = row['종목코드']
+                        financial_cache[code] = {
                             'audit': str(row.get('회계감사의견', 'N/A')),
                             'internal': str(row.get('내부통제의견', 'N/A')),
-                            'roe': row.get('ROE', 0),
-                            'debt_ratio': row.get('부채비율', 0),
-                            'risk': 'HIGH' if str(row.get('회계감사의견', '')) in ['의견거절', '한정의견'] else 'LOW'
+                            'roe': float(row.get('ROE', 0)),
+                            'debt_ratio': float(row.get('부채비율', 0))
                         }
+                    
+                    # [김선화] 수집된 데이터를 audit_recommendations 테이블에 동기화 (내일 공략 후보 자동 생성)
+                    sync_audit_recommendations(df, latest_file['name'])
+                    
                     print(f"✅ 구글 드라이브 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
                     return financial_cache
     except Exception as e:
@@ -266,7 +295,10 @@ def load_financial_health():
 
     # 2. 로컬 데이터 폴백 (가장 최신 파일 탐색)
     try:
-        report_dir = r'c:\Python\cowork\Report'
+        # [김선화] Linux/Windows 호환 경로 설정
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        report_dir = os.path.join(base_dir, 'cowork', 'Report')
+        
         if os.path.exists(report_dir):
             local_files = [os.path.join(report_dir, f) for f in os.listdir(report_dir) if f.endswith('.xlsx')]
             if local_files:
@@ -277,13 +309,17 @@ def load_financial_health():
                 df = pd.read_excel(file_path)
                 df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
                 for _, row in df.iterrows():
-                    financial_cache[row['종목코드']] = {
+                    code = row['종목코드']
+                    financial_cache[code] = {
                         'audit': str(row.get('회계감사의견', 'N/A')),
                         'internal': str(row.get('내부통제의견', 'N/A')),
-                        'roe': row.get('ROE', 0),
-                        'debt_ratio': row.get('부채비율', 0),
-                        'risk': 'HIGH' if str(row.get('회계감사의견', '')) in ['의견거절', '한정의견'] else 'LOW'
+                        'roe': float(row.get('ROE', 0)),
+                        'debt_ratio': float(row.get('부채비율', 0))
                     }
+                
+                # [김선화] 수집된 데이터를 audit_recommendations 테이블에 동기화
+                sync_audit_recommendations(df, os.path.basename(file_path))
+                
                 print(f"✅ 로컬 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
                 return financial_cache
             else:
@@ -894,9 +930,70 @@ def get_audit_dates():
         cursor.execute("SELECT DISTINCT data_date FROM audit_recommendations ORDER BY data_date DESC")
         dates = [row[0] for row in cursor.fetchall()]
         conn.close()
+        
+        # [김선화] 오늘 데이터가 없으면 즉시 동기화 시도
+        today = datetime.now().strftime('%Y-%m-%d')
+        if today not in dates:
+            print(f"🔄 [김선화] {today} 데이터 누락 감지. 즉시 동기화 시도...")
+            load_financial_health(force=True)
+            
+            # 재조회
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT data_date FROM audit_recommendations ORDER BY data_date DESC")
+            dates = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            
         return jsonify(dates)
     except Exception as e:
+        print(f"⚠️ [김선화] 날짜 목록 조회 오류: {e}")
         return jsonify([])
+
+def sync_audit_recommendations(df, file_name):
+    """[감사팀 협업] 드라이브에서 로드한 재무 데이터를 기반으로 추천 종목을 DB에 동기화합니다."""
+    try:
+        # 파일명에서 날짜 추출 (예: kospi_all_20260505_164059 -> 2026-05-05)
+        date_match = re.search(r'(\d{4})(\d{2})(\d{2})', file_name)
+        data_date = f"{date_match.group(1)}-{date_match.group(2)}-{date_match.group(3)}" if date_match else datetime.now().strftime('%Y-%m-%d')
+        
+        # 필터링: ROE > 15, 부채비율 < 100
+        # 종목코드 6자리 포맷팅 확인
+        df['종목코드'] = df['종목코드'].apply(lambda x: str(x).zfill(6))
+        qualified = df[(df['ROE'] > 15) & (df['부채비율'] < 100)].copy()
+        
+        conn = sqlite3.connect(DB_FILE, timeout=30)
+        cursor = conn.cursor()
+        
+        # 해당 일자의 기존 데이터 삭제 후 재입력 (Upsert 효과)
+        cursor.execute("DELETE FROM audit_recommendations WHERE data_date = ?", (data_date,))
+        
+        recommendations = []
+        for _, row in qualified.iterrows():
+            code = row['종목코드']
+            # 실시간 시세 및 목표가 조회 (get_portfolio_details 활용)
+            detail = get_portfolio_details(code)
+            curr = detail.get('current_price', 0)
+            target = detail.get('target_price', 0)
+            
+            # 상승여력이 있는 종목만 추천
+            if target > curr > 0:
+                upside = round((target - curr) / curr * 100, 2)
+                recommendations.append((
+                    code, row['종목명'], curr, target, upside, 
+                    detail.get('opinion', 'N/A'), data_date, datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                ))
+        
+        if recommendations:
+            cursor.executemany("""
+                INSERT INTO audit_recommendations (code, name, current_price, target_price, upside, opinion, data_date, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, recommendations)
+            print(f"✅ [감사팀] {data_date} 기준 추천 종목 {len(recommendations)}개 동기화 완료")
+            
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ [감사팀] 추천 종목 동기화 오류: {e}")
 
 def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', year=None, report_types=None):
     """백그라운드에서 데이터 수집 실행"""
@@ -2397,50 +2494,46 @@ def get_realtime_prices():
 
 @app.route('/api/history/snapshot', methods=['POST'])
 def record_daily_snapshot():
-    """[김선화] 현재 보유 종목의 상태를 종목별로 일자별 히스토리에 기록"""
+    """[김선화] 프론트에서 넘긴 실시간 시세 데이터를 그대로 히스토리에 저장"""
     try:
+        stocks = request.get_json()
+        if not stocks:
+            return jsonify({'success': False, 'message': '저장할 데이터가 없습니다.'}), 400
+
+        portfolio = [s for s in stocks if s.get('type') == 'portfolio']
+        if not portfolio:
+            return jsonify({'success': False, 'message': '보유 종목 데이터가 없습니다.'}), 400
+
         db = get_db()
         cursor = db.cursor()
-        
-        # 1. 보유 종목 및 소유주 정보 가져오기
-        cursor.execute("SELECT code, name, purchase_price, quantity, owner FROM my_stocks")
-        stocks = [dict(row) for row in cursor.fetchall()]
-        
-        if not stocks:
-            return jsonify({'success': False, 'message': '기록할 종목이 없습니다.'}), 400
-            
         today = datetime.now().strftime('%Y-%m-%d')
-        
-        # 2. 실시간 가격 정보 수집 (병렬 처리)
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            details = list(executor.map(lambda s: get_portfolio_details(s['code']), stocks))
-            
         recorded_at = datetime.now().isoformat()
-        
-        # 3. 히스토리 저장
-        for i, stock in enumerate(stocks):
-            detail = details[i] if details[i] else {}
-            current_price = detail.get('current_price', 0)
-            
-            # 같은 날짜, 같은 종목 데이터가 이미 있으면 업데이트, 없으면 삽입
-            cursor.execute("SELECT id FROM stock_daily_history WHERE date = ? AND code = ?", (today, stock['code']))
+
+        for s in portfolio:
+            day_profit = s.get('change', 0) * s.get('quantity', 0)
+            cumulative_profit = s.get('profit', 0)
+
+            cursor.execute("SELECT id FROM stock_daily_history WHERE date = ? AND code = ?", (today, s['code']))
             existing = cursor.fetchone()
-            
+
             if existing:
                 cursor.execute('''
-                    UPDATE stock_daily_history SET 
-                    purchase_price = ?, current_price = ?, quantity = ?, owner = ?, recorded_at = ?
+                    UPDATE stock_daily_history SET
+                    purchase_price = ?, current_price = ?, quantity = ?, owner = ?, recorded_at = ?,
+                    day_profit = ?, cumulative_profit = ?
                     WHERE id = ?
-                ''', (stock['purchase_price'], current_price, stock['quantity'], stock['owner'], recorded_at, existing[0]))
+                ''', (s['purchase_price'], s['price'], s['quantity'], s.get('owner', '나'),
+                      recorded_at, day_profit, cumulative_profit, existing[0]))
             else:
                 cursor.execute('''
-                    INSERT INTO stock_daily_history 
-                    (date, code, name, purchase_price, current_price, quantity, owner, recorded_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (today, stock['code'], stock['name'], stock['purchase_price'], current_price, stock['quantity'], stock['owner'], recorded_at))
-            
+                    INSERT INTO stock_daily_history
+                    (date, code, name, purchase_price, current_price, quantity, owner, recorded_at, day_profit, cumulative_profit)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (today, s['code'], s['name'], s['purchase_price'], s['price'],
+                      s['quantity'], s.get('owner', '나'), recorded_at, day_profit, cumulative_profit))
+
         db.commit()
-        return jsonify({'success': True, 'message': f'{today} 기준 {len(stocks)}개 종목 데이터가 기록되었습니다.'})
+        return jsonify({'success': True, 'message': f'{today} 기준 {len(portfolio)}개 종목 데이터가 기록되었습니다.'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -2481,6 +2574,7 @@ def sync_data():
         return jsonify({'success': True, 'added': added, 'removed': removed})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500 
+
 def auto_snapshot_scheduler():
     """[김선화] 매일 장 마감(15:40) 후 자동 스냅샷 기록 스케줄러"""
     print("[김선화] 자동 스냅샷 스케줄러 가동 중 (평일 15:40 예정)")
@@ -2542,4 +2636,3 @@ if __name__ == '__main__':
     scheduler_thread.start()
     
     app.run(debug=True, host='0.0.0.0', port=5000)
-        
