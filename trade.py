@@ -391,62 +391,68 @@ def get_market_movers():
                 'sise_market_sum.naver?sosok=0', 'sise_market_sum.naver?sosok=1' # 시가총액 상위
             ]
         
+        etf_codes = get_etf_codes()
         for t_url in targets:
-            url = f"https://finance.naver.com/sise/{t_url}"
-            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-            soup = BeautifulSoup(res.text, 'html.parser')
-            rows = soup.select("table.type_2 tr")
-            
-            etf_codes = get_etf_codes() # [김선화] ETF 필터링용 리스트
-            
-            for row in rows:
-                cols = row.select("td")
-                if len(cols) < 6: continue
-                
-                # [김선화] 시간대별 컬럼 인덱스 대응
-                if is_after_hours:
-                    # sise_low_up.naver?menu=danjiga 기준: 1:시간외등락률, 2:종목명, 3:시간외단가, 8:기준가(당일종가), 9:거래량
-                    # cols[1]=기준가대비 시간외 전용 등락률, cols[5]=전일대비 등락률(정규장 포함) → cols[1] 사용
-                    name = cols[2].text.strip()
-                    code_el = cols[2].find('a')
-                    price_str = cols[3].text.strip().replace(",", "")
-                    change_rate_str = cols[1].text.strip().replace("%", "").replace("+", "")
-                    volume_str = cols[9].text.strip().replace(",", "")
-                else:
-                    # sise_quant.naver 등 일반 페이지 기준: 1:종목명, 2:현재가, 4:등락률, 5:거래량
-                    name = cols[1].text.strip()
-                    code_el = cols[1].find('a')
-                    price_str = cols[2].text.strip().replace(",", "")
-                    change_rate_str = cols[4].text.strip().replace("%", "").replace("+", "")
-                    volume_str = cols[5].text.strip().replace(",", "")
+            try:
+                url = f"https://finance.naver.com/sise/{t_url}"
+                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+                res.raise_for_status()
+                soup = BeautifulSoup(res.text, 'html.parser')
+                rows = soup.select("table.type_2 tr")
 
-                if not code_el: continue
-                code = code_el['href'].split('=')[-1]
-                
-                # [김선화] ETF, ETN, 스팩 제외 로직 강화 (노이즈 제거)
-                if code in etf_codes or any(x in name.upper() for x in ['ETF', 'ETN', '스팩', 'SPAC']):
-                    continue
-                
-                try:
-                    price = int(price_str)
-                    change_rate = float(change_rate_str)
-                    volume = int(volume_str)
-                    
-                    # [김선화] 시간대에 맞는 설정값 적용
-                    current_threshold = monitor_threshold_ah if is_after_hours else monitor_threshold
-                    current_min_volume = monitor_min_volume_ah if is_after_hours else monitor_min_volume
-                    
-                    # [김선화] 임계치 이상 && 최소 거래량 이상일 때만 포착
-                    if change_rate >= current_threshold and volume >= current_min_volume:
-                        movers.append({
-                            'code': code, 
-                            'name': name, 
-                            'price': price, # 현재가 추가
-                            'change_rate': change_rate, 
-                            'volume': volume, 
-                            'type': 'spike'
-                        })
-                except: continue
+                for row in rows:
+                    cols = row.select("td")
+                    if len(cols) < 6: continue
+
+                    # [김선화] 시간대별 컬럼 인덱스 대응
+                    if is_after_hours:
+                        # sise_low_up.naver?menu=danjiga 기준: 1:시간외등락률, 2:종목명, 3:시간외단가, 8:기준가(당일종가), 9:거래량
+                        # cols[1]=기준가대비 시간외 전용 등락률, cols[5]=전일대비 등락률(정규장 포함) → cols[1] 사용
+                        name = cols[2].text.strip()
+                        code_el = cols[2].find('a')
+                        price_str = cols[3].text.strip().replace(",", "")
+                        change_rate_str = cols[1].text.strip().replace("%", "").replace("+", "")
+                        volume_str = cols[9].text.strip().replace(",", "") if len(cols) > 9 else "0"
+                    else:
+                        # sise_quant.naver 등 일반 페이지 기준: 1:종목명, 2:현재가, 4:등락률, 5:거래량
+                        name = cols[1].text.strip()
+                        code_el = cols[1].find('a')
+                        price_str = cols[2].text.strip().replace(",", "")
+                        change_rate_str = cols[4].text.strip().replace("%", "").replace("+", "")
+                        volume_str = cols[5].text.strip().replace(",", "")
+
+                    if not code_el: continue
+                    code = code_el['href'].split('=')[-1]
+
+                    # [김선화] ETF, ETN, 스팩 제외 로직 강화 (노이즈 제거)
+                    if code in etf_codes or any(x in name.upper() for x in ['ETF', 'ETN', '스팩', 'SPAC']):
+                        continue
+
+                    try:
+                        price = int(price_str)
+                        change_rate = float(change_rate_str)
+                        volume = int(volume_str)
+
+                        # [김선화] 시간대에 맞는 설정값 적용
+                        current_threshold = monitor_threshold_ah if is_after_hours else monitor_threshold
+                        current_min_volume = monitor_min_volume_ah if is_after_hours else monitor_min_volume
+
+                        # [김선화] 임계치 이상 && 최소 거래량 이상일 때만 포착
+                        if change_rate >= current_threshold and volume >= current_min_volume:
+                            movers.append({
+                                'code': code,
+                                'name': name,
+                                'price': price,
+                                'change_rate': change_rate,
+                                'volume': volume,
+                                'type': 'spike'
+                            })
+                    except ValueError as e:
+                        print(f"파싱 오류 ({t_url} / {name}): {e}")
+                        continue
+            except Exception as e:
+                print(f"시장 모니터링 오류 ({t_url}): {e}")
+                continue
     except Exception as e:
         print(f"시장 모니터링 오류: {e}")
     return movers
@@ -516,13 +522,15 @@ def run_market_monitor():
             update_data = []
             for m in movers:
                 # [김선화] 수급 및 강도 데이터 실시간 반영을 위해 상세 조회 수행
+                # 네이버 rate-limit 방지를 위해 요청 사이에 간격 삽입
+                time.sleep(0.3)
                 details = get_all_naver_data(m['code'])
                 industry = details.get('industry_name', industry_cache.get(m['code'], '기타'))
                 industry_cache[m['code']] = industry
                 intensity = details.get('intensity', 0.0)
                 prev_change_rate = details.get('prev_change_rate', 0.0)
                 f_buy = details.get('foreign_net_buy_today', 0)
-                
+
                 update_data.append({
                     'm': m, 'industry': industry, 'intensity': intensity,
                     'prev_change_rate': prev_change_rate,
@@ -606,7 +614,7 @@ def run_ah_monitor():
             today_str = now.strftime('%Y-%m-%d')
             conn = sqlite3.connect(DB_FILE, timeout=30)
             cursor = conn.cursor()
-            cursor.execute("SELECT code, name, industry FROM price_alerts WHERE created_at LIKE ?", (f'{today_str}%',))
+            cursor.execute("SELECT code, name, industry FROM price_alerts WHERE created_at LIKE ? AND type='after_hours'", (f'{today_str}%',))
             today_alerts = cursor.fetchall()
             conn.close()
 
@@ -627,13 +635,15 @@ def run_ah_monitor():
             update_data = []
             for m in movers:
                 # [김선화] 수급 데이터 실시간 반영을 위해 상세 조회
+                # 네이버 rate-limit 방지를 위해 요청 사이에 간격 삽입
+                time.sleep(0.3)
                 details = get_all_naver_data(m['code'])
                 industry = details.get('industry_name', industry_cache.get(m['code'], '기타'))
                 industry_cache[m['code']] = industry
                 intensity = details.get('intensity', 0.0)
                 prev_change_rate = details.get('prev_change_rate', 0.0)
                 f_buy = details.get('foreign_net_buy_today', 0)
-                
+
                 update_data.append({
                     'm': m, 'industry': industry, 'intensity': intensity,
                     'prev_change_rate': prev_change_rate,
@@ -690,46 +700,55 @@ def get_market_movers_filtered(is_after_hours=False):
             targets = [f'sise_low_up.naver?menu=danjiga&sosok={sosok}' for sosok in [0, 1]]
         else:
             targets = ['sise_quant.naver?sosok=0', 'sise_quant.naver?sosok=1', 'sise_rise.naver?sosok=0', 'sise_rise.naver?sosok=1']
-        
-        for t_url in targets:
-            url = f"https://finance.naver.com/sise/{t_url}"
-            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-            soup = BeautifulSoup(res.text, 'html.parser')
-            rows = soup.select("table.type_2 tr")
-            
-            for row in rows:
-                cols = row.select("td")
-                if len(cols) < 6: continue
-                
-                if is_after_hours:
-                    name = cols[2].text.strip()
-                    code_el = cols[2].find('a')
-                    price_str = cols[3].text.strip().replace(",", "")
-                    change_rate_str = cols[1].text.strip().replace("%", "").replace("+", "")
-                    volume_str = cols[9].text.strip().replace(",", "")
-                else:
-                    name = cols[1].text.strip()
-                    code_el = cols[1].find('a')
-                    price_str = cols[2].text.strip().replace(",", "")
-                    change_rate_str = cols[4].text.strip().replace("%", "").replace("+", "")
-                    volume_str = cols[5].text.strip().replace(",", "")
 
-                if not code_el: continue
-                code = code_el['href'].split('=')[-1]
-                if any(x in name.upper() for x in ['ETF', 'ETN', '스팩', 'SPAC']): continue
-                
-                try:
-                    price = int(price_str)
-                    change_rate = float(change_rate_str)
-                    volume = int(volume_str)
-                    
-                    threshold = monitor_threshold_ah if is_after_hours else monitor_threshold
-                    min_vol = monitor_min_volume_ah if is_after_hours else monitor_min_volume
-                    
-                    if change_rate >= threshold and volume >= min_vol:
-                        movers.append({'code': code, 'name': name, 'price': price, 'change_rate': change_rate, 'volume': volume})
-                except: continue
-    except: pass
+        etf_codes = get_etf_codes()
+        for t_url in targets:
+            try:
+                url = f"https://finance.naver.com/sise/{t_url}"
+                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+                res.raise_for_status()
+                soup = BeautifulSoup(res.text, 'html.parser')
+                rows = soup.select("table.type_2 tr")
+
+                for row in rows:
+                    cols = row.select("td")
+                    if len(cols) < 6: continue
+
+                    if is_after_hours:
+                        name = cols[2].text.strip()
+                        code_el = cols[2].find('a')
+                        price_str = cols[3].text.strip().replace(",", "")
+                        change_rate_str = cols[1].text.strip().replace("%", "").replace("+", "")
+                        volume_str = cols[9].text.strip().replace(",", "") if len(cols) > 9 else "0"
+                    else:
+                        name = cols[1].text.strip()
+                        code_el = cols[1].find('a')
+                        price_str = cols[2].text.strip().replace(",", "")
+                        change_rate_str = cols[4].text.strip().replace("%", "").replace("+", "")
+                        volume_str = cols[5].text.strip().replace(",", "")
+
+                    if not code_el: continue
+                    code = code_el['href'].split('=')[-1]
+                    if code in etf_codes or any(x in name.upper() for x in ['ETF', 'ETN', '스팩', 'SPAC']): continue
+
+                    try:
+                        price = int(price_str)
+                        change_rate = float(change_rate_str)
+                        volume = int(volume_str)
+
+                        threshold = monitor_threshold_ah if is_after_hours else monitor_threshold
+                        min_vol = monitor_min_volume_ah if is_after_hours else monitor_min_volume
+
+                        if change_rate >= threshold and volume >= min_vol:
+                            movers.append({'code': code, 'name': name, 'price': price, 'change_rate': change_rate, 'volume': volume})
+                    except ValueError as e:
+                        print(f"파싱 오류 ({t_url} / {name}): {e}")
+                        continue
+            except Exception as e:
+                print(f"시장 모니터링(filtered) 오류 ({t_url}): {e}")
+                continue
+    except Exception as e:
+        print(f"시장 모니터링(filtered) 오류: {e}")
     return movers
 
 @app.route('/api/monitor/toggle', methods=['POST'])
@@ -834,8 +853,7 @@ def get_alerts():
         alerts = []
         for row in rows:
             alert = dict(row)
-            # 시간외의 경우 거래량 조건이 다를 수 있으므로 유연하게 처리
-            if alert['volume'] >= current_min_volume or is_after_hours:
+            if alert['volume'] >= current_min_volume:
                 alerts.append(alert)
                 
         conn.close()
@@ -1378,7 +1396,7 @@ def get_detailed_price(ticker):
     try:
         url = f"https://finance.naver.com/item/main.naver?code={ticker}"
         # Naver Finance는 EUC-KR을 사용하므로 명시적 처리
-        res = requests.get(url, timeout=5)
+        res = requests.get(url, timeout=10)
         soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
         
         # 1. 현재가 추출
@@ -1541,9 +1559,9 @@ def get_holding_high(code, added_at, current_price, purchase_price):
     # 3페이지(약 30거래일) 데이터 호출
     daily_prices = get_daily_prices(code, pages=3)
     
-    # added_at 이후의 모든 종가(close)들 수집
+    # added_at 이후 ~ 전일까지의 확정 종가만 수집 (오늘 장중 현재가 제외)
     added_date = added_at[:10]
-    closes = [p['close'] for p in daily_prices if p['date'] >= added_date]
+    closes = [p['close'] for p in daily_prices if added_date <= p['date'] < today_str]
     
     # [김선화] 취득가(purchase_price)와 과거 종가 기록 중 최댓값을 선택
     # 이렇게 해야 취득 이후 계속 하락한 종목도 취득가 기준으로 손절선이 잡힙니다.

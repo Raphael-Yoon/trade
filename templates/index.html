@@ -1159,7 +1159,7 @@
                                     <div style="font-size: 10px; font-weight: 700; display: flex; gap: 6px;">
                                         ${stock.type === 'portfolio' ? `
                                             <span style="color: #ef4444;">최고 ${stock.holding_high ? stock.holding_high.toLocaleString() : '-'}</span>
-                                            ${stock.stop_loss_ratio > 0 ? `<span style="color: #f87171;">손절 ${Math.floor(stock.purchase_price * (1 - (stock.stop_loss_ratio || 0)/100)).toLocaleString()}</span>` : ''}
+                                            ${stock.stop_loss_ratio > 0 && stock.holding_high > 0 ? `<span style="color: #f87171;">손절 ${Math.floor(stock.holding_high * (1 - (stock.stop_loss_ratio || 0)/100)).toLocaleString()}</span>` : ''}
                                         ` : ''}
                                     </div>
                                     <div style="font-size: 10px; color: var(--text-muted); font-weight: 600;">
