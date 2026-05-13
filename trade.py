@@ -216,6 +216,10 @@ def init_db():
         )
     ''')
     
+    # 조회 성능 인덱스
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_price_alerts_created_at ON price_alerts(created_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_daily_history_date ON stock_daily_history(date)")
+
     conn.commit()
     conn.close()
 
@@ -243,6 +247,13 @@ industry_cache = {}
 # [김선화] 보유 기간 중 최고가(Trailing Stop 기준) 캐시
 # 형식: {code: {'high': 0, 'last_updated': 0}}
 holding_high_cache = {}
+
+# [김정음] 일별 시세 캐시 — 1시간 TTL, 과거 데이터라 빈번한 갱신 불필요
+# 형식: {code: {'data': [...], 'ts': float}}
+daily_prices_cache = {}
+
+# [김정음] KOSPI 일별 시세 캐시 — 30분 TTL
+kospi_daily_cache = {'data': [], 'ts': 0.0}
 
 def load_financial_health(force=False):
     """[김선화] 감사팀의 재무 보고서(Excel)를 구글 드라이브 또는 로컬에서 로드하여 주요 지표를 캐싱합니다."""
@@ -1623,6 +1634,12 @@ def get_my_stocks():
 
 def get_daily_prices(code, pages=3):
     """네이버 금융에서 일별 시세를 가져옵니다. (고가 정보 포함)"""
+    global daily_prices_cache
+    cache_key = f"{code}_{pages}"
+    entry = daily_prices_cache.get(cache_key)
+    if entry and time.time() - entry['ts'] < 3600:
+        return entry['data']
+
     headers = {'User-Agent': 'Mozilla/5.0'}
     prices = []
     try:
@@ -1637,9 +1654,10 @@ def get_daily_prices(code, pages=3):
                     try:
                         date = tds[0].get_text(strip=True).replace('.', '-')
                         close = int(tds[1].get_text(strip=True).replace(',', ''))
-                        high = int(tds[4].get_text(strip=True).replace(',', '')) # [김선화] 고가 추가
+                        high = int(tds[4].get_text(strip=True).replace(',', ''))
                         prices.append({'date': date, 'close': close, 'high': high})
                     except: continue
+        daily_prices_cache[cache_key] = {'data': prices, 'ts': time.time()}
         return prices
     except:
         return []
@@ -1673,6 +1691,10 @@ def get_holding_high(code, added_at, current_price, purchase_price):
 
 def get_kospi_daily(pages=2):
     """네이버 금융에서 코스피 일별 시세를 가져옵니다."""
+    global kospi_daily_cache
+    if time.time() - kospi_daily_cache['ts'] < 1800 and kospi_daily_cache['data']:
+        return kospi_daily_cache['data']
+
     headers = {'User-Agent': 'Mozilla/5.0'}
     data = []
     try:
@@ -1688,6 +1710,7 @@ def get_kospi_daily(pages=2):
                     date = date_td.get_text(strip=True).replace('.', '-')
                     price = float(price_td.get_text(strip=True).replace(',', ''))
                     data.append({'date': date, 'index': price})
+        kospi_daily_cache = {'data': data, 'ts': time.time()}
         return data
     except:
         return []
@@ -2666,4 +2689,4 @@ if __name__ == '__main__':
     scheduler_thread = threading.Thread(target=auto_snapshot_scheduler, daemon=True)
     scheduler_thread.start()
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=False, threaded=True, host='0.0.0.0', port=5000)
