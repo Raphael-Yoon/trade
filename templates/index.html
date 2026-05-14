@@ -620,7 +620,7 @@
                 </div>
             </div>
 
-            <div id="targetsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;">
+            <div id="targetsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
                 <!-- 타겟 카드가 여기에 동적으로 생성됩니다 -->
                 <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 80px;">
                     <p>오늘 시간외 포착 내역이 아직 없습니다.</p>
@@ -783,20 +783,25 @@
             if (tabId === 'realtime') {
                 startRealtimePolling();
                 stopMonitorPolling();
+                stopTargetLivePricePolling();
             } else if (tabId === 'monitor') {
                 startMonitorPolling();
                 stopRealtimePolling();
+                stopTargetLivePricePolling();
             } else if (tabId === 'targets') {
-                fetchTomorrowTargets();
+                loadAuditDates();
                 stopRealtimePolling();
                 stopMonitorPolling();
+                startTargetLivePricePolling();
             } else if (tabId === 'history') {
                 loadHistoryDates();
                 stopRealtimePolling();
                 stopMonitorPolling();
+                stopTargetLivePricePolling();
             } else {
                 stopRealtimePolling();
                 stopMonitorPolling();
+                stopTargetLivePricePolling();
             }
         }
 
@@ -1237,8 +1242,8 @@
                                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right;">
                                     <div style="font-size: 10px; font-weight: 700; display: flex; gap: 6px;">
                                         ${stock.type === 'portfolio' ? `
-                                            <span style="color: #ef4444;">최고 ${stock.holding_high ? stock.holding_high.toLocaleString() : '-'}</span>
-                                            ${stock.stop_loss_ratio > 0 && stock.holding_high > 0 ? `<span style="color: #f87171;">손절 ${Math.floor(stock.holding_high * (1 - (stock.stop_loss_ratio || 0)/100)).toLocaleString()}</span>` : ''}
+                                            ${stock.stop_loss_ratio > 0 && stock.holding_high > 0 ? `<span style="color: #f87171; white-space: nowrap;">손절 ${Math.floor(stock.holding_high * (1 - (stock.stop_loss_ratio || 0)/100)).toLocaleString()}</span>` : ''}
+                                            <span style="color: #ef4444; white-space: nowrap;">최고 ${stock.holding_high ? stock.holding_high.toLocaleString() : '-'}</span>
                                         ` : ''}
                                     </div>
                                     <div style="font-size: 10px; color: var(--text-muted); font-weight: 600;">
@@ -2493,6 +2498,56 @@
                 });
         }
 
+        // --- 내일의 공략주 실시간가 폴링 ---
+        let targetLivePriceTimer = null;
+
+        function startTargetLivePricePolling() {
+            if (targetLivePriceTimer) clearInterval(targetLivePriceTimer);
+            targetLivePriceTimer = setInterval(refreshTargetLivePrices, 60000);
+        }
+
+        function stopTargetLivePricePolling() {
+            if (targetLivePriceTimer) clearInterval(targetLivePriceTimer);
+            targetLivePriceTimer = null;
+        }
+
+        function applyLivePrices(prices) {
+            const list = document.getElementById('targetsList');
+            if (!list) return;
+            list.querySelectorAll('[id^="live-"]').forEach(liveEl => {
+                const code = liveEl.id.replace('live-', '');
+                const d = prices[code];
+                if (!d) return;
+                const rate = d.change_rate || 0;
+                const change = d.change || 0;
+                const rateSign = rate > 0 ? '+' : '';
+                const color = rate > 0 ? '#ef4444' : (rate < 0 ? '#3b82f6' : '#94a3b8');
+                const bgColor = rate > 0 ? 'rgba(239,68,68,0.07)' : (rate < 0 ? 'rgba(59,130,246,0.07)' : 'rgba(255,255,255,0.04)');
+                const borderColor = rate > 0 ? 'rgba(239,68,68,0.2)' : (rate < 0 ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.06)');
+                const arrow = rate > 0 ? '▲' : (rate < 0 ? '▼' : '');
+                liveEl.style.background = bgColor;
+                liveEl.style.border = `1px solid ${borderColor}`;
+                liveEl.innerHTML = `
+                    <span style="font-size:11px;color:var(--text-muted);">현재가</span>
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+                        <span style="font-size:18px;font-weight:900;color:white;font-family:'Outfit',sans-serif;">${d.price.toLocaleString()}원</span>
+                        <span style="font-size:12px;font-weight:800;color:${color};">${arrow} ${Math.abs(change).toLocaleString()} (${rateSign}${rate}%)</span>
+                    </div>`;
+            });
+        }
+
+        function refreshTargetLivePrices() {
+            const list = document.getElementById('targetsList');
+            if (!list) return;
+            const liveEls = list.querySelectorAll('[id^="live-"]');
+            if (!liveEls.length) return;
+            const codes = Array.from(liveEls).map(el => el.id.replace('live-', '')).join(',');
+            fetch(`/api/targets/live-prices?codes=${codes}`)
+                .then(res => res.json())
+                .then(applyLivePrices)
+                .catch(() => {});
+        }
+
         // --- 실시간 모니터링 (급등주 탐지) 관련 JS ---
         let monitorStatusTimer = null;
         let alertsTimer = null;
@@ -2512,6 +2567,28 @@
         }
 
         function toggleMonitor() {
+            const btn = document.getElementById('monitorToggleBtn');
+            const indicator = document.getElementById('monitorStatusIndicator');
+            const text = document.getElementById('monitorStatusText');
+            const currentlyActive = btn && btn.innerHTML.includes('중지');
+
+            // 즉시 버튼 상태 전환 (낙관적 업데이트)
+            if (btn) {
+                if (!currentlyActive) {
+                    btn.innerHTML = '⏳ 초기화 중...';
+                    btn.style.background = '#f59e0b';
+                    btn.disabled = true;
+                    if (indicator) indicator.style.background = '#f59e0b';
+                    if (text) { text.innerHTML = '스캔 준비 중'; text.style.color = '#f59e0b'; }
+                } else {
+                    btn.innerHTML = '🚀 탐지 엔진 가동';
+                    btn.style.background = 'var(--primary)';
+                    btn.disabled = false;
+                    if (indicator) indicator.style.background = '#64748b';
+                    if (text) { text.innerHTML = '엔진 중지됨'; text.style.color = '#64748b'; }
+                }
+            }
+
             fetch('/api/monitor/toggle', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2519,7 +2596,12 @@
             })
                 .then(res => res.json())
                 .then(data => {
+                    if (btn) btn.disabled = false;
                     updateMonitorStatus(data.active, 'market');
+                })
+                .catch(() => {
+                    if (btn) btn.disabled = false;
+                    checkMonitorStatus();
                 });
         }
 
@@ -2754,54 +2836,120 @@
                         return;
                     }
 
-                    list.innerHTML = data.map(target => `
-                        <div class="result-card" style="padding: 32px; background: rgba(255,255,255,0.03); border-radius: 28px; border: 1px solid rgba(255,255,255,0.05); position: relative; overflow: hidden; transition: transform 0.3s ease;">
-                            <div style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; background: linear-gradient(to bottom, #10b981, #059669);"></div>
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                <div style="flex: 1;">
-                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                                        <span style="font-size: 11px; color: #10b981; font-weight: 800; padding: 4px 8px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);">🛡 AUDIT RECOMMENDED</span>
-                                        <span style="font-size: 11px; color: #94a3b8; font-weight: 600;">Data Date: ${target.data_date}</span>
+                    list.innerHTML = data.map((target, idx) => {
+                        const reason = target.reason || '';
+                        const industryMatch = reason.match(/\[(.+?)\]/);
+                        const industry = industryMatch ? industryMatch[1] : '-';
+                        const newsMatch = reason.match(/뉴스:(\d+)/);
+                        const newsScore = newsMatch ? parseInt(newsMatch[1]) : 50;
+                        const newsColor = newsScore >= 70 ? '#10b981' : newsScore >= 50 ? '#fbbf24' : '#f87171';
+                        const foreignMatch = reason.match(/외인([+\-][\d,]+)/);
+                        const instMatch = reason.match(/기관([+\-][\d,]+)/);
+                        const foreignVal = foreignMatch ? foreignMatch[1] : '0';
+                        const instVal = instMatch ? instMatch[1] : '0';
+                        const fColor = foreignVal.startsWith('-') ? '#f87171' : '#10b981';
+                        const iColor = instVal.startsWith('-') ? '#f87171' : '#10b981';
+
+                        return `
+                        <div class="result-card" style="background: rgba(255,255,255,0.03); border-radius: 24px; border: 1px solid rgba(255,255,255,0.07); overflow: hidden; display: flex; flex-direction: column;">
+                            <div style="height: 4px; background: linear-gradient(to right, #10b981, #059669);"></div>
+                            <div style="display: flex;">
+
+                                <!-- 좌측: 종목 정보 (55%) -->
+                                <div style="flex: 55; padding: 24px; display: flex; flex-direction: column; gap: 14px; border-right: 1px solid rgba(255,255,255,0.06);">
+
+                                    <!-- 헤더 -->
+                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                        <span style="font-size: 10px; font-weight: 900; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); padding: 2px 7px; border-radius: 5px;">🛡 #${idx + 1}</span>
+                                        <span style="font-size: 22px; font-weight: 900; color: white; font-family: 'Outfit', sans-serif;">${target.name}</span>
+                                        <span style="font-size: 11px; color: #64748b;">${target.code}</span>
+                                        <span style="font-size: 11px; color: #94a3b8; background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 20px;">${industry}</span>
                                     </div>
-                                    <div style="font-size: 26px; font-weight: 900; color: white; margin-bottom: 4px; font-family: 'Outfit', sans-serif;">${target.name}</div>
-                                    <div style="font-size: 14px; color: var(--text-muted); font-weight: 600; margin-bottom: 20px;">${target.code} | K-SOX 적정 우량주</div>
-                                    
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
-                                        <div style="padding: 14px; background: rgba(255,255,255,0.04); border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);">
-                                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">수익성 (ROE)</div>
-                                            <div style="font-size: 18px; color: white; font-weight: 800;">${target.roe}%</div>
+
+                                    <!-- 핵심 지표 그리드 -->
+                                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                                        <div style="padding: 10px 8px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); text-align: center;">
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">ROE</div>
+                                            <div style="font-size: 16px; font-weight: 900; color: white;">${target.roe}%</div>
                                         </div>
-                                        <div style="padding: 14px; background: rgba(255,255,255,0.04); border-radius: 16px; border: 1px solid rgba(255,255,255,0.05);">
-                                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">안전성 (부채비율)</div>
-                                            <div style="font-size: 18px; color: #3b82f6; font-weight: 800;">${target.debt}%</div>
+                                        <div style="padding: 10px 8px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); text-align: center;">
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">부채비율</div>
+                                            <div style="font-size: 16px; font-weight: 900; color: #3b82f6;">${target.debt}%</div>
+                                        </div>
+                                        <div style="padding: 10px 8px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); text-align: center;">
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">외인 수급</div>
+                                            <div style="font-size: 13px; font-weight: 800; color: ${fColor};">${foreignVal}</div>
+                                        </div>
+                                        <div style="padding: 10px 8px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); text-align: center;">
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">기관 수급</div>
+                                            <div style="font-size: 13px; font-weight: 800; color: ${iColor};">${instVal}</div>
                                         </div>
                                     </div>
 
-                                    <div style="padding: 16px; background: rgba(16, 185, 129, 0.05); border-radius: 16px; border: 1px solid rgba(16, 185, 129, 0.1);">
-                                        <div style="font-size: 12px; color: #10b981; font-weight: 800; margin-bottom: 6px;">💡 감사팀 추천 사유</div>
-                                        <div style="font-size: 13px; color: #e2e8f0; line-height: 1.6; font-weight: 500;">${target.reason}</div>
-                                    </div>
-                                </div>
-                                <div style="text-align: right; margin-left: 24px;">
-                                    <div style="margin-bottom: 24px;">
-                                        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">상승 여력</div>
-                                        <div style="font-size: 32px; font-weight: 900; color: ${target.upside >= 0 ? '#ef4444' : '#3b82f6'}; font-family: 'Outfit', sans-serif;">
-                                            ${target.upside > 0 ? '+' : ''}${target.upside}%
+                                    <!-- 뉴스심리 + 기준일 -->
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(255,255,255,0.04); border-radius: 8px;">
+                                            <span style="font-size: 11px; color: var(--text-muted);">뉴스 심리</span>
+                                            <span style="font-size: 14px; font-weight: 800; color: ${newsColor};">${newsScore}점</span>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(255,255,255,0.04); border-radius: 8px;">
+                                            <span style="font-size: 11px; color: var(--text-muted);">기준일</span>
+                                            <span style="font-size: 12px; font-weight: 700; color: #94a3b8;">${target.data_date}</span>
                                         </div>
                                     </div>
-                                    <div style="margin-bottom: 20px;">
-                                        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">목표주가</div>
-                                        <div style="font-size: 18px; color: white; font-weight: 800;">${target.target_price.toLocaleString()}원</div>
-                                        <div style="font-size: 12px; color: #64748b; margin-top: 2px;">(현재가: ${target.current_price.toLocaleString()}원)</div>
+
+                                    <!-- 목표주가 + 상승여력 -->
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                        <div style="padding: 10px 14px; background: rgba(251,191,36,0.06); border-radius: 12px; border: 1px solid rgba(251,191,36,0.15);">
+                                            <div style="font-size: 10px; color: #fbbf24; margin-bottom: 3px;">목표주가</div>
+                                            <div style="font-size: 15px; font-weight: 900; color: #fbbf24; font-family: 'Outfit', sans-serif;">${target.target_price.toLocaleString()}원</div>
+                                        </div>
+                                        <div style="padding: 10px 14px; background: rgba(239,68,68,0.06); border-radius: 12px; border: 1px solid rgba(239,68,68,0.15);">
+                                            <div style="font-size: 10px; color: #ef4444; margin-bottom: 3px;">상승 여력</div>
+                                            <div style="font-size: 20px; font-weight: 900; color: #ef4444; font-family: 'Outfit', sans-serif;">+${target.upside}%</div>
+                                        </div>
                                     </div>
-                                    <button onclick="openChartModal('${target.code}', '${target.name}')" 
-                                        style="width: 100%; padding: 12px; border-radius: 14px; background: var(--primary); color: white; font-weight: 800; border: none; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);">
-                                        정밀 분석 차트
+
+                                    <!-- 추천 사유 -->
+                                    <div style="padding: 12px 14px; background: rgba(16,185,129,0.05); border-radius: 12px; border: 1px solid rgba(16,185,129,0.1); font-size: 12px; color: #94a3b8; line-height: 1.6;">
+                                        <span style="color: #10b981; font-weight: 700;">💡 감사팀 추천 사유 </span>${reason}
+                                    </div>
+                                </div>
+
+                                <!-- 우측: 시세 정보 + 차트 (45%) -->
+                                <div style="flex: 45; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+
+                                    <!-- 실제 등락 (실시간 조회 후 채워짐) -->
+                                    <div id="live-${target.code}" style="padding: 12px 16px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="font-size: 11px; color: var(--text-muted);">현재 실제가</span>
+                                        <span style="font-size: 13px; color: #475569; font-weight: 600;">조회 중...</span>
+                                    </div>
+
+                                    <!-- 차트 -->
+                                    <div style="flex: 1; background: rgba(0,0,0,0.3); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.07); cursor: pointer; min-height: 120px;"
+                                         onclick="openChartModal('${target.code}', '${target.name}')">
+                                        <img src="https://ssl.pstatic.net/imgfinance/chart/item/area/day/${target.code}.png?sid=${Date.now()}"
+                                             alt="${target.name} 차트"
+                                             style="width: 100%; height: 100%; object-fit: cover; display: block;"
+                                             onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;color:#475569;font-size:11px;\'>차트 없음</div>'">
+                                    </div>
+
+                                    <button onclick="openChartModal('${target.code}', '${target.name}')"
+                                        style="padding: 10px; border-radius: 10px; background: var(--primary); color: white; font-size: 12px; font-weight: 800; border: none; cursor: pointer;">
+                                        정밀 분석 차트 ↗
                                     </button>
                                 </div>
+
                             </div>
-                        </div>
-                    `).join('');
+                        </div>`;
+                    }).join('');
+
+                    // 실시간 주가 조회 (applyLivePrices 공용 함수 사용)
+                    const codes = data.map(t => t.code).join(',');
+                    fetch(`/api/targets/live-prices?codes=${codes}`)
+                        .then(res => res.json())
+                        .then(applyLivePrices)
+                        .catch(() => {});
                 });
         }
 

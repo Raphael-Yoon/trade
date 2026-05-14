@@ -518,16 +518,6 @@ def run_market_monitor():
     global monitor_active_market, industry_cache
     print("🚀 정규장 모니터링 엔진 가동 시작...")
     
-    # [김선화] 엔진 시작 시 기존 알림 초기화 (API 지연 방지를 위해 쓰레드 내부로 이동)
-    try:
-        conn = sqlite3.connect(DB_FILE, timeout=30)
-        conn.cursor().execute("DELETE FROM price_alerts WHERE type='spike'")
-        conn.commit()
-        conn.close()
-        print("🧹 기존 정규장 탐지 내역 초기화 완료")
-    except Exception as e:
-        print(f"⚠️ 초기화 오류: {e}")
-    
     while monitor_active_market:
         try:
             now = datetime.now()
@@ -565,24 +555,20 @@ def run_market_monitor():
 
             print(f"📊 [SCAN] 정규장 스캔 중... (대상: {len(movers)} 종목)")
 
-            # 3. 상세 정보 수집
-            update_data = []
-            for m in movers:
-                # [김선화] 수급 및 강도 데이터 실시간 반영을 위해 상세 조회 수행
-                # 네이버 rate-limit 방지를 위해 요청 사이에 간격 삽입
-                time.sleep(0.3)
+            # 3. 상세 정보 수집 (병렬 처리)
+            def fetch_market_detail(m):
                 details = get_all_naver_data(m['code'])
                 industry = details.get('industry_name', industry_cache.get(m['code'], '기타'))
                 industry_cache[m['code']] = industry
-                intensity = details.get('intensity', 0.0)
-                prev_change_rate = details.get('prev_change_rate', 0.0)
-                f_buy = details.get('foreign_net_buy_today', 0)
+                return {
+                    'm': m, 'industry': industry,
+                    'intensity': details.get('intensity', 0.0),
+                    'prev_change_rate': details.get('prev_change_rate', 0.0),
+                    'foreign_net_buy': details.get('foreign_net_buy_today', 0)
+                }
 
-                update_data.append({
-                    'm': m, 'industry': industry, 'intensity': intensity,
-                    'prev_change_rate': prev_change_rate,
-                    'foreign_net_buy': f_buy
-                })
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                update_data = list(executor.map(fetch_market_detail, movers))
 
             # 4. DB 일괄 업데이트
             conn = sqlite3.connect(DB_FILE, timeout=30)
@@ -632,16 +618,6 @@ def run_ah_monitor():
     global monitor_active_ah, industry_cache
     print("🌙 시간외 단일가 탐지 엔진 가동 시작...")
     
-    # [김선화] 엔진 시작 시 기존 알림 초기화
-    try:
-        conn = sqlite3.connect(DB_FILE, timeout=30)
-        conn.cursor().execute("DELETE FROM price_alerts WHERE type='after_hours'")
-        conn.commit()
-        conn.close()
-        print("🧹 기존 시간외 탐지 내역 초기화 완료")
-    except Exception as e:
-        print(f"⚠️ 초기화 오류: {e}")
-    
     while monitor_active_ah:
         try:
             now = datetime.now()
@@ -678,24 +654,20 @@ def run_ah_monitor():
 
             print(f"📊 [DATA] 상세 정보 수집 중... (대상: {len(movers)} 종목)")
 
-            # 3. 상세 정보 수집 (최적화)
-            update_data = []
-            for m in movers:
-                # [김선화] 수급 데이터 실시간 반영을 위해 상세 조회
-                # 네이버 rate-limit 방지를 위해 요청 사이에 간격 삽입
-                time.sleep(0.3)
+            # 3. 상세 정보 수집 (병렬 처리)
+            def fetch_ah_detail(m):
                 details = get_all_naver_data(m['code'])
                 industry = details.get('industry_name', industry_cache.get(m['code'], '기타'))
                 industry_cache[m['code']] = industry
-                intensity = details.get('intensity', 0.0)
-                prev_change_rate = details.get('prev_change_rate', 0.0)
-                f_buy = details.get('foreign_net_buy_today', 0)
+                return {
+                    'm': m, 'industry': industry,
+                    'intensity': details.get('intensity', 0.0),
+                    'prev_change_rate': details.get('prev_change_rate', 0.0),
+                    'foreign_net_buy': details.get('foreign_net_buy_today', 0)
+                }
 
-                update_data.append({
-                    'm': m, 'industry': industry, 'intensity': intensity,
-                    'prev_change_rate': prev_change_rate,
-                    'foreign_net_buy': f_buy
-                })
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                update_data = list(executor.map(fetch_ah_detail, movers))
 
             # 4. DB 일괄 업데이트
             conn = sqlite3.connect(DB_FILE, timeout=30)
@@ -931,6 +903,27 @@ def get_tomorrow_targets():
         return jsonify(targets)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/targets/live-prices')
+def get_live_prices():
+    """[김정음] 종목코드 목록의 실시간 현재가·등락률을 병렬 조회하여 반환합니다."""
+    codes_str = request.args.get('codes', '')
+    if not codes_str:
+        return jsonify({})
+    codes = [c.strip() for c in codes_str.split(',') if c.strip()]
+
+    def fetch_one(code):
+        d = get_detailed_price(code)
+        return code, d
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_one, code): code for code in codes}
+        for future in as_completed(futures):
+            code, d = future.result()
+            if d.get('current_price', 0) > 0:
+                result[code] = {'price': d['current_price'], 'change_rate': d['change_rate'], 'change': d['change']}
+    return jsonify(result)
 
 @app.route('/api/audit/dates')
 def get_audit_dates():
