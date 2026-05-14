@@ -2668,6 +2668,31 @@ def get_history_report():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+@app.route('/api/history/daily-chart', methods=['GET'])
+def get_daily_chart():
+    """[유병욱] 특정 월의 일자별 손익 집계 (일별 차트용)"""
+    month = request.args.get('month')  # "2026-05"
+    if not month:
+        return jsonify({'success': False, 'message': 'month 파라미터 필요'}), 400
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("""
+            SELECT date, owner,
+                   SUM(day_profit) AS day_profit_sum,
+                   SUM(cumulative_profit) AS cum_profit
+            FROM stock_daily_history
+            WHERE strftime('%Y-%m', date) = ?
+            GROUP BY date, owner
+            ORDER BY date, owner
+        """, (month,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        dates = sorted({r['date'] for r in rows})
+        return jsonify({'success': True, 'dates': dates, 'by_owner': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @app.route('/api/sync', methods=['POST'])
 def sync_data():
     try:
@@ -2708,15 +2733,27 @@ def auto_snapshot_scheduler():
                             for i, stock in enumerate(stocks):
                                 detail = details[i] if details[i] else {}
                                 current_price = detail.get('current_price', 0)
-                                
+                                prev_price = detail.get('prev_price', 0)
+                                quantity = stock['quantity']
+                                purchase_price = stock['purchase_price']
+
+                                change = current_price - prev_price if prev_price > 0 else 0
+                                change_rate = round((change / prev_price * 100), 2) if prev_price > 0 else 0.0
+                                day_profit = change * quantity
+                                cumulative_profit = (current_price - purchase_price) * quantity if purchase_price > 0 else 0
+
                                 cursor.execute("SELECT id FROM stock_daily_history WHERE date = ? AND code = ?", (today, stock['code']))
                                 existing = cursor.fetchone()
                                 if existing:
-                                    cursor.execute("UPDATE stock_daily_history SET purchase_price=?, current_price=?, quantity=?, owner=?, recorded_at=? WHERE id=?", 
-                                                 (stock['purchase_price'], current_price, stock['quantity'], stock['owner'], recorded_at, existing[0]))
+                                    cursor.execute(
+                                        "UPDATE stock_daily_history SET purchase_price=?, current_price=?, quantity=?, owner=?, recorded_at=?, day_profit=?, change_rate=?, cumulative_profit=? WHERE id=?",
+                                        (purchase_price, current_price, quantity, stock['owner'], recorded_at, day_profit, change_rate, cumulative_profit, existing[0])
+                                    )
                                 else:
-                                    cursor.execute("INSERT INTO stock_daily_history (date, code, name, purchase_price, current_price, quantity, owner, recorded_at) VALUES (?,?,?,?,?,?,?,?)",
-                                                 (today, stock['code'], stock['name'], stock['purchase_price'], current_price, stock['quantity'], stock['owner'], recorded_at))
+                                    cursor.execute(
+                                        "INSERT INTO stock_daily_history (date, code, name, purchase_price, current_price, quantity, owner, recorded_at, day_profit, change_rate, cumulative_profit) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                                        (today, stock['code'], stock['name'], purchase_price, current_price, quantity, stock['owner'], recorded_at, day_profit, change_rate, cumulative_profit)
+                                    )
                             conn.commit()
                             print(f"[김선화] {today} 자동 스냅샷 기록 완료 ({len(stocks)}개 종목)")
                         conn.close()

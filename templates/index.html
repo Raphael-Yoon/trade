@@ -424,6 +424,22 @@
                         style="padding: 10px 20px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 140px;">
                         <option value="all">전체</option>
                     </select>
+                    <span id="reportMonthLabel" style="font-size: 14px; color: var(--text-muted); font-weight: 600; display: none;">조회 월:</span>
+                    <select id="reportMonthSelect" onchange="renderHistoryReport()"
+                        style="display: none; padding: 10px 20px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 120px;">
+                        <option value="01">1월</option>
+                        <option value="02">2월</option>
+                        <option value="03">3월</option>
+                        <option value="04">4월</option>
+                        <option value="05">5월</option>
+                        <option value="06">6월</option>
+                        <option value="07">7월</option>
+                        <option value="08">8월</option>
+                        <option value="09">9월</option>
+                        <option value="10">10월</option>
+                        <option value="11">11월</option>
+                        <option value="12">12월</option>
+                    </select>
                 </div>
 
                 <!-- 일별 컨트롤 -->
@@ -1131,6 +1147,10 @@
             document.getElementById('historyReportControls').style.display = isDaily ? 'none' : 'flex';
             // 연도별은 연도 자체가 기간이므로 연도 필터 불필요
             document.getElementById('reportYearSelect').parentElement.style.display = (isDaily || view === 'year') ? 'none' : 'flex';
+            // 월별일 때만 월 셀렉터 표시, 진입 시 현재 월로 초기화
+            const showMonth = (!isDaily && view === 'month');
+            document.getElementById('reportMonthSelect').style.display = showMonth ? 'block' : 'none';
+            document.getElementById('reportMonthLabel').style.display = showMonth ? 'inline' : 'none';
             document.getElementById('historyContent').style.display = isDaily ? 'block' : 'none';
             document.getElementById('reportContent').style.display = isDaily ? 'none' : 'block';
             if (!isDaily) loadHistoryReport(view);
@@ -1154,6 +1174,15 @@
                     const sel = document.getElementById('reportYearSelect');
                     sel.innerHTML = '<option value="all">전체</option>' + years.map(y => `<option value="${y}">${y}년</option>`).join('');
 
+                    // 월별 뷰일 때 올해·현재 월로 기본값 설정
+                    if (period === 'month') {
+                        const now = new Date();
+                        const curYear = String(now.getFullYear());
+                        const curMonth = String(now.getMonth() + 1).padStart(2, '0');
+                        if ([...sel.options].some(o => o.value === curYear)) sel.value = curYear;
+                        document.getElementById('reportMonthSelect').value = curMonth;
+                    }
+
                     renderHistoryReport();
                 })
                 .catch(err => {
@@ -1161,18 +1190,173 @@
                 });
         }
 
-        // [김정음] 연도 필터 적용 후 렌더링
+        // [유병욱] 특정 월 선택 시 일별 차트 렌더링
+        function renderDailyChart(month, data) {
+            const fmt = n => {
+                const abs = Math.abs(n);
+                const sign = n < 0 ? '-' : (n > 0 ? '+' : '');
+                if (abs >= 100000000) return sign + (abs / 100000000).toFixed(1) + '억';
+                if (abs >= 10000) return sign + Math.round(abs / 10000) + '만';
+                return sign + Math.round(abs).toLocaleString();
+            };
+            const pColor = n => n >= 0 ? '#10b981' : '#ef4444';
+            const ownerColors = ['#6366f1', '#10b981', '#f59e0b', '#a78bfa', '#f472b6'];
+            const content = document.getElementById('reportContent');
+            if (!data.dates || !data.dates.length) {
+                content.innerHTML = '<p style="text-align:center;padding:60px;color:var(--text-muted);">해당 월에 저장된 데이터가 없습니다.</p>';
+                return;
+            }
+            const allOwners = [...new Set(data.by_owner.map(r => r.owner))];
+            const dates = data.dates;
+
+            // 일자별 전체 합산 (모든 소유주)
+            const dailyTotals = dates.map(d => {
+                const rows = data.by_owner.filter(r => r.date === d);
+                return { date: d, day_profit: rows.reduce((s, r) => s + r.day_profit_sum, 0) };
+            });
+
+            // SVG 일별 손익 막대 차트
+            const W = 800, H = 220, pL = 72, pR = 20, pT = 28, pB = 44;
+            const cW = W - pL - pR, cH = H - pT - pB;
+            const n = dates.length;
+            const vals = dailyTotals.map(d => d.day_profit);
+            const maxV = Math.max(...vals.map(Math.abs), 1);
+            const barW = Math.max(4, Math.floor(cW / n) - 4);
+            const xp = i => pL + (i + 0.5) * (cW / n);
+            const zY = pT + cH / 2;
+            const yp = v => zY - (v / maxV) * (cH / 2);
+
+            let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">`;
+            // Y축 그리드 + 레이블 (0 기준 ±4단계)
+            for (let i = -2; i <= 2; i++) {
+                const v = (maxV / 2) * i;
+                const y = yp(v);
+                const isZero = i === 0;
+                svg += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${isZero?'0.2':'0.06'})" stroke-width="${isZero?'1.5':'1'}"/>`;
+                svg += `<text x="${pL-6}" y="${(y+4).toFixed(1)}" text-anchor="end" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${fmt(v)}</text>`;
+            }
+            dailyTotals.forEach((d, i) => {
+                const x = xp(i);
+                const y = yp(d.day_profit);
+                const h = Math.abs(zY - y);
+                const barY = d.day_profit >= 0 ? y : zY;
+                const color = pColor(d.day_profit);
+                svg += `<rect x="${(x - barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(2, h).toFixed(1)}" fill="${color}" opacity="0.8" rx="2"/>`;
+                const skip = n > 20 && i % Math.ceil(n / 10) !== 0 && i !== n - 1;
+                if (!skip) {
+                    const label = d.date.slice(5).replace('-', '/');
+                    svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${label}</text>`;
+                }
+            });
+            svg += `</svg>`;
+
+            // 소유주별 누적손익 라인 차트
+            const cumVals = data.by_owner.map(r => r.cum_profit);
+            const minC = Math.min(...cumVals, 0), maxC = Math.max(...cumVals, 0);
+            const cRange = maxC - minC || 1;
+            const W2 = 800, H2 = 220;
+            const cH2 = H2 - pT - pB;
+            const xp2 = i => pL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW);
+            const yp2 = v => pT + cH2 - ((v - minC) / cRange * cH2);
+            const zY2 = yp2(0);
+            let svg2 = `<svg viewBox="0 0 ${W2} ${H2}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">`;
+            // Y축 그리드 + 레이블 (4단계)
+            for (let i = 0; i <= 4; i++) {
+                const v = minC + (cRange / 4) * i;
+                const y = yp2(v);
+                const isZero = Math.abs(v) < cRange * 0.01;
+                svg2 += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W2-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${isZero?'0.18':'0.06'})" stroke-width="${isZero?'1.5':'1'}"/>`;
+                svg2 += `<text x="${pL-6}" y="${(y+4).toFixed(1)}" text-anchor="end" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${fmt(v)}</text>`;
+            }
+            // 0선 점선 (양수/음수 공존 시)
+            if (minC < 0 && maxC > 0) {
+                svg2 += `<line x1="${pL}" y1="${zY2.toFixed(1)}" x2="${W2-pR}" y2="${zY2.toFixed(1)}" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="5,3"/>`;
+            }
+            // X축 날짜 레이블 + 세로 가이드선
+            dates.forEach((d, i) => {
+                const x = xp2(i);
+                const skip = n > 20 && i % Math.ceil(n / 10) !== 0 && i !== n - 1;
+                svg2 += `<line x1="${x.toFixed(1)}" y1="${pT}" x2="${x.toFixed(1)}" y2="${(pT+cH2).toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>`;
+                if (!skip) {
+                    const label = d.slice(5).replace('-', '/');
+                    svg2 += `<text x="${x.toFixed(1)}" y="${H2-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${label}</text>`;
+                }
+            });
+            // 범례
+            allOwners.forEach((owner, oi) => {
+                const lx = pL + oi * 90;
+                svg2 += `<circle cx="${(lx+4).toFixed(1)}" cy="12" r="4" fill="${ownerColors[oi % ownerColors.length]}" opacity="0.9"/>`;
+                svg2 += `<text x="${(lx+12).toFixed(1)}" y="16" fill="rgba(255,255,255,0.55)" font-size="11" font-family="Outfit,sans-serif">${owner}</text>`;
+            });
+            // 라인 + 포인트
+            allOwners.forEach((owner, oi) => {
+                const color = ownerColors[oi % ownerColors.length];
+                const pts = dates.map((d, i) => {
+                    const row = data.by_owner.find(r => r.date === d && r.owner === owner);
+                    return row ? { x: xp2(i), y: yp2(row.cum_profit) } : null;
+                }).filter(Boolean);
+                if (pts.length >= 2) {
+                    const lineD = pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+                    svg2 += `<path d="${lineD}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+                }
+                pts.forEach(p => { svg2 += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#0f172a" stroke="${color}" stroke-width="2"/>`; });
+            });
+            svg2 += `</svg>`;
+
+            const [y, m] = month.split('-');
+            const totalProfit = vals.reduce((s, v) => s + v, 0);
+            content.innerHTML = `
+                <div style="margin-bottom:8px;font-size:12px;color:var(--text-muted);font-weight:700;letter-spacing:0.05em;">${y}년 ${parseInt(m)}월 일별 상세</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;">
+                    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
+                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">기록 일수</div>
+                        <div style="font-size:26px;font-weight:800;color:var(--text-main);font-family:'Outfit',sans-serif;">${dates.length}<span style="font-size:14px;margin-left:4px;">일</span></div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
+                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">월 합산 일손익</div>
+                        <div style="font-size:22px;font-weight:800;font-family:'Outfit',sans-serif;color:${pColor(totalProfit)};">${fmt(totalProfit)}</div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
+                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">일 평균 손익</div>
+                        <div style="font-size:22px;font-weight:800;font-family:'Outfit',sans-serif;color:${pColor(totalProfit)};">${fmt(Math.round(totalProfit / dates.length))}</div>
+                    </div>
+                </div>
+                <div style="background:rgba(255,255,255,0.03);border-radius:20px;border:1px solid rgba(255,255,255,0.08);padding:24px 24px 12px;margin-bottom:20px;">
+                    <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:16px;">📊 일별 손익</div>
+                    ${svg}
+                </div>
+                <div style="background:rgba(255,255,255,0.03);border-radius:20px;border:1px solid rgba(255,255,255,0.08);padding:24px 24px 12px;">
+                    <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:16px;">📈 소유주별 누적손익 추이</div>
+                    ${svg2}
+                </div>`;
+        }
+
+        // [김정음] 연도/월 필터 적용 후 렌더링
         function renderHistoryReport() {
             if (!reportCache) return;
             const { period, periods: allPeriods, by_owner: allByOwner } = reportCache;
             const yearFilter = document.getElementById('reportYearSelect').value;
+            const monthFilter = document.getElementById('reportMonthSelect').value;
+
+            // 월별 뷰: 항상 특정 월의 일별 차트로 전환
+            if (period === 'month' && yearFilter !== 'all') {
+                const month = `${yearFilter}-${monthFilter}`;
+                document.getElementById('reportContent').innerHTML = '<p style="text-align:center;padding:40px;color:var(--text-muted);">로딩 중...</p>';
+                fetch(`/api/history/daily-chart?month=${month}`)
+                    .then(r => r.json())
+                    .then(data => renderDailyChart(month, data))
+                    .catch(err => {
+                        document.getElementById('reportContent').innerHTML = `<p style="text-align:center;padding:40px;color:#ef4444;">오류: ${err}</p>`;
+                    });
+                return;
+            }
 
             const periods = yearFilter === 'all' ? allPeriods : allPeriods.filter(p => p.period_start.startsWith(yearFilter));
             const byOwner = yearFilter === 'all' ? allByOwner : allByOwner.filter(o => o.period_key.startsWith(yearFilter));
 
             const content = document.getElementById('reportContent');
             if (!periods.length) {
-                content.innerHTML = '<p style="text-align:center;padding:60px;color:var(--text-muted);">선택한 연도의 데이터가 없습니다.</p>';
+                content.innerHTML = '<p style="text-align:center;padding:60px;color:var(--text-muted);">선택한 기간의 데이터가 없습니다.</p>';
                 return;
             }
 
