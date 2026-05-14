@@ -761,6 +761,8 @@
         let realtimeTimer = null;
         let lastPrices = {};
         let lastRealtimeData = [];
+        let searchDebounceTimer = null;
+        let searchAbortController = null;
 
         function toggleAccordion(header) {
             const accordion = header.parentElement;
@@ -1496,25 +1498,41 @@
             const dropdown = document.getElementById('searchDropdown');
             if (query.length < 2) {
                 dropdown.style.display = 'none';
+                clearTimeout(searchDebounceTimer);
+                if (searchAbortController) searchAbortController.abort();
                 return;
             }
-            fetch(`/api/search_stock?q=${encodeURIComponent(query)}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.length > 0) {
-                        dropdown.innerHTML = data.map(stock => `
-                            <div class="search-item" onclick="selectStock('${stock.code}', '${stock.name}')" 
-                                 style="padding: 14px 20px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
-                                <span style="color: white; font-weight: 600;">${stock.name}</span>
-                                <span style="color: var(--text-muted); font-size: 12px; font-family: 'Consolas', monospace;">${stock.code}</span>
-                            </div>
-                        `).join('');
-                        dropdown.style.display = 'block';
-                    } else {
-                        dropdown.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">검색 결과가 없습니다.</div>';
-                        dropdown.style.display = 'block';
-                    }
-                });
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                if (searchAbortController) searchAbortController.abort();
+                searchAbortController = new AbortController();
+                fetch(`/api/search_stock?q=${encodeURIComponent(query)}`, { signal: searchAbortController.signal })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.length > 0) {
+                            dropdown.innerHTML = data.map(stock => `
+                                <div class="search-item"
+                                     data-code="${stock.code}"
+                                     data-name="${stock.name.replace(/"/g, '&quot;')}"
+                                     onclick="selectStock(this.dataset.code, this.dataset.name)"
+                                     style="padding: 14px 20px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="color: white; font-weight: 600;">${stock.name}</span>
+                                    <span style="color: var(--text-muted); font-size: 12px; font-family: 'Consolas', monospace;">${stock.code}</span>
+                                </div>
+                            `).join('');
+                            dropdown.style.display = 'block';
+                        } else {
+                            dropdown.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">검색 결과가 없습니다.</div>';
+                            dropdown.style.display = 'block';
+                        }
+                    })
+                    .catch(err => {
+                        if (err.name !== 'AbortError') {
+                            dropdown.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">검색 중 오류가 발생했습니다.</div>';
+                            dropdown.style.display = 'block';
+                        }
+                    });
+            }, 200);
         }
 
         function selectStock(code, name) {
