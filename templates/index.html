@@ -99,12 +99,12 @@
             <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 분석</button>
             <button class="tab-btn" data-tab="myStocks" onclick="switchTab('myStocks')">⭐ 내 종목 관리</button>
             <button class="tab-btn" data-tab="realtime" onclick="switchTab('realtime')">⚡ 실시간 시세</button>
-            <button class="tab-btn" data-tab="history" onclick="switchTab('history')">📜 투자 히스토리</button>
             <button class="tab-btn" data-tab="monitor" onclick="switchTab('monitor')">🚨 급등주 탐지</button>
             <button class="tab-btn" data-tab="targets" onclick="switchTab('targets')" style="position: relative;">
                 🎯 내일의 공략주
                 <span id="targetBadge" style="display: none; position: absolute; top: -5px; right: -5px; width: 10px; height: 10px; background: #ef4444; border-radius: 50%; border: 2px solid #0f172a;"></span>
             </button>
+            <button class="tab-btn" data-tab="history" onclick="switchTab('history')">📜 투자 히스토리</button>
         </div>
 
         <!-- Tab 1: Stock Analysis -->
@@ -398,32 +398,57 @@
         <div id="historyTab" class="tab-content">
             <div class="history-section"
                 style="padding: 40px; background: rgba(255,255,255,0.03); border-radius: 32px; border: 1px solid rgba(255,255,255,0.1);">
-                <div class="section-header"
-                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+                <!-- [유병욱] 뷰 모드 토글 헤더 -->
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
                     <div style="text-align: left;">
                         <h3 style="margin: 0; font-size: 28px; color: var(--text-main); font-family: 'Outfit', sans-serif;">
                             📜 투자 히스토리 리포트</h3>
                         <p style="margin-top: 8px; color: var(--text-muted); font-size: 14px;">저장된 일자별 스냅샷 데이터를 조회합니다.</p>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">조회 날짜:</span>
-                        <select id="historyDateSelect" onchange="loadHistoryData(this.value)"
-                            style="padding: 10px 20px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 180px;">
-                            <option value="">데이터를 불러오는 중...</option>
-                        </select>
-                        <button onclick="deleteHistory(document.getElementById('historyDateSelect').value)"
-                            style="padding: 10px 18px; border-radius: 12px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                            🗑️ 선택 날짜 삭제
-                        </button>
+                    <div style="display: flex; gap: 6px; background: rgba(255,255,255,0.05); border-radius: 12px; padding: 4px;">
+                        <button id="hvBtn_daily" onclick="switchHistoryView('daily')"
+                            style="padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; background: rgba(99,102,241,0.8); color: white; transition: all 0.2s;">일별</button>
+                        <button id="hvBtn_month" onclick="switchHistoryView('month')"
+                            style="padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s;">월별</button>
+                        <button id="hvBtn_quarter" onclick="switchHistoryView('quarter')"
+                            style="padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s;">분기별</button>
+                        <button id="hvBtn_year" onclick="switchHistoryView('year')"
+                            style="padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s;">연도별</button>
                     </div>
                 </div>
 
+                <!-- 리포트 컨트롤 (월별/분기별/연도별) -->
+                <div id="historyReportControls" style="display: none; align-items: center; gap: 12px; margin-bottom: 24px;">
+                    <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">조회 연도:</span>
+                    <select id="reportYearSelect" onchange="renderHistoryReport()"
+                        style="padding: 10px 20px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 140px;">
+                        <option value="all">전체</option>
+                    </select>
+                </div>
+
+                <!-- 일별 컨트롤 -->
+                <div id="historyDailyControls" style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">
+                    <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">조회 날짜:</span>
+                    <select id="historyDateSelect" onchange="loadHistoryData(this.value)"
+                        style="padding: 10px 20px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 180px;">
+                        <option value="">데이터를 불러오는 중...</option>
+                    </select>
+                    <button onclick="deleteHistory(document.getElementById('historyDateSelect').value)"
+                        style="padding: 10px 18px; border-radius: 12px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                        🗑️ 선택 날짜 삭제
+                    </button>
+                </div>
+
+                <!-- 일별 뷰 -->
                 <div id="historyContent" style="min-height: 400px; position: relative;">
                     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: var(--text-muted);">
                         <span style="font-size: 48px; margin-bottom: 16px;">📅</span>
                         <p>상단에서 날짜를 선택하여 과거 투자 기록을 확인하세요.</p>
                     </div>
                 </div>
+
+                <!-- 기간 리포트 뷰 -->
+                <div id="reportContent" style="display: none; min-height: 400px;"></div>
             </div>
         </div>
 
@@ -1087,6 +1112,260 @@
                 .catch(err => {
                     content.innerHTML = `<p style="text-align: center; padding: 40px; color: #ef4444;">데이터 로드 오류: ${err}</p>`;
                 });
+        }
+
+        // [유병욱] 히스토리 뷰 모드 전환 (일별 / 월별 / 분기별 / 연도별)
+        let currentHistoryView = 'daily';
+        let reportCache = null; // { period, periods, by_owner }
+
+        function switchHistoryView(view) {
+            currentHistoryView = view;
+            ['daily', 'month', 'quarter', 'year'].forEach(v => {
+                const btn = document.getElementById('hvBtn_' + v);
+                if (!btn) return;
+                btn.style.background = v === view ? 'rgba(99,102,241,0.8)' : 'transparent';
+                btn.style.color = v === view ? 'white' : 'var(--text-muted)';
+            });
+            const isDaily = view === 'daily';
+            document.getElementById('historyDailyControls').style.display = isDaily ? 'flex' : 'none';
+            document.getElementById('historyReportControls').style.display = isDaily ? 'none' : 'flex';
+            // 연도별은 연도 자체가 기간이므로 연도 필터 불필요
+            document.getElementById('reportYearSelect').parentElement.style.display = (isDaily || view === 'year') ? 'none' : 'flex';
+            document.getElementById('historyContent').style.display = isDaily ? 'block' : 'none';
+            document.getElementById('reportContent').style.display = isDaily ? 'none' : 'block';
+            if (!isDaily) loadHistoryReport(view);
+        }
+
+        // [김정음] 기간별 리포트 로드 — 데이터 fetch 후 연도 셀렉터 구성 → 렌더링
+        function loadHistoryReport(period) {
+            const content = document.getElementById('reportContent');
+            content.innerHTML = '<div class="loading-ai" style="padding: 60px 0;"><div class="ai-spinner"></div><p>리포트를 생성하는 중입니다...</p></div>';
+            fetch(`/api/history/report?period=${period}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.success || !data.periods.length) {
+                        content.innerHTML = '<p style="text-align: center; padding: 60px; color: var(--text-muted);">리포트를 생성할 데이터가 없습니다.</p>';
+                        return;
+                    }
+                    reportCache = { period, periods: data.periods, by_owner: data.by_owner };
+
+                    // 연도 셀렉터 구성
+                    const years = [...new Set(data.periods.map(p => p.period_start.slice(0, 4)))].sort((a, b) => b - a);
+                    const sel = document.getElementById('reportYearSelect');
+                    sel.innerHTML = '<option value="all">전체</option>' + years.map(y => `<option value="${y}">${y}년</option>`).join('');
+
+                    renderHistoryReport();
+                })
+                .catch(err => {
+                    content.innerHTML = `<p style="text-align:center;padding:40px;color:#ef4444;">리포트 로드 오류: ${err}</p>`;
+                });
+        }
+
+        // [김정음] 연도 필터 적용 후 렌더링
+        function renderHistoryReport() {
+            if (!reportCache) return;
+            const { period, periods: allPeriods, by_owner: allByOwner } = reportCache;
+            const yearFilter = document.getElementById('reportYearSelect').value;
+
+            const periods = yearFilter === 'all' ? allPeriods : allPeriods.filter(p => p.period_start.startsWith(yearFilter));
+            const byOwner = yearFilter === 'all' ? allByOwner : allByOwner.filter(o => o.period_key.startsWith(yearFilter));
+
+            const content = document.getElementById('reportContent');
+            if (!periods.length) {
+                content.innerHTML = '<p style="text-align:center;padding:60px;color:var(--text-muted);">선택한 연도의 데이터가 없습니다.</p>';
+                return;
+            }
+
+            const fmt = n => {
+                const abs = Math.abs(n);
+                const sign = n < 0 ? '-' : (n > 0 ? '+' : '');
+                if (abs >= 100000000) return sign + (abs / 100000000).toFixed(1) + '억';
+                if (abs >= 10000) return sign + Math.round(abs / 10000) + '만';
+                return sign + Math.round(abs).toLocaleString();
+            };
+            const fmtLabel = key => {
+                if (period === 'month') { const [y, m] = key.split('-'); return `${y}년 ${parseInt(m)}월`; }
+                if (period === 'quarter') { const [y, q] = key.split('-'); return `${y}년 ${q}`; }
+                return `${key}년`;
+            };
+            const pColor = n => n >= 0 ? '#10b981' : '#ef4444';
+            const pStyle = n => `color:${pColor(n)};`;
+            const periodUnit = period === 'month' ? '개월' : period === 'quarter' ? '분기' : '년';
+
+            // 전체 합산 요약 카드
+            const totalDayProfit = periods.reduce((s, p) => s + p.day_profit_sum, 0);
+            const latestCumProfit = periods[0].end_cumulative_profit;
+            const bestPeriod = [...periods].sort((a, b) => b.day_profit_sum - a.day_profit_sum)[0];
+            const avgProfit = Math.round(totalDayProfit / periods.length);
+
+            let html = `
+                <div style="margin-bottom:8px;font-size:12px;color:var(--text-muted);font-weight:700;letter-spacing:0.05em;">전체 합산</div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:36px;">
+                    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
+                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">기간 수</div>
+                        <div style="font-size:26px;font-weight:800;color:var(--text-main);font-family:'Outfit',sans-serif;">${periods.length}<span style="font-size:14px;font-weight:500;margin-left:4px;">${periodUnit}</span></div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
+                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">전체 일손익 합계</div>
+                        <div style="font-size:22px;font-weight:800;font-family:'Outfit',sans-serif;${pStyle(totalDayProfit)}">${fmt(totalDayProfit)}</div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
+                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">최신 평가손익</div>
+                        <div style="font-size:22px;font-weight:800;font-family:'Outfit',sans-serif;${pStyle(latestCumProfit)}">${fmt(latestCumProfit)}</div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
+                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">기간 평균 일손익</div>
+                        <div style="font-size:22px;font-weight:800;font-family:'Outfit',sans-serif;${pStyle(avgProfit)}">${fmt(avgProfit)}</div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">최고: ${fmtLabel(bestPeriod.period_key)} (${fmt(bestPeriod.day_profit_sum)})</div>
+                    </div>
+                </div>`;
+
+            // 소유주별 평가손익 추이 SVG 라인 차트
+            const chronoPeriods = [...periods].reverse();
+            const ownerColors = ['#6366f1', '#10b981', '#f59e0b', '#a78bfa', '#f472b6'];
+            const allOwners = [...new Set(byOwner.map(o => o.owner))];
+            const allCumValues = byOwner.map(o => o.end_cumulative_profit);
+            const minV = Math.min(...allCumValues, 0);
+            const maxV = Math.max(...allCumValues, 0);
+            const vRange = maxV - minV || 1;
+            const W = 800, H = 220, pL = 72, pR = 20, pT = 28, pB = 44;
+            const cW = W - pL - pR, cH = H - pT - pB;
+            const n = chronoPeriods.length;
+            const xp = i => pL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW);
+            const yp = v => pT + cH - ((v - minV) / vRange * cH);
+            const zY = yp(0);
+
+            let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">`;
+            for (let i = 0; i <= 4; i++) {
+                const v = minV + (vRange / 4) * i;
+                const y = yp(v);
+                const isZero = Math.abs(v) < vRange * 0.01;
+                svg += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${isZero?'0.15':'0.05'})" stroke-width="${isZero?'1.5':'1'}"/>`;
+                svg += `<text x="${pL-6}" y="${(y+4).toFixed(1)}" text-anchor="end" fill="rgba(255,255,255,0.3)" font-size="10" font-family="Outfit,sans-serif">${fmt(v)}</text>`;
+            }
+            if (minV < 0 && maxV > 0) {
+                svg += `<line x1="${pL}" y1="${zY.toFixed(1)}" x2="${W-pR}" y2="${zY.toFixed(1)}" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="5,3"/>`;
+            }
+            chronoPeriods.forEach((p, i) => {
+                const skip = n > 12 && i % Math.ceil(n / 12) !== 0 && i !== n - 1;
+                if (!skip) {
+                    const x = xp(i);
+                    svg += `<line x1="${x.toFixed(1)}" y1="${pT}" x2="${x.toFixed(1)}" y2="${(pT+cH).toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>`;
+                    svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${fmtLabel(p.period_key)}</text>`;
+                }
+            });
+            allOwners.forEach((owner, oi) => {
+                const color = ownerColors[oi % ownerColors.length];
+                const pts = chronoPeriods.map((p, i) => {
+                    const row = byOwner.find(o => o.owner === owner && o.period_key === p.period_key);
+                    return row ? { x: xp(i), y: yp(row.end_cumulative_profit) } : null;
+                }).filter(Boolean);
+                if (!pts.length) return;
+                if (pts.length >= 2) {
+                    const areaD = `M${pts[0].x.toFixed(1)} ${zY.toFixed(1)} ${pts.map(p=>`L${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')} L${pts[pts.length-1].x.toFixed(1)} ${zY.toFixed(1)}Z`;
+                    svg += `<path d="${areaD}" fill="${color}" opacity="0.07"/>`;
+                    const lineD = pts.map((p,i) => `${i===0?'M':'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+                    svg += `<path d="${lineD}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+                }
+                pts.forEach(p => {
+                    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="#0f172a" stroke="${color}" stroke-width="2"/>`;
+                });
+            });
+            allOwners.forEach((owner, oi) => {
+                const color = ownerColors[oi % ownerColors.length];
+                const lx = pL + oi * 90;
+                svg += `<circle cx="${(lx+4).toFixed(1)}" cy="12" r="4" fill="${color}" opacity="0.9"/>`;
+                svg += `<text x="${(lx+12).toFixed(1)}" y="16" fill="rgba(255,255,255,0.55)" font-size="11" font-family="Outfit,sans-serif">${owner}</text>`;
+            });
+            svg += `</svg>`;
+
+            html += `
+                <div style="background:rgba(255,255,255,0.03);border-radius:20px;border:1px solid rgba(255,255,255,0.08);padding:24px 24px 12px;margin-bottom:28px;">
+                    <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:16px;">📈 소유주별 평가손익 추이</div>
+                    ${svg}
+                </div>`;
+
+            // 소유주별 섹션
+            const owners = [...new Set(byOwner.map(o => o.owner))];
+            owners.forEach(owner => {
+                const ownerRows = byOwner.filter(o => o.owner === owner);
+                const periodKeys = periods.map(p => p.period_key);
+                ownerRows.sort((a, b) => periodKeys.indexOf(a.period_key) - periodKeys.indexOf(b.period_key));
+
+                const oTotal = ownerRows.reduce((s, r) => s + r.day_profit_sum, 0);
+                const oLatest = ownerRows[0] ? ownerRows[0].end_cumulative_profit : 0;
+                const oBest = [...ownerRows].sort((a, b) => b.day_profit_sum - a.day_profit_sum)[0];
+                const oAvg = ownerRows.length ? Math.round(oTotal / ownerRows.length) : 0;
+                const maxAbs = Math.max(...ownerRows.map(r => Math.abs(r.day_profit_sum)), 1);
+
+                html += `
+                    <div style="margin-bottom:32px;">
+                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                            <div style="width:4px;height:20px;background:rgba(99,102,241,0.8);border-radius:2px;"></div>
+                            <span style="font-size:16px;font-weight:800;color:var(--text-main);font-family:'Outfit',sans-serif;">${owner}</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
+                            <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,0.08);">
+                                <div style="font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:6px;">일손익 합계</div>
+                                <div style="font-size:20px;font-weight:800;font-family:'Outfit',sans-serif;${pStyle(oTotal)}">${fmt(oTotal)}</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,0.08);">
+                                <div style="font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:6px;">최신 평가손익</div>
+                                <div style="font-size:20px;font-weight:800;font-family:'Outfit',sans-serif;${pStyle(oLatest)}">${fmt(oLatest)}</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,0.08);">
+                                <div style="font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:6px;">기간 평균</div>
+                                <div style="font-size:20px;font-weight:800;font-family:'Outfit',sans-serif;${pStyle(oAvg)}">${fmt(oAvg)}</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,0.08);">
+                                <div style="font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:6px;">최고 기간</div>
+                                <div style="font-size:14px;font-weight:700;font-family:'Outfit',sans-serif;color:var(--text-main);">${oBest ? fmtLabel(oBest.period_key) : '-'}</div>
+                                <div style="font-size:13px;font-weight:700;font-family:'Outfit',sans-serif;${oBest ? pStyle(oBest.day_profit_sum) : ''}">${oBest ? fmt(oBest.day_profit_sum) : '-'}</div>
+                            </div>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                            <div style="background:rgba(255,255,255,0.03);border-radius:16px;border:1px solid rgba(255,255,255,0.07);padding:20px;">
+                                <div style="font-size:12px;color:var(--text-muted);font-weight:700;margin-bottom:14px;">기간별 일손익</div>
+                                <div style="display:flex;flex-direction:column;gap:9px;">
+                                    ${[...ownerRows].reverse().map(r => {
+                                        const bw = Math.round(Math.abs(r.day_profit_sum) / maxAbs * 100);
+                                        return `
+                                            <div style="display:flex;align-items:center;gap:10px;">
+                                                <div style="width:80px;font-size:11px;color:var(--text-muted);font-weight:600;text-align:right;flex-shrink:0;">${fmtLabel(r.period_key)}</div>
+                                                <div style="flex:1;background:rgba(255,255,255,0.05);border-radius:5px;height:22px;overflow:hidden;">
+                                                    <div style="height:100%;width:${bw}%;background:${pColor(r.day_profit_sum)};border-radius:5px;opacity:0.8;"></div>
+                                                </div>
+                                                <div style="width:62px;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;${pStyle(r.day_profit_sum)};text-align:right;flex-shrink:0;">${fmt(r.day_profit_sum)}</div>
+                                            </div>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.03);border-radius:16px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;">
+                                <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                                    <thead>
+                                        <tr style="background:rgba(255,255,255,0.05);">
+                                            <th style="padding:12px 16px;text-align:left;color:var(--text-muted);font-weight:700;font-size:11px;">기간</th>
+                                            <th style="padding:12px 8px;text-align:right;color:var(--text-muted);font-weight:700;font-size:11px;">일손익</th>
+                                            <th style="padding:12px 8px;text-align:right;color:var(--text-muted);font-weight:700;font-size:11px;">평가손익</th>
+                                            <th style="padding:12px 16px;text-align:right;color:var(--text-muted);font-weight:700;font-size:11px;">평가금액</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${ownerRows.map((r, i) => `
+                                            <tr style="border-top:1px solid rgba(255,255,255,0.05);${i===0?'background:rgba(99,102,241,0.04);':''}">
+                                                <td style="padding:11px 16px;font-weight:700;color:var(--text-main);font-family:'Outfit',sans-serif;font-size:12px;">${fmtLabel(r.period_key)}</td>
+                                                <td style="padding:11px 8px;text-align:right;font-weight:700;font-family:'Outfit',sans-serif;${pStyle(r.day_profit_sum)}">${fmt(r.day_profit_sum)}</td>
+                                                <td style="padding:11px 8px;text-align:right;font-weight:700;font-family:'Outfit',sans-serif;${pStyle(r.end_cumulative_profit)}">${fmt(r.end_cumulative_profit)}</td>
+                                                <td style="padding:11px 16px;text-align:right;color:var(--text-main);">${fmt(r.end_portfolio_value)}</td>
+                                            </tr>`).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+
+            content.innerHTML = html;
         }
 
         function loadMarketIndices() {

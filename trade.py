@@ -2590,8 +2590,16 @@ def get_history_dates():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT DISTINCT date FROM stock_daily_history ORDER BY date DESC")
-        dates = [row['date'] for row in cursor.fetchall()]
+        cursor.execute("""
+            WITH RECURSIVE dates(date) AS (
+                SELECT MAX(date) FROM stock_daily_history
+                UNION ALL
+                SELECT (SELECT MAX(date) FROM stock_daily_history WHERE date < r.date)
+                FROM dates r WHERE r.date IS NOT NULL
+            )
+            SELECT date FROM dates WHERE date IS NOT NULL
+        """)
+        dates = [row[0] for row in cursor.fetchall()]
         return jsonify({'success': True, 'dates': dates})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2610,6 +2618,55 @@ def get_history_data():
         return jsonify({'success': True, 'data': history})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/history/report', methods=['GET'])
+def get_history_report():
+    """[김정음] 월/분기/연 단위 히스토리 집계 리포트"""
+    period = request.args.get('period', 'month')
+    if period == 'month':
+        period_expr = "strftime('%Y-%m', date)"
+    elif period == 'quarter':
+        period_expr = "strftime('%Y', date) || '-Q' || ((CAST(strftime('%m', date) AS INTEGER) - 1) / 3 + 1)"
+    else:
+        period_expr = "strftime('%Y', date)"
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute(f"""
+            WITH period_data AS (
+                SELECT {period_expr} AS period_key, date, day_profit,
+                       cumulative_profit, current_price * quantity AS portfolio_value,
+                       MAX(date) OVER (PARTITION BY {period_expr}) AS last_date
+                FROM stock_daily_history
+            )
+            SELECT period_key,
+                   MIN(date) AS period_start, MAX(date) AS period_end,
+                   COUNT(DISTINCT date) AS trading_days,
+                   ROUND(SUM(day_profit), 0) AS day_profit_sum,
+                   ROUND(SUM(CASE WHEN date = last_date THEN cumulative_profit ELSE 0 END), 0) AS end_cumulative_profit,
+                   ROUND(SUM(CASE WHEN date = last_date THEN portfolio_value ELSE 0 END), 0) AS end_portfolio_value
+            FROM period_data GROUP BY period_key ORDER BY period_key DESC
+        """)
+        periods = [dict(row) for row in cursor.fetchall()]
+        cursor.execute(f"""
+            WITH period_data AS (
+                SELECT {period_expr} AS period_key, owner, date, day_profit,
+                       cumulative_profit, current_price * quantity AS portfolio_value,
+                       MAX(date) OVER (PARTITION BY {period_expr}) AS last_date
+                FROM stock_daily_history
+            )
+            SELECT period_key, owner,
+                   ROUND(SUM(day_profit), 0) AS day_profit_sum,
+                   ROUND(SUM(CASE WHEN date = last_date THEN cumulative_profit ELSE 0 END), 0) AS end_cumulative_profit,
+                   ROUND(SUM(CASE WHEN date = last_date THEN portfolio_value ELSE 0 END), 0) AS end_portfolio_value,
+                   COUNT(DISTINCT date) AS trading_days
+            FROM period_data GROUP BY period_key, owner ORDER BY period_key DESC, owner
+        """)
+        by_owner = [dict(row) for row in cursor.fetchall()]
+        return jsonify({'success': True, 'periods': periods, 'by_owner': by_owner})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/sync', methods=['POST'])
 def sync_data():
