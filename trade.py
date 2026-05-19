@@ -38,10 +38,11 @@ if not os.path.exists(RESULTS_DIR):
 DB_FILE = os.path.join(os.path.dirname(__file__), 'trade.db')
 
 def get_db():
-    """요청별 DB 연결 관리 (동시성 향상을 위해 timeout 및 WAL 모드 적용)"""
+    """요청별 DB 연결 관리 (동시성 향상을 위해 timeout 적용)"""
     if 'db' not in g:
         g.db = sqlite3.connect(DB_FILE, timeout=30)
-        g.db.execute("PRAGMA journal_mode=WAL")
+        # WAL 모드는 영구적이므로 매 연결마다 호출 시 Exclusive Lock 병목 발생
+        # g.db.execute("PRAGMA journal_mode=WAL")
         g.db.row_factory = sqlite3.Row
     return g.db
 
@@ -245,8 +246,12 @@ financial_cache = {}
 industry_cache = {}
 
 # [김선화] 보유 기간 중 최고가(Trailing Stop 기준) 캐시
-# 형식: {code: {'high': 0, 'last_updated': 0}}
+# 형식: {code: {'high': 0, 'high_date': '', 'high_kospi': 0, 'date': ''}}
 holding_high_cache = {}
+
+# [김정음] 종목 시가총액 및 코스피 전체 시총 캐시 (24h TTL)
+market_cap_cache = {}           # {code: {'cap_억': float, 'ts': float}}
+kospi_total_cap_cache = {'cap_억': 0, 'ts': 0}
 
 # [김정음] 일별 시세 캐시 — 1시간 TTL, 과거 데이터라 빈번한 갱신 불필요
 # 형식: {code: {'data': [...], 'ts': float}}
@@ -1655,32 +1660,114 @@ def get_daily_prices(code, pages=3):
     except:
         return []
 
-def get_holding_high(code, added_at, current_price, purchase_price):
-    """[김선화] 보유 시점(added_at) 이후의 최고 종가를 계산하거나 캐시에서 가져옵니다."""
+def parse_market_cap_to_억(text):
+    """'435조 5,730억' → 4355730, '5,230억' → 5230"""
+    text = text.replace(',', '').strip()
+    total = 0
+    m = re.search(r'(\d+)조', text)
+    if m:
+        total += int(m.group(1)) * 10000
+    m = re.search(r'(\d+)억', text)
+    if m:
+        total += int(m.group(1))
+    return total
+
+def get_stock_market_cap_억(code):
+    """종목 시가총액(억원) 반환. 24시간 캐시."""
+    global market_cap_cache
+    now = time.time()
+    if code in market_cap_cache and now - market_cap_cache[code]['ts'] < 86400:
+        return market_cap_cache[code]['cap_억']
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        res = requests.get(url, timeout=10)
+        soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
+        table = soup.find('table', class_='tb_type1')
+        if table:
+            for tr in table.find_all('tr'):
+                th = tr.find('th')
+                if th and '시가총액' in th.get_text():
+                    td = tr.find('td')
+                    if td:
+                        cap = parse_market_cap_to_억(td.get_text(strip=True))
+                        if cap > 0:
+                            market_cap_cache[code] = {'cap_억': cap, 'ts': now}
+                            return cap
+    except Exception:
+        pass
+    return 0
+
+def get_kospi_total_cap_억():
+    """KOSPI 전체 시가총액(억원) 반환. 24시간 캐시."""
+    global kospi_total_cap_cache
+    now = time.time()
+    if now - kospi_total_cap_cache['ts'] < 86400 and kospi_total_cap_cache['cap_억'] > 0:
+        return kospi_total_cap_cache['cap_억']
+    try:
+        url = "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
+        for tr in soup.find_all('tr'):
+            th = tr.find('th')
+            if th and '시가총액' in th.get_text():
+                td = tr.find('td')
+                if td:
+                    cap = parse_market_cap_to_억(td.get_text(strip=True))
+                    if cap > 0:
+                        kospi_total_cap_cache = {'cap_억': cap, 'ts': now}
+                        return cap
+    except Exception:
+        pass
+    return 0
+
+def get_kospi_weight(code):
+    """종목의 코스피 비중(0.0~1.0) 반환."""
+    stock_cap = get_stock_market_cap_억(code)
+    total_cap = get_kospi_total_cap_억()
+    if stock_cap > 0 and total_cap > 0:
+        return min(stock_cap / total_cap, 1.0)
+    return 0.0
+
+def get_holding_high(code, added_at, current_price, purchase_price, kospi_data=None):
+    """[김선화] 보유 시점(added_at) 이후의 최고 종가와 해당 시점 코스피를 계산하거나 캐시에서 가져옵니다."""
     global holding_high_cache
-    
-    # 캐시 확인
+
     today_str = datetime.now().strftime('%Y-%m-%d')
     if code in holding_high_cache and holding_high_cache[code]['date'] == today_str:
-        return holding_high_cache[code]['high']
-    
-    # 3페이지(약 30거래일) 데이터 호출
+        return holding_high_cache[code]
+
     daily_prices = get_daily_prices(code, pages=3)
-    
-    # added_at 이후 ~ 전일까지의 확정 종가만 수집 (오늘 장중 현재가 제외)
+
     added_date = added_at[:10]
-    closes = [p['close'] for p in daily_prices if added_date <= p['date'] < today_str]
-    
-    # [김선화] 취득가(purchase_price)와 과거 종가 기록 중 최댓값을 선택
-    # 이렇게 해야 취득 이후 계속 하락한 종목도 취득가 기준으로 손절선이 잡힙니다.
-    max_price = max(closes) if closes else 0
-    max_price = max(max_price, purchase_price)
-    
+    relevant = [(p['close'], p['date']) for p in daily_prices if added_date <= p['date'] < today_str]
+
+    if relevant:
+        max_close, max_date = max(relevant, key=lambda x: x[0])
+    else:
+        max_close, max_date = 0, added_date
+
+    # [김선화] 취득가가 실제 최고가인 경우 → 기준 날짜는 매수일
+    if purchase_price >= max_close:
+        max_price = purchase_price
+        max_date = added_date
+    else:
+        max_price = max_close
+
+    # 최고가 시점 코스피 탐색
+    high_kospi = 0
+    if kospi_data:
+        for k in kospi_data:
+            if k['date'] <= max_date:
+                high_kospi = k['index']
+                break
+
     holding_high_cache[code] = {
         'high': max_price,
+        'high_date': max_date,
+        'high_kospi': high_kospi,
         'date': today_str
     }
-    return max_price
+    return holding_high_cache[code]
 
 def get_kospi_daily(pages=2):
     """네이버 금융에서 코스피 일별 시세를 가져옵니다."""
@@ -1723,16 +1810,39 @@ def calculate_stop_loss_status(stock, current_price, daily_prices, kospi_data, k
     if current_price <= purchase_price * (1 - sl_ratio):
         signals.append(f"취득가({purchase_price:,}원) 대비 {stock['stop_loss_ratio']}% 하락")
 
-    # 2. 최근 최고가 대비 손절 (Trailing)
+    # 2. 최근 최고가 대비 손절 (Trailing - KOSPI 초과 하락 기준)
     if daily_prices:
-        # added_at 이후의 가격들 중 최고가 찾기 (없으면 전체 기간 중)
-        relevant_prices = [p['close'] for p in daily_prices if p['date'] >= added_at]
-        if not relevant_prices: relevant_prices = [p['close'] for p in daily_prices]
-        
-        if relevant_prices:
-            max_price = max(relevant_prices)
-            if current_price <= max_price * (1 - sl_ratio):
-                signals.append(f"최근 최고가({max_price:,}원) 대비 {stock['stop_loss_ratio']}% 하락")
+        relevant = [(p['close'], p['date']) for p in daily_prices if p['date'] >= added_at]
+        if not relevant:
+            relevant = [(p['close'], p['date']) for p in daily_prices]
+
+        if relevant:
+            max_close, max_date = max(relevant, key=lambda x: x[0])
+            if purchase_price >= max_close:
+                max_price, max_date = purchase_price, added_at
+            else:
+                max_price = max_close
+
+            if kospi_data and kospi_current > 0:
+                high_kospi = next((k['index'] for k in kospi_data if k['date'] <= max_date), 0)
+                if high_kospi > 0:
+                    kospi_weight = get_kospi_weight(stock['code'])
+                    stock_drop = (current_price - max_price) / max_price
+                    kospi_drop = (kospi_current - high_kospi) / high_kospi
+                    adjusted_kospi_drop = kospi_drop * (1 - kospi_weight)
+                    excess_drop = stock_drop - adjusted_kospi_drop
+                    if excess_drop <= -sl_ratio:
+                        signals.append(
+                            f"최근 최고가({max_price:,}원) 대비 코스피 초과 하락 "
+                            f"({round(excess_drop*100,1)}% / 종목 {round(stock_drop*100,1)}%, "
+                            f"코스피 보정 {round(adjusted_kospi_drop*100,1)}% [비중 {round(kospi_weight*100,1)}% 차감])"
+                        )
+                else:
+                    if current_price <= max_price * (1 - sl_ratio):
+                        signals.append(f"최근 최고가({max_price:,}원) 대비 {stock['stop_loss_ratio']}% 하락")
+            else:
+                if current_price <= max_price * (1 - sl_ratio):
+                    signals.append(f"최근 최고가({max_price:,}원) 대비 {stock['stop_loss_ratio']}% 하락")
 
     # 3. 코스피 대비 상대 손절
     if purchase_price > 0 and kospi_data and kospi_current > 0:
@@ -2407,9 +2517,12 @@ def update_stock_owner():
 def get_realtime_prices():
     """[김정음] 내 종목 및 관심 종목의 실시간 주가 정보를 상세히 반환합니다."""
     try:
+        kospi_data = get_kospi_daily(pages=2)
+        kospi_current = kospi_data[0]['index'] if kospi_data else 0
+
         db = get_db()
         cursor = db.cursor()
-        
+
         # [김선화] 효율적 실시간 모니터링을 위해 손절 설정치, 소유주, 추가일자 조회
         cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, owner, added_at FROM my_stocks")
         portfolio_stocks = [{
@@ -2455,26 +2568,48 @@ def get_realtime_prices():
                     profit = 0
                     is_stop_loss = False
                     holding_high = 0
-                    
+                    effective_stop_loss_price = 0
+                    original_stop_loss_price = 0
+                    kospi_drop_pct = 0
+                    kospi_weight_pct = 0
+
                     if stock['type'] == 'portfolio' and purchase_price > 0:
                         profit_rate = round(((current_price - purchase_price) / purchase_price) * 100, 2)
                         profit = (current_price - purchase_price) * quantity
-                        
-                        # [김선화] 보유 기간 최고가 기반 Trailing Stop-Loss 계산 (취득가 포함)
-                        holding_high = get_holding_high(stock['code'], stock['added_at'], current_price, purchase_price)
-                        
-                        if stop_loss_ratio > 0:
-                            # 최근 최고가 대비 손절 (Trailing Stop)
-                            # 취득가 역시 최고가의 범위에 포함되므로 이 조건 하나로 통합 관리
-                            if holding_high > 0 and current_price <= holding_high * (1 - stop_loss_ratio / 100):
-                                is_stop_loss = True
+
+                        # [김선화] 보유 기간 최고가 기반 Trailing Stop-Loss 계산 (KOSPI 초과 하락 기준)
+                        high_info = get_holding_high(stock['code'], stock['added_at'], current_price, purchase_price, kospi_data)
+                        holding_high = high_info['high']
+
+                        if stop_loss_ratio > 0 and holding_high > 0:
+                            sl_ratio = stop_loss_ratio / 100
+                            original_stop_loss_price = round(holding_high * (1 - sl_ratio))
+                            high_kospi = high_info.get('high_kospi', 0)
+                            if high_kospi > 0 and kospi_current > 0:
+                                kospi_weight = get_kospi_weight(stock['code'])
+                                kospi_drop = (kospi_current - high_kospi) / high_kospi
+                                adjusted_kospi_drop = kospi_drop * (1 - kospi_weight)
+                                stock_drop = (current_price - holding_high) / holding_high
+                                is_stop_loss = (stock_drop - adjusted_kospi_drop) <= -sl_ratio
+                                effective_stop_loss_price = round(holding_high * (1 - sl_ratio + adjusted_kospi_drop))
+                                kospi_drop_pct = round(adjusted_kospi_drop * 100, 2)
+                                kospi_weight_pct = round(kospi_weight * 100, 1)
+                            else:
+                                is_stop_loss = current_price <= holding_high * (1 - sl_ratio)
+                                effective_stop_loss_price = original_stop_loss_price
+                                kospi_drop_pct = 0
+                                kospi_weight_pct = 0
 
                     results.append({
                         'code': stock['code'],
                         'name': stock['name'],
                         'price': current_price,
                         'prev_close': price_info['prev_close'],
-                        'holding_high': holding_high, # [김선화] 보유 기간 최고가
+                        'holding_high': holding_high,
+                        'original_stop_loss_price': original_stop_loss_price,
+                        'effective_stop_loss_price': effective_stop_loss_price,
+                        'kospi_drop_pct': kospi_drop_pct,
+                        'kospi_weight_pct': kospi_weight_pct,
                         'change': price_info['change'],
                         'change_rate': price_info['change_rate'],
                         'purchase_price': purchase_price,
@@ -2591,13 +2726,10 @@ def get_history_dates():
         db = get_db()
         cursor = db.cursor()
         cursor.execute("""
-            WITH RECURSIVE dates(date) AS (
-                SELECT MAX(date) FROM stock_daily_history
-                UNION ALL
-                SELECT (SELECT MAX(date) FROM stock_daily_history WHERE date < r.date)
-                FROM dates r WHERE r.date IS NOT NULL
-            )
-            SELECT date FROM dates WHERE date IS NOT NULL
+            SELECT DISTINCT date 
+            FROM stock_daily_history 
+            WHERE date IS NOT NULL 
+            ORDER BY date DESC
         """)
         dates = [row[0] for row in cursor.fetchall()]
         return jsonify({'success': True, 'dates': dates})

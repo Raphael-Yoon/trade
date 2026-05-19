@@ -7,19 +7,20 @@ from googleapiclient.http import MediaFileUpload
 import re
 
 # 구글 드라이브 API 권한 범위 (파일 읽기/쓰기/생성)
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
+SCOPES = ['https://www.googleapis.com/auth/drive']
 
 # 파일 경로 설정 (스크립트 위치 기준)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TOKEN_PATH = os.path.join(BASE_DIR, 'token.pickle')
 CREDENTIALS_PATH = os.path.join(BASE_DIR, 'credentials.json')
 
-def get_drive_service():
+def get_drive_service(token_filename='token.pickle'):
     """구글 드라이브 서비스 객체 생성 및 인증"""
     creds = None
+    token_path = os.path.join(BASE_DIR, token_filename)
     # token.pickle 파일에 사용자 인증 정보 저장
-    if os.path.exists(TOKEN_PATH):
-        with open(TOKEN_PATH, 'rb') as token:
+    if os.path.exists(token_path):
+        with open(token_path, 'rb') as token:
             creds = pickle.load(token)
             
     # 인증 정보가 없거나 유효하지 않으면 새로 인증
@@ -32,7 +33,7 @@ def get_drive_service():
             flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
             creds = flow.run_local_server(port=0)
         # 인증 정보 저장
-        with open(TOKEN_PATH, 'wb') as token:
+        with open(token_path, 'wb') as token:
             pickle.dump(creds, token)
 
     return build('drive', 'v3', credentials=creds)
@@ -53,10 +54,10 @@ def get_or_create_folder(service, folder_name):
         folder = service.files().create(body=folder_metadata, fields='id').execute()
         return folder.get('id')
 
-def upload_to_drive(file_path, folder_name="Stock_Analysis_Results"):
+def upload_to_drive(file_path, folder_name="Stock_Analysis_Results", token_filename='token.pickle'):
     """파일을 구글 드라이브 특정 폴더에 업로드"""
     try:
-        service = get_drive_service()
+        service = get_drive_service(token_filename)
         folder_id = get_or_create_folder(service, folder_name)
         
         file_name = os.path.basename(file_path)
@@ -91,10 +92,10 @@ def upload_to_drive(file_path, folder_name="Stock_Analysis_Results"):
         print(f"구글 드라이브 업로드 중 오류 발생: {e}")
         return None
 
-def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
+def create_google_doc(title, content, folder_name="Stock_Analysis_Results", token_filename='token.pickle'):
     """마크다운 또는 HTML 내용을 구글 문서(Google Docs)로 생성 (서식 보존)"""
     try:
-        service = get_drive_service()
+        service = get_drive_service(token_filename)
         folder_id = get_or_create_folder(service, folder_name)
         
         # 마크다운 변환 시도 (ImportError 발생 시 fallback)
@@ -227,13 +228,13 @@ def create_google_doc(title, content, folder_name="Stock_Analysis_Results"):
         print(f"구글 문서 생성 중 오류 발생: {e}")
         return None
 
-def delete_from_drive(file_id):
+def delete_from_drive(file_id, token_filename='token.pickle'):
     """구글 드라이브에서 파일 삭제"""
     if not file_id:
         return False
     try:
         from googleapiclient.errors import HttpError
-        service = get_drive_service()
+        service = get_drive_service(token_filename)
         service.files().delete(fileId=file_id).execute()
         print(f"구글 드라이브 파일 삭제 완료 (ID: {file_id})")
         return True
@@ -247,10 +248,10 @@ def delete_from_drive(file_id):
         print(f"구글 드라이브 파일 삭제 중 오류 발생: {e}")
         return False
 
-def download_from_drive(file_id):
+def download_from_drive(file_id, token_filename='token.pickle'):
     """구글 드라이브에서 파일을 엑셀 형식으로 다운로드"""
     try:
-        service = get_drive_service()
+        service = get_drive_service(token_filename)
         # 구글 시트를 엑셀로 내보내기
         request = service.files().export_media(
             fileId=file_id,
@@ -261,10 +262,10 @@ def download_from_drive(file_id):
         print(f"구글 드라이브 다운로드 중 오류 발생: {e}")
         return None
 
-def get_doc_content(file_id):
+def get_doc_content(file_id, token_filename='token.pickle'):
     """구글 문서(Google Docs)의 HTML 내용을 읽어오기"""
     try:
-        service = get_drive_service()
+        service = get_drive_service(token_filename)
         # 구글 문서를 HTML로 내보내기 (서식 유지)
         request = service.files().export_media(
             fileId=file_id,
@@ -276,10 +277,10 @@ def get_doc_content(file_id):
         print(f"구글 문서 읽기 중 오류 발생: {e}")
         return None
 
-def find_ai_report(base_filename, folder_name="Stock_Analysis_Results"):
+def find_ai_report(base_filename, folder_name="Stock_Analysis_Results", token_filename='token.pickle'):
     """특정 분석 파일에 대한 AI 리포트 문서 찾기"""
     try:
-        service = get_drive_service()
+        service = get_drive_service(token_filename)
         folder_id = get_or_create_folder(service, folder_name)
 
         # AI 리포트 파일명 패턴
@@ -300,10 +301,10 @@ def sync_results_with_drive(results_dir, folder_name="Stock_Analysis_Results"):
     """구글 드라이브와 로컬 파일 목록 동기화 (Drive-Native 전환으로 인해 로직 제거)"""
     return 0, 0
 
-def list_files_in_folder(folder_name="Stock_Analysis_Results"):
+def list_files_in_folder(folder_name="Stock_Analysis_Results", token_filename='token.pickle'):
     """구글 드라이브 특정 폴더의 파일 목록 가져오기"""
     try:
-        service = get_drive_service()
+        service = get_drive_service(token_filename)
         folder_id = get_or_create_folder(service, folder_name)
         
         query = f"'{folder_id}' in parents and trashed = false"

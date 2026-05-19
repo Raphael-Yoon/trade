@@ -761,6 +761,44 @@
                 filter: grayscale(1);
                 background: #475569 !important;
             }
+        .sl-tooltip-wrap {
+            position: relative;
+            display: inline-block;
+            cursor: default;
+        }
+        .sl-tooltip-wrap .sl-tooltip {
+            visibility: hidden;
+            opacity: 0;
+            pointer-events: none;
+            position: absolute;
+            bottom: calc(100% + 6px);
+            right: 0;
+            background: rgba(15, 23, 42, 0.97);
+            border: 1px solid rgba(248, 113, 113, 0.35);
+            border-radius: 8px;
+            padding: 10px 13px;
+            white-space: nowrap;
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 1.8;
+            color: #cbd5e1;
+            z-index: 999;
+            transition: opacity 0.15s ease;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+        .sl-tooltip-wrap:hover .sl-tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+        .sl-tooltip .sl-formula-result {
+            color: #f87171;
+            font-weight: 800;
+            font-size: 12px;
+        }
+        .sl-tooltip .sl-label {
+            color: #64748b;
+            font-size: 10px;
+        }
         </style>
 
 
@@ -1703,16 +1741,34 @@
                                     </div>
                                 </div>
                                 
-                                <!-- 우측: 3단 기준가 (컴팩트하게 배치) -->
-                                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right;">
-                                    <div style="font-size: 10px; font-weight: 700; display: flex; gap: 6px;">
-                                        ${stock.type === 'portfolio' ? `
-                                            ${stock.stop_loss_ratio > 0 && stock.holding_high > 0 ? `<span style="color: #f87171; white-space: nowrap;">손절 ${Math.floor(stock.holding_high * (1 - (stock.stop_loss_ratio || 0)/100)).toLocaleString()}</span>` : ''}
-                                            <span style="color: #ef4444; white-space: nowrap;">최고 ${stock.holding_high ? stock.holding_high.toLocaleString() : '-'}</span>
-                                        ` : ''}
+                                <!-- 우측: 2행 기준가 -->
+                                <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px; text-align:right; font-size:10px; font-weight:700;">
+                                    <!-- 1행: 보정 손절가 + 최고가 -->
+                                    <div style="display:flex; gap:6px; align-items:center;">
+                                        ${stock.type === 'portfolio' && stock.stop_loss_ratio > 0 && stock.effective_stop_loss_price > 0 ? `
+                                        <span class="sl-tooltip-wrap">
+                                            <span style="color:#f87171; white-space:nowrap;">보정 ${stock.effective_stop_loss_price.toLocaleString()}</span>
+                                            <div class="sl-tooltip">
+                                                <div style="font-size:12px; font-weight:700; color:#e2e8f0; margin-bottom:6px;">손절가 계산</div>
+                                                <div><span class="sl-label">최고가</span>&nbsp;&nbsp;${stock.holding_high.toLocaleString()}원</div>
+                                                <div><span class="sl-label">손절비율</span>&nbsp;&nbsp;-${stock.stop_loss_ratio}%</div>
+                                                <div style="border-top:1px solid rgba(255,255,255,0.08); margin-top:5px; padding-top:5px;">
+                                                    <span class="sl-label">기본 손절가</span>&nbsp;&nbsp;<span style="color:#94a3b8;">${stock.holding_high.toLocaleString()} × (1 − ${stock.stop_loss_ratio}%)</span>
+                                                </div>
+                                                <div style="color:#94a3b8; font-weight:700; margin-bottom:6px;">= ${stock.original_stop_loss_price.toLocaleString()}원</div>
+                                                <div><span class="sl-label">코스피 보정</span>&nbsp;&nbsp;${stock.kospi_drop_pct >= 0 ? '+' : ''}${stock.kospi_drop_pct}%${stock.kospi_weight_pct > 0 ? ` <span style="color:#475569;">(비중 ${stock.kospi_weight_pct}% 차감)</span>` : ''}</div>
+                                                <div style="border-top:1px solid rgba(255,255,255,0.08); margin-top:5px; padding-top:5px;">
+                                                    <span class="sl-label">보정 손절가</span>&nbsp;&nbsp;<span style="color:#475569;">${stock.holding_high.toLocaleString()} × (1 − ${stock.stop_loss_ratio}% + ${stock.kospi_drop_pct >= 0 ? '+' : ''}${stock.kospi_drop_pct}%)</span>
+                                                </div>
+                                                <div class="sl-formula-result">= ${stock.effective_stop_loss_price.toLocaleString()}원</div>
+                                            </div>
+                                        </span>` : ''}
+                                        ${stock.type === 'portfolio' ? `<span style="color:#ef4444; white-space:nowrap;">최고 ${stock.holding_high ? stock.holding_high.toLocaleString() : '-'}</span>` : ''}
                                     </div>
-                                    <div style="font-size: 10px; color: var(--text-muted); font-weight: 600;">
-                                        어제 ${prevClose.toLocaleString()}
+                                    <!-- 2행: 기본 손절가 + 어제 -->
+                                    <div style="display:flex; gap:6px; align-items:center; color:var(--text-muted); font-weight:600;">
+                                        ${stock.type === 'portfolio' && stock.stop_loss_ratio > 0 && stock.original_stop_loss_price > 0 ? `<span style="white-space:nowrap;">기본 ${stock.original_stop_loss_price.toLocaleString()}</span>` : ''}
+                                        <span style="white-space:nowrap;">어제 ${prevClose.toLocaleString()}</span>
                                     </div>
                                 </div>
                             </div>
