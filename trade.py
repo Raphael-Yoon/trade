@@ -11,7 +11,7 @@ if os.name == 'nt':
 from flask import Flask, render_template, jsonify, send_file, request, g
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 import subprocess
 import json
 import psutil
@@ -199,6 +199,10 @@ def init_db():
         pass
     try:
         cursor.execute("ALTER TABLE price_alerts ADD COLUMN foreign_net_buy INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN opinion TEXT")
     except sqlite3.OperationalError:
         pass
 
@@ -2750,6 +2754,83 @@ def get_history_data():
         return jsonify({'success': True, 'data': history})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/history/backfill', methods=['POST'])
+def backfill_history():
+    """[김정음] 최근 30일치 누락된 종가 데이터를 네이버 금융에서 소급 저장"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+
+        cursor.execute("SELECT code, name, purchase_price, quantity, owner FROM my_stocks")
+        stocks = [dict(row) for row in cursor.fetchall()]
+        if not stocks:
+            return jsonify({'success': False, 'message': '등록된 종목이 없습니다.'})
+
+        today = datetime.now().date()
+        since = today - timedelta(days=30)
+        recorded_at = datetime.now().isoformat()
+        inserted_total = 0
+        skipped_total = 0
+        errors = []
+
+        for stock in stocks:
+            code = stock['code']
+            name = stock['name']
+            purchase_price = stock['purchase_price'] or 0
+            quantity = stock['quantity'] or 0
+            owner = stock['owner'] or '나'
+
+            prices = get_daily_prices(code, pages=2)
+            if not prices:
+                errors.append(f"{name}({code}): 데이터 조회 실패")
+                continue
+
+            prices_sorted = sorted(prices, key=lambda x: x['date'])
+
+            cursor.execute(
+                "SELECT DISTINCT date FROM stock_daily_history WHERE code = ? AND date >= ?",
+                (code, since.strftime('%Y-%m-%d'))
+            )
+            existing_dates = {row[0] for row in cursor.fetchall()}
+
+            for i, p in enumerate(prices_sorted):
+                date_str = p['date']
+                try:
+                    price_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                except Exception:
+                    continue
+
+                if price_date < since or price_date > today:
+                    continue
+                if date_str in existing_dates:
+                    skipped_total += 1
+                    continue
+
+                close = p['close']
+                prev_close = prices_sorted[i - 1]['close'] if i > 0 else None
+                change_rate = round((close - prev_close) / prev_close * 100, 2) if prev_close else 0.0
+                day_profit = (close - prev_close) * quantity if prev_close else 0.0
+                cumulative_profit = (close - purchase_price) * quantity
+
+                cursor.execute('''
+                    INSERT INTO stock_daily_history
+                    (date, code, name, purchase_price, current_price, quantity, owner,
+                     recorded_at, day_profit, change_rate, cumulative_profit)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (date_str, code, name, purchase_price, close, quantity, owner,
+                      recorded_at, day_profit, change_rate, cumulative_profit))
+                inserted_total += 1
+
+        db.commit()
+        msg = f"소급 완료: {inserted_total}건 저장, {skipped_total}건 기존 데이터 유지"
+        if errors:
+            msg += f" / 조회 실패: {', '.join(errors)}"
+        return jsonify({'success': True, 'message': msg,
+                        'inserted': inserted_total, 'skipped': skipped_total, 'errors': errors})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/history/report', methods=['GET'])
 def get_history_report():
