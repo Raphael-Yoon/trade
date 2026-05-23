@@ -440,6 +440,19 @@
                         <option value="11">11월</option>
                         <option value="12">12월</option>
                     </select>
+                    <!-- 소유자 필터 (월별 전용) -->
+                    <span id="ownerFilterLabel" style="font-size:14px;color:var(--text-muted);font-weight:600;display:none;">소유자:</span>
+                    <select id="ownerFilterSelect" onchange="onOwnerFilterChange()"
+                        style="display:none;padding:10px 20px;border-radius:12px;background:#0f172a;border:1px solid rgba(255,255,255,0.2);color:white;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;outline:none;min-width:120px;">
+                        <option value="all">합산</option>
+                    </select>
+                    <!-- 차트 유형 토글 (월별 전용) -->
+                    <div id="chartTypeToggle" style="display:none;margin-left:auto;align-items:center;gap:4px;background:rgba(255,255,255,0.05);border-radius:10px;padding:4px;">
+                        <button id="ctBtn_daily" onclick="setChartType('daily')"
+                            style="padding:7px 14px;border-radius:7px;border:none;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;background:rgba(99,102,241,0.8);color:white;transition:all 0.2s;">당일 실적</button>
+                        <button id="ctBtn_cumulative" onclick="setChartType('cumulative')"
+                            style="padding:7px 14px;border-radius:7px;border:none;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;background:transparent;color:var(--text-muted);transition:all 0.2s;">누적</button>
+                    </div>
                 </div>
 
                 <!-- 일별 컨트롤 -->
@@ -1214,6 +1227,8 @@
         // [유병욱] 히스토리 뷰 모드 전환 (일별 / 월별 / 분기별 / 연도별)
         let currentHistoryView = 'daily';
         let reportCache = null; // { period, periods, by_owner }
+        let currentChartType = 'daily'; // 'daily' | 'cumulative'
+        let dailyChartCache = null;    // { month, data }
 
         function switchHistoryView(view) {
             currentHistoryView = view;
@@ -1234,7 +1249,30 @@
             document.getElementById('reportMonthLabel').style.display = showMonth ? 'inline' : 'none';
             document.getElementById('historyContent').style.display = isDaily ? 'block' : 'none';
             document.getElementById('reportContent').style.display = isDaily ? 'none' : 'block';
+            // 월별 전용: 차트유형 토글 + 소유자 필터
+            const isMonth = (view === 'month');
+            const toggle = document.getElementById('chartTypeToggle');
+            const ownerLabel = document.getElementById('ownerFilterLabel');
+            const ownerSel = document.getElementById('ownerFilterSelect');
+            if (toggle) toggle.style.display = isMonth ? 'flex' : 'none';
+            if (ownerLabel) ownerLabel.style.display = isMonth ? 'inline' : 'none';
+            if (ownerSel) ownerSel.style.display = isMonth ? 'block' : 'none';
             if (!isDaily) loadHistoryReport(view);
+        }
+
+        function setChartType(type) {
+            currentChartType = type;
+            ['daily', 'cumulative'].forEach(t => {
+                const btn = document.getElementById('ctBtn_' + t);
+                if (!btn) return;
+                btn.style.background = t === type ? 'rgba(99,102,241,0.8)' : 'transparent';
+                btn.style.color = t === type ? 'white' : 'var(--text-muted)';
+            });
+            if (dailyChartCache) renderDailyChart(dailyChartCache.month, dailyChartCache.data);
+        }
+
+        function onOwnerFilterChange() {
+            if (dailyChartCache) renderDailyChart(dailyChartCache.month, dailyChartCache.data);
         }
 
         // [김정음] 기간별 리포트 로드 — 데이터 fetch 후 연도 셀렉터 구성 → 렌더링
@@ -1271,8 +1309,11 @@
                 });
         }
 
-        // [유병욱] 특정 월 선택 시 일별 차트 렌더링
+        // [유병욱] 특정 월 선택 시 일별 차트 렌더링 (차트유형·소유자 필터 지원)
         function renderDailyChart(month, data) {
+            // 데이터 캐시
+            dailyChartCache = { month, data };
+
             const fmt = n => {
                 const abs = Math.abs(n);
                 const sign = n < 0 ? '-' : (n > 0 ? '+' : '');
@@ -1283,23 +1324,36 @@
             const pColor = n => n >= 0 ? '#10b981' : '#ef4444';
             const ownerColors = ['#6366f1', '#10b981', '#f59e0b', '#a78bfa', '#f472b6'];
             const content = document.getElementById('reportContent');
+
             if (!data.dates || !data.dates.length) {
                 content.innerHTML = '<p style="text-align:center;padding:60px;color:var(--text-muted);">해당 월에 저장된 데이터가 없습니다.</p>';
                 return;
             }
-            const allOwners = [...new Set(data.by_owner.map(r => r.owner))];
+
+            // 소유자 목록 추출 후 select 갱신 (현재 선택값 유지)
+            const allOwners = [...new Set(data.by_owner.map(r => r.owner))].sort();
+            const ownerSel = document.getElementById('ownerFilterSelect');
+            if (ownerSel) {
+                const prev = ownerSel.value;
+                ownerSel.innerHTML = '<option value="all">합산</option>'
+                    + allOwners.map(o => `<option value="${o}"${o === prev ? ' selected' : ''}>${o}</option>`).join('');
+            }
+            const selectedOwner = ownerSel ? ownerSel.value : 'all';
+            const activeOwners = selectedOwner === 'all' ? allOwners : [selectedOwner];
+            const filteredRows = selectedOwner === 'all'
+                ? data.by_owner
+                : data.by_owner.filter(r => r.owner === selectedOwner);
+
             const dates = data.dates;
-
-            // 일자별 전체 합산 (모든 소유주)
-            const dailyTotals = dates.map(d => {
-                const rows = data.by_owner.filter(r => r.date === d);
-                return { date: d, day_profit: rows.reduce((s, r) => s + r.day_profit_sum, 0) };
-            });
-
-            // SVG 일별 손익 막대 차트
+            const n = dates.length;
             const W = 800, H = 220, pL = 72, pR = 20, pT = 28, pB = 44;
             const cW = W - pL - pR, cH = H - pT - pB;
-            const n = dates.length;
+
+            // ── 당일 실적 막대 차트 ──────────────────────────────────
+            const dailyTotals = dates.map(d => {
+                const rows = filteredRows.filter(r => r.date === d);
+                return { date: d, day_profit: rows.reduce((s, r) => s + r.day_profit_sum, 0) };
+            });
             const vals = dailyTotals.map(d => d.day_profit);
             const maxV = Math.max(...vals.map(Math.abs), 1);
             const barW = Math.max(4, Math.floor(cW / n) - 4);
@@ -1308,7 +1362,6 @@
             const yp = v => zY - (v / maxV) * (cH / 2);
 
             let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">`;
-            // Y축 그리드 + 레이블 (0 기준 ±4단계)
             for (let i = -2; i <= 2; i++) {
                 const v = (maxV / 2) * i;
                 const y = yp(v);
@@ -1321,73 +1374,108 @@
                 const y = yp(d.day_profit);
                 const h = Math.abs(zY - y);
                 const barY = d.day_profit >= 0 ? y : zY;
-                const color = pColor(d.day_profit);
-                svg += `<rect x="${(x - barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(2, h).toFixed(1)}" fill="${color}" opacity="0.8" rx="2"/>`;
-                const skip = n > 20 && i % Math.ceil(n / 10) !== 0 && i !== n - 1;
-                if (!skip) {
-                    const label = d.date.slice(5).replace('-', '/');
-                    svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${label}</text>`;
-                }
+                svg += `<rect x="${(x-barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(2,h).toFixed(1)}" fill="${pColor(d.day_profit)}" opacity="0.8" rx="2"/>`;
+                const skip = n > 20 && i % Math.ceil(n/10) !== 0 && i !== n-1;
+                if (!skip) svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.date.slice(5).replace('-','/')}</text>`;
             });
             svg += `</svg>`;
 
-            // 소유주별 누적손익 라인 차트
-            const cumVals = data.by_owner.map(r => r.cum_profit);
+            // ── 누적 손익 라인 차트 ──────────────────────────────────
+            const cumVals = filteredRows.map(r => r.cum_profit);
             const minC = Math.min(...cumVals, 0), maxC = Math.max(...cumVals, 0);
             const cRange = maxC - minC || 1;
-            const W2 = 800, H2 = 220;
-            const cH2 = H2 - pT - pB;
-            const xp2 = i => pL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW);
+            const H2 = 220, cH2 = H2 - pT - pB;
+            const xp2 = i => pL + (n <= 1 ? cW / 2 : (i / (n-1)) * cW);
             const yp2 = v => pT + cH2 - ((v - minC) / cRange * cH2);
             const zY2 = yp2(0);
-            let svg2 = `<svg viewBox="0 0 ${W2} ${H2}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">`;
-            // Y축 그리드 + 레이블 (4단계)
+
+            let svg2 = `<svg viewBox="0 0 ${W} ${H2}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">`;
             for (let i = 0; i <= 4; i++) {
                 const v = minC + (cRange / 4) * i;
                 const y = yp2(v);
                 const isZero = Math.abs(v) < cRange * 0.01;
-                svg2 += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W2-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${isZero?'0.18':'0.06'})" stroke-width="${isZero?'1.5':'1'}"/>`;
+                svg2 += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${isZero?'0.18':'0.06'})" stroke-width="${isZero?'1.5':'1'}"/>`;
                 svg2 += `<text x="${pL-6}" y="${(y+4).toFixed(1)}" text-anchor="end" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${fmt(v)}</text>`;
             }
-            // 0선 점선 (양수/음수 공존 시)
-            if (minC < 0 && maxC > 0) {
-                svg2 += `<line x1="${pL}" y1="${zY2.toFixed(1)}" x2="${W2-pR}" y2="${zY2.toFixed(1)}" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="5,3"/>`;
-            }
-            // X축 날짜 레이블 + 세로 가이드선
+            if (minC < 0 && maxC > 0)
+                svg2 += `<line x1="${pL}" y1="${zY2.toFixed(1)}" x2="${W-pR}" y2="${zY2.toFixed(1)}" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="5,3"/>`;
             dates.forEach((d, i) => {
                 const x = xp2(i);
-                const skip = n > 20 && i % Math.ceil(n / 10) !== 0 && i !== n - 1;
+                const skip = n > 20 && i % Math.ceil(n/10) !== 0 && i !== n-1;
                 svg2 += `<line x1="${x.toFixed(1)}" y1="${pT}" x2="${x.toFixed(1)}" y2="${(pT+cH2).toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>`;
-                if (!skip) {
-                    const label = d.slice(5).replace('-', '/');
-                    svg2 += `<text x="${x.toFixed(1)}" y="${H2-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${label}</text>`;
-                }
+                if (!skip) svg2 += `<text x="${x.toFixed(1)}" y="${H2-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.slice(5).replace('-','/')}</text>`;
             });
             // 범례
-            allOwners.forEach((owner, oi) => {
+            activeOwners.forEach((owner, oi) => {
                 const lx = pL + oi * 90;
-                svg2 += `<circle cx="${(lx+4).toFixed(1)}" cy="12" r="4" fill="${ownerColors[oi % ownerColors.length]}" opacity="0.9"/>`;
+                svg2 += `<circle cx="${(lx+4).toFixed(1)}" cy="12" r="4" fill="${ownerColors[oi%ownerColors.length]}" opacity="0.9"/>`;
                 svg2 += `<text x="${(lx+12).toFixed(1)}" y="16" fill="rgba(255,255,255,0.55)" font-size="11" font-family="Outfit,sans-serif">${owner}</text>`;
             });
             // 라인 + 포인트
-            allOwners.forEach((owner, oi) => {
+            activeOwners.forEach((owner, oi) => {
                 const color = ownerColors[oi % ownerColors.length];
                 const pts = dates.map((d, i) => {
-                    const row = data.by_owner.find(r => r.date === d && r.owner === owner);
+                    const row = filteredRows.find(r => r.date === d && r.owner === owner);
                     return row ? { x: xp2(i), y: yp2(row.cum_profit) } : null;
                 }).filter(Boolean);
                 if (pts.length >= 2) {
-                    const lineD = pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+                    const lineD = pts.map((p,i) => `${i===0?'M':'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
                     svg2 += `<path d="${lineD}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
                 }
                 pts.forEach(p => { svg2 += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#0f172a" stroke="${color}" stroke-width="2"/>`; });
             });
             svg2 += `</svg>`;
 
-            const [y, m] = month.split('-');
+            // ── 총 보유자산 면적 차트 ────────────────────────────────
+            const assetTotals = dates.map(d => {
+                const rows = filteredRows.filter(r => r.date === d);
+                return rows.reduce((s, r) => s + (r.portfolio_value || 0), 0);
+            });
+            const maxA = Math.max(...assetTotals, 1);
+            const H3 = 180, cH3 = H3 - pT - pB;
+            const xp3 = i => pL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW);
+            const yp3 = v => pT + cH3 - (v / maxA * cH3);
+
+            let svg3 = `<svg viewBox="0 0 ${W} ${H3}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">`;
+            for (let i = 0; i <= 4; i++) {
+                const v = (maxA / 4) * i;
+                const y = yp3(v);
+                svg3 += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${i===0?'0.12':'0.05'})" stroke-width="${i===0?'1.5':'1'}"/>`;
+                svg3 += `<text x="${pL-6}" y="${(y+4).toFixed(1)}" text-anchor="end" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${fmt(v)}</text>`;
+            }
+            dates.forEach((d, i) => {
+                const x = xp3(i);
+                const skip = n > 20 && i % Math.ceil(n / 10) !== 0 && i !== n - 1;
+                svg3 += `<line x1="${x.toFixed(1)}" y1="${pT}" x2="${x.toFixed(1)}" y2="${(pT+cH3).toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>`;
+                if (!skip) svg3 += `<text x="${x.toFixed(1)}" y="${H3-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.slice(5).replace('-','/')}</text>`;
+            });
+            if (n >= 2) {
+                const areaPath = `M${xp3(0).toFixed(1)},${yp3(assetTotals[0]).toFixed(1)} `
+                    + assetTotals.slice(1).map((v, i) => `L${xp3(i+1).toFixed(1)},${yp3(v).toFixed(1)}`).join(' ')
+                    + ` L${xp3(n-1).toFixed(1)},${(pT+cH3).toFixed(1)} L${xp3(0).toFixed(1)},${(pT+cH3).toFixed(1)} Z`;
+                svg3 += `<path d="${areaPath}" fill="rgba(99,102,241,0.12)" stroke="none"/>`;
+                const linePath = `M${xp3(0).toFixed(1)},${yp3(assetTotals[0]).toFixed(1)} `
+                    + assetTotals.slice(1).map((v, i) => `L${xp3(i+1).toFixed(1)},${yp3(v).toFixed(1)}`).join(' ');
+                svg3 += `<path d="${linePath}" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+            }
+            assetTotals.forEach((v, i) => {
+                svg3 += `<circle cx="${xp3(i).toFixed(1)}" cy="${yp3(v).toFixed(1)}" r="3.5" fill="#0f172a" stroke="#6366f1" stroke-width="2"/>`;
+            });
+            svg3 += `</svg>`;
+
+            // ── 요약 통계 ────────────────────────────────────────────
+            const [yr, mo] = month.split('-');
             const totalProfit = vals.reduce((s, v) => s + v, 0);
+            const lastRows = filteredRows.filter(r => r.date === dates[dates.length - 1]);
+            const finalCum = lastRows.reduce((s, r) => s + r.cum_profit, 0);
+            const finalAsset = lastRows.reduce((s, r) => s + (r.portfolio_value || 0), 0);
+            const ownerLabel = selectedOwner === 'all' ? '' : ` · ${selectedOwner}`;
+            const chartTitle = currentChartType === 'daily'
+                ? `📊 일별 손익${ownerLabel}`
+                : `📈 누적손익 추이${ownerLabel}`;
+
             content.innerHTML = `
-                <div style="margin-bottom:8px;font-size:12px;color:var(--text-muted);font-weight:700;letter-spacing:0.05em;">${y}년 ${parseInt(m)}월 일별 상세</div>
+                <div style="margin-bottom:8px;font-size:12px;color:var(--text-muted);font-weight:700;letter-spacing:0.05em;">${yr}년 ${parseInt(mo)}월 일별 상세${ownerLabel}</div>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;">
                     <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
                         <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">기록 일수</div>
@@ -1398,18 +1486,23 @@
                         <div style="font-size:22px;font-weight:800;font-family:'Outfit',sans-serif;color:${pColor(totalProfit)};">${fmt(totalProfit)}</div>
                     </div>
                     <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
-                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">일 평균 손익</div>
-                        <div style="font-size:22px;font-weight:800;font-family:'Outfit',sans-serif;color:${pColor(totalProfit)};">${fmt(Math.round(totalProfit / dates.length))}</div>
+                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">${currentChartType === 'cumulative' ? '최종 누적손익 / 자산' : '일 평균 손익'}</div>
+                        ${currentChartType === 'cumulative'
+                            ? `<div style="font-size:19px;font-weight:800;font-family:'Outfit',sans-serif;color:${pColor(finalCum)};">${fmt(finalCum)}</div>
+                               <div style="font-size:13px;font-weight:600;font-family:'Outfit',sans-serif;color:rgba(255,255,255,0.45);margin-top:4px;">자산 ${fmt(finalAsset)}</div>`
+                            : `<div style="font-size:22px;font-weight:800;font-family:'Outfit',sans-serif;color:${pColor(totalProfit)};">${fmt(Math.round(totalProfit / dates.length))}</div>`
+                        }
                     </div>
                 </div>
-                <div style="background:rgba(255,255,255,0.03);border-radius:20px;border:1px solid rgba(255,255,255,0.08);padding:24px 24px 12px;margin-bottom:20px;">
-                    <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:16px;">📊 일별 손익</div>
-                    ${svg}
+                <div style="background:rgba(255,255,255,0.03);border-radius:20px;border:1px solid rgba(255,255,255,0.08);padding:24px 24px 12px;${currentChartType === 'cumulative' ? 'margin-bottom:16px;' : ''}">
+                    <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:16px;">${chartTitle}</div>
+                    ${currentChartType === 'daily' ? svg : svg2}
                 </div>
+                ${currentChartType === 'cumulative' ? `
                 <div style="background:rgba(255,255,255,0.03);border-radius:20px;border:1px solid rgba(255,255,255,0.08);padding:24px 24px 12px;">
-                    <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:16px;">📈 소유주별 누적손익 추이</div>
-                    ${svg2}
-                </div>`;
+                    <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:16px;">💰 총 보유자산${ownerLabel}</div>
+                    ${svg3}
+                </div>` : ''}`;
         }
 
         // [김정음] 연도/월 필터 적용 후 렌더링

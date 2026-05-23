@@ -2892,8 +2892,9 @@ def get_daily_chart():
         cursor = db.cursor()
         cursor.execute("""
             SELECT date, owner,
-                   SUM(day_profit) AS day_profit_sum,
-                   SUM(cumulative_profit) AS cum_profit
+                   ROUND(SUM(day_profit), 0) AS day_profit_sum,
+                   ROUND(SUM(cumulative_profit), 0) AS cum_profit,
+                   ROUND(SUM(current_price * quantity), 0) AS portfolio_value
             FROM stock_daily_history
             WHERE strftime('%Y-%m', date) = ?
             GROUP BY date, owner
