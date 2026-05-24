@@ -305,9 +305,6 @@ def load_financial_health(force=False):
                             'debt_ratio': float(row.get('부채비율', 0))
                         }
                     
-                    # [김선화] 수집된 데이터를 audit_recommendations 테이블에 동기화 (내일 공략 후보 자동 생성)
-                    sync_audit_recommendations(df, latest_file['name'])
-                    
                     print(f"✅ 구글 드라이브 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
                     return financial_cache
     except Exception as e:
@@ -336,9 +333,6 @@ def load_financial_health(force=False):
                         'roe': float(row.get('ROE', 0)),
                         'debt_ratio': float(row.get('부채비율', 0))
                     }
-                
-                # [김선화] 수집된 데이터를 audit_recommendations 테이블에 동기화
-                sync_audit_recommendations(df, os.path.basename(file_path))
                 
                 print(f"✅ 로컬 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
                 return financial_cache
@@ -998,7 +992,7 @@ def sync_audit_recommendations(df, file_name):
         
         if recommendations:
             cursor.executemany("""
-                INSERT INTO audit_recommendations (code, name, current_price, target_price, upside, opinion, data_date, created_at)
+                INSERT OR REPLACE INTO audit_recommendations (code, name, current_price, target_price, upside, opinion, data_date, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, recommendations)
             print(f"✅ [감사팀] {data_date} 기준 추천 종목 {len(recommendations)}개 동기화 완료")
