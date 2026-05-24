@@ -1,6 +1,6 @@
 @echo off
-title Trade Project Server
+title Jonathan's Coffee House
 cd /d "%~dp0"
-echo Starting Trade Project...
+echo Starting Jonathan's Coffee House...
 python trade.py
 pause
