@@ -658,30 +658,37 @@
             </div>
         </div>
 
-        <!-- [서화진] Tab 5: 감사팀 추천 공략주 (Audit's Targets) -->
+        <!-- [개발2팀/감사팀] Tab 5: AI 우선순위 공략주 -->
         <div id="targetsTab" class="tab-content">
-            <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(16, 185, 129, 0.1)); border: 1px solid rgba(255,255,255,0.1); border-radius: 32px; padding: 40px; margin-bottom: 32px; position: relative; overflow: hidden;">
+            <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(16, 185, 129, 0.1)); border: 1px solid rgba(255,255,255,0.1); border-radius: 32px; padding: 40px; margin-bottom: 24px; position: relative; overflow: hidden;">
                 <div style="position: absolute; top: -50px; right: -50px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(99, 102, 241, 0.2) 0%, transparent 70%);"></div>
-                <div style="display: flex; justify-content: space-between; align-items: center; position: relative; z-index: 1;">
-                    <div style="text-align: left;">
-                        <h2 style="margin: 0; color: white; font-size: 32px; font-weight: 900; letter-spacing: -1px;">🎯 Audit Team's Priority Targets</h2>
-                        <p style="margin-top: 12px; color: var(--text-muted); font-size: 16px; font-weight: 500;">감사팀의 정밀 재무 분석(ROE, 부채비율, 의견)을 거친 내일의 우량 공략주입니다.</p>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 16px; background: rgba(0,0,0,0.3); padding: 12px 20px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);">
-                        <span style="font-size: 14px; color: #10b981; font-weight: 800;">분석 데이터 기준일:</span>
-                        <select id="auditDateSelect" onchange="fetchTomorrowTargets(this.value)" 
-                            style="padding: 8px 16px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(16, 185, 129, 0.4); color: white; font-weight: 700; cursor: pointer; outline: none; min-width: 140px;">
-                            <option value="">불러오는 중...</option>
-                        </select>
+                <div style="position: relative; z-index: 1;">
+                    <h2 style="margin: 0 0 8px; color: white; font-size: 32px; font-weight: 900; letter-spacing: -1px;">🎯 AI Priority Targets</h2>
+                    <p style="margin: 0 0 20px; color: var(--text-muted); font-size: 16px; font-weight: 500;">재무 건전성 + 뉴스 모멘텀 기반 AI 우선순위 종목 풀입니다.</p>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="poolSubTab1" onclick="switchPoolTab('top10')"
+                            style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(16,185,129,0.5); background: rgba(16,185,129,0.2); color: #10b981; font-weight: 800; cursor: pointer; font-size: 14px;">
+                            🏆 AI TOP 10
+                        </button>
+                        <button id="poolSubTab2" onclick="switchPoolTab('full')"
+                            style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px;">
+                            📋 전체 풀 100
+                        </button>
+                        <span id="poolRankedBy" style="margin-left: auto; align-self: center; font-size: 12px; color: #64748b;"></span>
                     </div>
                 </div>
             </div>
 
-            <div id="targetsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
-                <!-- 타겟 카드가 여기에 동적으로 생성됩니다 -->
-                <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 80px;">
-                    <p>오늘 시간외 포착 내역이 아직 없습니다.</p>
+            <!-- TOP 10 -->
+            <div id="poolTop10Section">
+                <div id="targetsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                    <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 80px;"><p>불러오는 중...</p></div>
                 </div>
+            </div>
+
+            <!-- 전체 풀 -->
+            <div id="poolFullSection" style="display: none;">
+                <div id="fullPoolList"></div>
             </div>
         </div>
 
@@ -3481,148 +3488,156 @@
             `;
         }
 
-        function loadAuditDates() {
-            fetch('/api/audit/dates')
+        function loadAuditDates() { loadPoolData(); }
+
+        let currentPoolTab = 'top10';
+
+        function switchPoolTab(tab) {
+            currentPoolTab = tab;
+            document.getElementById('poolTop10Section').style.display = tab === 'top10' ? '' : 'none';
+            document.getElementById('poolFullSection').style.display  = tab === 'full'  ? '' : 'none';
+            document.getElementById('poolSubTab1').style.cssText = tab === 'top10'
+                ? 'padding:10px 24px;border-radius:12px;border:1px solid rgba(16,185,129,0.5);background:rgba(16,185,129,0.2);color:#10b981;font-weight:800;cursor:pointer;font-size:14px;'
+                : 'padding:10px 24px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text-muted);font-weight:700;cursor:pointer;font-size:14px;';
+            document.getElementById('poolSubTab2').style.cssText = tab === 'full'
+                ? 'padding:10px 24px;border-radius:12px;border:1px solid rgba(99,102,241,0.5);background:rgba(99,102,241,0.2);color:#818cf8;font-weight:800;cursor:pointer;font-size:14px;'
+                : 'padding:10px 24px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text-muted);font-weight:700;cursor:pointer;font-size:14px;';
+            if (tab === 'full' && !document.getElementById('fullPoolList').dataset.loaded) {
+                loadFullPool();
+            }
+        }
+
+        function loadPoolData() {
+            fetch('/api/pool')
                 .then(res => res.json())
-                .then(dates => {
-                    const select = document.getElementById('auditDateSelect');
-                    if (!select) return;
-                    if (dates && dates.length > 0) {
-                        select.innerHTML = dates.map(d => `<option value="${d}">${d}</option>`).join('');
-                        fetchTomorrowTargets(dates[0]);
-                    } else {
-                        select.innerHTML = '<option value="">데이터 없음</option>';
-                        fetchTomorrowTargets();
-                    }
+                .then(data => {
+                    const rankedBy = data.ranked_by === 'ai' ? '🤖 AI 랭킹 기준' : '📊 재무점수 기준';
+                    const el = document.getElementById('poolRankedBy');
+                    if (el) el.textContent = rankedBy;
+                    renderPoolTop10(data.stocks.slice(0, 10));
+                    const codes = data.stocks.slice(0, 10).map(s => s.code).join(',');
+                    fetch(`/api/targets/live-prices?codes=${codes}`)
+                        .then(r => r.json()).then(applyLivePrices).catch(() => {});
                 });
         }
 
-        function fetchTomorrowTargets(date = '') {
-            const url = date ? `/api/targets/tomorrow?date=${date}` : '/api/targets/tomorrow';
-            fetch(url)
+        function renderPoolTop10(stocks) {
+            const list = document.getElementById('targetsList');
+            if (!list) return;
+            if (!stocks || stocks.length === 0) {
+                list.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:80px;"><p>풀 데이터가 없습니다. build_stock_pool.py를 실행해주세요.</p></div>';
+                return;
+            }
+            const rankColors = ['#fbbf24','#94a3b8','#cd7c3e','#10b981','#10b981','#10b981','#10b981','#10b981','#10b981','#10b981'];
+            list.innerHTML = stocks.map((s, idx) => {
+                const rank = s.rank || idx + 1;
+                const score = (s.priority_score || s.pool_score || 0).toFixed(1);
+                const summary = s.ai_summary || '';
+                return `
+                <div class="result-card" style="background:rgba(255,255,255,0.03);border-radius:24px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;display:flex;flex-direction:column;">
+                    <div style="height:4px;background:linear-gradient(to right,${rankColors[idx]||'#10b981'},${rankColors[idx]||'#059669'}88);"></div>
+                    <div style="display:flex;">
+                        <div style="flex:55;padding:24px;display:flex;flex-direction:column;gap:14px;border-right:1px solid rgba(255,255,255,0.06);">
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                <span style="font-size:13px;font-weight:900;color:${rankColors[idx]||'#10b981'};background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);padding:3px 10px;border-radius:8px;font-family:'Outfit',sans-serif;">${rank}위</span>
+                                <span style="font-size:22px;font-weight:900;color:white;font-family:'Outfit',sans-serif;">${s.name}</span>
+                                <span style="font-size:11px;color:#64748b;">${s.code}</span>
+                                <span style="font-size:11px;color:#94a3b8;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:20px;">${s.sector||''}</span>
+                            </div>
+                            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+                                <div style="padding:10px 8px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
+                                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">ROE</div>
+                                    <div style="font-size:15px;font-weight:900;color:white;">${(s.roe||0).toFixed(1)}%</div>
+                                </div>
+                                <div style="padding:10px 8px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
+                                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">영업이익률</div>
+                                    <div style="font-size:15px;font-weight:900;color:#10b981;">${(s.operating_margin||0).toFixed(1)}%</div>
+                                </div>
+                                <div style="padding:10px 8px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
+                                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">부채비율</div>
+                                    <div style="font-size:15px;font-weight:900;color:#3b82f6;">${(s.debt_ratio||0).toFixed(0)}%</div>
+                                </div>
+                                <div style="padding:10px 8px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
+                                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">AI 점수</div>
+                                    <div style="font-size:15px;font-weight:900;color:#fbbf24;">${score}</div>
+                                </div>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                                <div style="padding:10px 14px;background:rgba(251,191,36,0.06);border-radius:12px;border:1px solid rgba(251,191,36,0.15);">
+                                    <div style="font-size:10px;color:#fbbf24;margin-bottom:3px;">목표주가</div>
+                                    <div style="font-size:15px;font-weight:900;color:#fbbf24;font-family:'Outfit',sans-serif;">${s.target_price > 0 ? s.target_price.toLocaleString()+'원' : '-'}</div>
+                                </div>
+                                <div style="padding:10px 14px;background:rgba(99,102,241,0.06);border-radius:12px;border:1px solid rgba(99,102,241,0.15);">
+                                    <div style="font-size:10px;color:#818cf8;margin-bottom:3px;">재무 기본점수</div>
+                                    <div style="font-size:20px;font-weight:900;color:#818cf8;font-family:'Outfit',sans-serif;">${(s.pool_score||0).toFixed(1)}</div>
+                                </div>
+                            </div>
+                            ${summary ? `<div style="padding:12px 14px;background:rgba(16,185,129,0.05);border-radius:12px;border:1px solid rgba(16,185,129,0.1);font-size:12px;color:#94a3b8;line-height:1.6;"><span style="color:#10b981;font-weight:700;">🤖 AI 분석 </span>${summary}</div>` : ''}
+                        </div>
+                        <div style="flex:45;padding:20px;display:flex;flex-direction:column;gap:12px;">
+                            <div id="live-${s.code}" style="padding:12px 16px;background:rgba(255,255,255,0.02);border-radius:12px;border:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center;">
+                                <span style="font-size:11px;color:var(--text-muted);">현재가</span>
+                                <span style="font-size:13px;color:#475569;font-weight:600;">조회 중...</span>
+                            </div>
+                            <div style="flex:1;background:rgba(0,0,0,0.3);border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.07);cursor:pointer;min-height:120px;"
+                                 onclick="openChartModal('${s.code}','${s.name}')">
+                                <img src="https://ssl.pstatic.net/imgfinance/chart/item/area/day/${s.code}.png?sid=${Date.now()}"
+                                     style="width:100%;height:100%;object-fit:cover;display:block;"
+                                     onerror="this.style.display='none';this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;color:#475569;font-size:11px;\'>차트 없음</div>'">
+                            </div>
+                            <button onclick="openChartModal('${s.code}','${s.name}')"
+                                style="padding:10px;border-radius:10px;background:var(--primary);color:white;font-size:12px;font-weight:800;border:none;cursor:pointer;">
+                                정밀 분석 차트 ↗
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function loadFullPool() {
+            const container = document.getElementById('fullPoolList');
+            container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">불러오는 중...</div>';
+            fetch('/api/pool')
                 .then(res => res.json())
                 .then(data => {
-                    const list = document.getElementById('targetsList');
-                    if (!list) return;
-                    if (!data || data.length === 0) {
-                        list.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 80px;"><p>선택한 일자의 감사 추천 내역이 아직 없습니다.</p></div>';
-                        return;
-                    }
-
-                    list.innerHTML = data.map((target, idx) => {
-                        const reason = target.reason || '';
-                        const industryMatch = reason.match(/\[(.+?)\]/);
-                        const industry = industryMatch ? industryMatch[1] : '-';
-                        const newsMatch = reason.match(/뉴스:(\d+)/);
-                        const newsScore = newsMatch ? parseInt(newsMatch[1]) : 50;
-                        const newsColor = newsScore >= 70 ? '#10b981' : newsScore >= 50 ? '#fbbf24' : '#f87171';
-                        const foreignMatch = reason.match(/외인([+\-][\d,]+)/);
-                        const instMatch = reason.match(/기관([+\-][\d,]+)/);
-                        const foreignVal = foreignMatch ? foreignMatch[1] : '0';
-                        const instVal = instMatch ? instMatch[1] : '0';
-                        const fColor = foreignVal.startsWith('-') ? '#f87171' : '#10b981';
-                        const iColor = instVal.startsWith('-') ? '#f87171' : '#10b981';
-
-                        return `
-                        <div class="result-card" style="background: rgba(255,255,255,0.03); border-radius: 24px; border: 1px solid rgba(255,255,255,0.07); overflow: hidden; display: flex; flex-direction: column;">
-                            <div style="height: 4px; background: linear-gradient(to right, #10b981, #059669);"></div>
-                            <div style="display: flex;">
-
-                                <!-- 좌측: 종목 정보 (55%) -->
-                                <div style="flex: 55; padding: 24px; display: flex; flex-direction: column; gap: 14px; border-right: 1px solid rgba(255,255,255,0.06);">
-
-                                    <!-- 헤더 -->
-                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                        <span style="font-size: 10px; font-weight: 900; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); padding: 2px 7px; border-radius: 5px;">🛡 #${idx + 1}</span>
-                                        <span style="font-size: 22px; font-weight: 900; color: white; font-family: 'Outfit', sans-serif;">${target.name}</span>
-                                        <span style="font-size: 11px; color: #64748b;">${target.code}</span>
-                                        <span style="font-size: 11px; color: #94a3b8; background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 20px;">${industry}</span>
-                                    </div>
-
-                                    <!-- 핵심 지표 그리드 -->
-                                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-                                        <div style="padding: 10px 8px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); text-align: center;">
-                                            <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">ROE</div>
-                                            <div style="font-size: 16px; font-weight: 900; color: white;">${target.roe}%</div>
-                                        </div>
-                                        <div style="padding: 10px 8px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); text-align: center;">
-                                            <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">부채비율</div>
-                                            <div style="font-size: 16px; font-weight: 900; color: #3b82f6;">${target.debt}%</div>
-                                        </div>
-                                        <div style="padding: 10px 8px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); text-align: center;">
-                                            <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">외인 수급</div>
-                                            <div style="font-size: 13px; font-weight: 800; color: ${fColor};">${foreignVal}</div>
-                                        </div>
-                                        <div style="padding: 10px 8px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); text-align: center;">
-                                            <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">기관 수급</div>
-                                            <div style="font-size: 13px; font-weight: 800; color: ${iColor};">${instVal}</div>
-                                        </div>
-                                    </div>
-
-                                    <!-- 뉴스심리 + 기준일 -->
-                                    <div style="display: flex; align-items: center; gap: 10px;">
-                                        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(255,255,255,0.04); border-radius: 8px;">
-                                            <span style="font-size: 11px; color: var(--text-muted);">뉴스 심리</span>
-                                            <span style="font-size: 14px; font-weight: 800; color: ${newsColor};">${newsScore}점</span>
-                                        </div>
-                                        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(255,255,255,0.04); border-radius: 8px;">
-                                            <span style="font-size: 11px; color: var(--text-muted);">기준일</span>
-                                            <span style="font-size: 12px; font-weight: 700; color: #94a3b8;">${target.data_date}</span>
-                                        </div>
-                                    </div>
-
-                                    <!-- 목표주가 + 상승여력 -->
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                        <div style="padding: 10px 14px; background: rgba(251,191,36,0.06); border-radius: 12px; border: 1px solid rgba(251,191,36,0.15);">
-                                            <div style="font-size: 10px; color: #fbbf24; margin-bottom: 3px;">목표주가</div>
-                                            <div style="font-size: 15px; font-weight: 900; color: #fbbf24; font-family: 'Outfit', sans-serif;">${target.target_price.toLocaleString()}원</div>
-                                        </div>
-                                        <div style="padding: 10px 14px; background: rgba(239,68,68,0.06); border-radius: 12px; border: 1px solid rgba(239,68,68,0.15);">
-                                            <div style="font-size: 10px; color: #ef4444; margin-bottom: 3px;">상승 여력</div>
-                                            <div style="font-size: 20px; font-weight: 900; color: #ef4444; font-family: 'Outfit', sans-serif;">+${target.upside}%</div>
-                                        </div>
-                                    </div>
-
-                                    <!-- 추천 사유 -->
-                                    <div style="padding: 12px 14px; background: rgba(16,185,129,0.05); border-radius: 12px; border: 1px solid rgba(16,185,129,0.1); font-size: 12px; color: #94a3b8; line-height: 1.6;">
-                                        <span style="color: #10b981; font-weight: 700;">💡 감사팀 추천 사유 </span>${reason}
-                                    </div>
-                                </div>
-
-                                <!-- 우측: 시세 정보 + 차트 (45%) -->
-                                <div style="flex: 45; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
-
-                                    <!-- 실제 등락 (실시간 조회 후 채워짐) -->
-                                    <div id="live-${target.code}" style="padding: 12px 16px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center;">
-                                        <span style="font-size: 11px; color: var(--text-muted);">현재 실제가</span>
-                                        <span style="font-size: 13px; color: #475569; font-weight: 600;">조회 중...</span>
-                                    </div>
-
-                                    <!-- 차트 -->
-                                    <div style="flex: 1; background: rgba(0,0,0,0.3); border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.07); cursor: pointer; min-height: 120px;"
-                                         onclick="openChartModal('${target.code}', '${target.name}')">
-                                        <img src="https://ssl.pstatic.net/imgfinance/chart/item/area/day/${target.code}.png?sid=${Date.now()}"
-                                             alt="${target.name} 차트"
-                                             style="width: 100%; height: 100%; object-fit: cover; display: block;"
-                                             onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;color:#475569;font-size:11px;\'>차트 없음</div>'">
-                                    </div>
-
-                                    <button onclick="openChartModal('${target.code}', '${target.name}')"
-                                        style="padding: 10px; border-radius: 10px; background: var(--primary); color: white; font-size: 12px; font-weight: 800; border: none; cursor: pointer;">
-                                        정밀 분석 차트 ↗
-                                    </button>
-                                </div>
-
-                            </div>
-                        </div>`;
-                    }).join('');
-
-                    // 실시간 주가 조회 (applyLivePrices 공용 함수 사용)
-                    const codes = data.map(t => t.code).join(',');
-                    fetch(`/api/targets/live-prices?codes=${codes}`)
-                        .then(res => res.json())
-                        .then(applyLivePrices)
-                        .catch(() => {});
+                    const stocks = data.stocks;
+                    container.dataset.loaded = '1';
+                    container.innerHTML = `
+                    <div style="background:rgba(255,255,255,0.02);border-radius:20px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;">
+                        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                            <thead>
+                                <tr style="background:rgba(255,255,255,0.05);border-bottom:1px solid rgba(255,255,255,0.08);">
+                                    <th style="padding:14px 16px;text-align:center;color:#94a3b8;font-weight:700;width:50px;">순위</th>
+                                    <th style="padding:14px 16px;text-align:left;color:#94a3b8;font-weight:700;">종목명</th>
+                                    <th style="padding:14px 16px;text-align:left;color:#94a3b8;font-weight:700;">업종</th>
+                                    <th style="padding:14px 16px;text-align:right;color:#94a3b8;font-weight:700;">ROE</th>
+                                    <th style="padding:14px 16px;text-align:right;color:#94a3b8;font-weight:700;">영업이익률</th>
+                                    <th style="padding:14px 16px;text-align:right;color:#94a3b8;font-weight:700;">부채비율</th>
+                                    <th style="padding:14px 16px;text-align:right;color:#94a3b8;font-weight:700;">PBR</th>
+                                    <th style="padding:14px 16px;text-align:right;color:#94a3b8;font-weight:700;">재무점수</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${stocks.map((s, i) => `
+                                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">
+                                    <td style="padding:12px 16px;text-align:center;">
+                                        <span style="font-weight:900;color:${i<3?'#fbbf24':i<10?'#10b981':'#64748b'};">${i+1}</span>
+                                    </td>
+                                    <td style="padding:12px 16px;">
+                                        <span style="font-weight:800;color:white;">${s.name}</span>
+                                        <span style="font-size:11px;color:#475569;margin-left:6px;">${s.code}</span>
+                                    </td>
+                                    <td style="padding:12px 16px;color:#94a3b8;font-size:12px;">${s.sector||''}</td>
+                                    <td style="padding:12px 16px;text-align:right;font-weight:700;color:white;">${(s.roe||0).toFixed(1)}%</td>
+                                    <td style="padding:12px 16px;text-align:right;font-weight:700;color:#10b981;">${(s.operating_margin||0).toFixed(1)}%</td>
+                                    <td style="padding:12px 16px;text-align:right;font-weight:700;color:#3b82f6;">${(s.debt_ratio||0).toFixed(0)}%</td>
+                                    <td style="padding:12px 16px;text-align:right;color:#94a3b8;">${(s.pbr||0).toFixed(2)}</td>
+                                    <td style="padding:12px 16px;text-align:right;font-weight:800;color:#fbbf24;">${(s.pool_score||0).toFixed(1)}</td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>`;
                 });
         }
 

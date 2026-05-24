@@ -928,6 +928,58 @@ def get_live_prices():
                 result[code] = {'price': d['current_price'], 'change_rate': d['change_rate'], 'change': d['change']}
     return jsonify(result)
 
+@app.route('/api/pool')
+def get_stock_pool():
+    """[IT 감사팀] 투자적격 종목 풀 조회 (당일 AI 랭킹 있으면 우선순위 순, 없으면 pool_score 순)"""
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        conn = sqlite3.connect(DB_FILE, timeout=30)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # 당일 AI 랭킹이 있으면 랭킹 기준, 없으면 pool_score 기준
+        cursor.execute("SELECT COUNT(*) FROM stock_pool_ranking WHERE date = ?", (today,))
+        has_ranking = cursor.fetchone()[0] > 0
+
+        if has_ranking:
+            cursor.execute("""
+                SELECT p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio,
+                       p.operating_margin, p.target_price, p.pool_score,
+                       r.priority_score, r.ai_summary, r.rank
+                FROM stock_pool p
+                LEFT JOIN stock_pool_ranking r ON p.code = r.code AND r.date = ?
+                ORDER BY CASE WHEN r.rank IS NULL THEN 1 ELSE 0 END, r.rank ASC, p.pool_score DESC
+            """, (today,))
+        else:
+            cursor.execute("""
+                SELECT code, name, sector, roe, pbr, per, debt_ratio,
+                       operating_margin, target_price, pool_score,
+                       pool_score AS priority_score, NULL AS ai_summary,
+                       ROW_NUMBER() OVER (ORDER BY pool_score DESC) AS rank
+                FROM stock_pool
+                ORDER BY pool_score DESC
+            """)
+
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({"ranked_by": "ai" if has_ranking else "score", "stocks": rows})
+    except Exception as e:
+        print(f"⚠️ [감사팀] pool 조회 오류: {e}")
+        return jsonify({"ranked_by": "score", "stocks": []})
+
+@app.route('/api/pool/ranking/dates')
+def get_pool_ranking_dates():
+    """[IT 감사팀] AI 랭킹이 존재하는 날짜 목록"""
+    try:
+        conn = sqlite3.connect(DB_FILE, timeout=30)
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT date FROM stock_pool_ranking ORDER BY date DESC")
+        dates = [r[0] for r in cursor.fetchall()]
+        conn.close()
+        return jsonify(dates)
+    except Exception as e:
+        return jsonify([])
+
 @app.route('/api/audit/dates')
 def get_audit_dates():
     """[감사팀 협업] 추천 데이터가 있는 일자 목록을 가져옵니다."""
