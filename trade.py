@@ -205,6 +205,22 @@ def init_db():
         cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN opinion TEXT")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN score REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN roe REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN debt REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN reason TEXT")
+    except sqlite3.OperationalError:
+        pass
 
     # [감사팀 협업] 감사팀 추천 종목 테이블
     cursor.execute('''
@@ -894,11 +910,11 @@ def get_tomorrow_targets():
         cursor = conn.cursor()
         
         if target_date:
-            query = "SELECT * FROM audit_recommendations WHERE data_date = ? ORDER BY upside DESC"
+            query = "SELECT * FROM audit_recommendations WHERE data_date = ? ORDER BY score DESC, upside DESC"
             cursor.execute(query, (target_date,))
         else:
             # 일자 지정이 없으면 가장 최신 데이터 조회
-            query = "SELECT * FROM audit_recommendations ORDER BY data_date DESC, upside DESC LIMIT 10"
+            query = "SELECT * FROM audit_recommendations ORDER BY data_date DESC, score DESC, upside DESC LIMIT 10"
             cursor.execute(query)
             
         targets = [dict(row) for row in cursor.fetchall()]
@@ -930,55 +946,29 @@ def get_live_prices():
 
 @app.route('/api/pool')
 def get_stock_pool():
-    """[IT 감사팀] 투자적격 종목 풀 조회 (당일 AI 랭킹 있으면 우선순위 순, 없으면 pool_score 순)"""
+    """[IT 감사팀] 투자적격 종목 풀 조회 (audit_recommendations Top 10 우선, 나머지 pool_score 순)"""
     try:
-        today = datetime.now().strftime('%Y-%m-%d')
         conn = sqlite3.connect(DB_FILE, timeout=30)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # 당일 AI 랭킹이 있으면 랭킹 기준, 없으면 pool_score 기준
-        cursor.execute("SELECT COUNT(*) FROM stock_pool_ranking WHERE date = ?", (today,))
-        has_ranking = cursor.fetchone()[0] > 0
-
-        if has_ranking:
-            cursor.execute("""
-                SELECT p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio,
-                       p.operating_margin, p.target_price, p.pool_score,
-                       r.priority_score, r.ai_summary, r.rank
-                FROM stock_pool p
-                LEFT JOIN stock_pool_ranking r ON p.code = r.code AND r.date = ?
-                ORDER BY CASE WHEN r.rank IS NULL THEN 1 ELSE 0 END, r.rank ASC, p.pool_score DESC
-            """, (today,))
-        else:
-            cursor.execute("""
-                SELECT code, name, sector, roe, pbr, per, debt_ratio,
-                       operating_margin, target_price, pool_score,
-                       pool_score AS priority_score, NULL AS ai_summary,
-                       ROW_NUMBER() OVER (ORDER BY pool_score DESC) AS rank
-                FROM stock_pool
-                ORDER BY pool_score DESC
-            """)
+        cursor.execute("""
+            SELECT p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio,
+                   p.operating_margin, p.target_price, p.pool_score,
+                   a.score AS priority_score, a.reason AS ai_summary,
+                   a.upside, a.current_price
+            FROM stock_pool p
+            LEFT JOIN audit_recommendations a ON p.code = a.code
+                AND a.data_date = (SELECT MAX(data_date) FROM audit_recommendations)
+            ORDER BY CASE WHEN a.code IS NULL THEN 1 ELSE 0 END, a.score DESC, p.pool_score DESC
+        """)
 
         rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
-        return jsonify({"ranked_by": "ai" if has_ranking else "score", "stocks": rows})
+        return jsonify({"stocks": rows})
     except Exception as e:
-        print(f"⚠️ [감사팀] pool 조회 오류: {e}")
-        return jsonify({"ranked_by": "score", "stocks": []})
-
-@app.route('/api/pool/ranking/dates')
-def get_pool_ranking_dates():
-    """[IT 감사팀] AI 랭킹이 존재하는 날짜 목록"""
-    try:
-        conn = sqlite3.connect(DB_FILE, timeout=30)
-        cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT date FROM stock_pool_ranking ORDER BY date DESC")
-        dates = [r[0] for r in cursor.fetchall()]
-        conn.close()
-        return jsonify(dates)
-    except Exception as e:
-        return jsonify([])
+        print(f"[감사팀] pool 조회 오류: {e}")
+        return jsonify({"stocks": []})
 
 @app.route('/api/audit/dates')
 def get_audit_dates():
@@ -989,20 +979,6 @@ def get_audit_dates():
         cursor.execute("SELECT DISTINCT data_date FROM audit_recommendations ORDER BY data_date DESC")
         dates = [row[0] for row in cursor.fetchall()]
         conn.close()
-        
-        # [김선화] 오늘 데이터가 없으면 즉시 동기화 시도
-        today = datetime.now().strftime('%Y-%m-%d')
-        if today not in dates:
-            print(f"🔄 [김선화] {today} 데이터 누락 감지. 즉시 동기화 시도...")
-            load_financial_health(force=True)
-            
-            # 재조회
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT data_date FROM audit_recommendations ORDER BY data_date DESC")
-            dates = [row[0] for row in cursor.fetchall()]
-            conn.close()
-            
         return jsonify(dates)
     except Exception as e:
         print(f"⚠️ [김선화] 날짜 목록 조회 오류: {e}")
