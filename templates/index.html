@@ -863,6 +863,7 @@
         let realtimeTimer = null;
         let lastPrices = {};
         let lastRealtimeData = [];
+        let isRealtimeFetching = false;
         let investedHidden    = localStorage.getItem('investedHidden')    === 'true';
         let cumulProfitHidden = localStorage.getItem('cumulProfitHidden') === 'true';
         let todayProfitHidden = localStorage.getItem('todayProfitHidden') === 'true';
@@ -1766,9 +1767,15 @@
         }
 
         function updateRealtimePrices() {
+            if (isRealtimeFetching) {
+                console.log("Realtime fetch is already in progress, skipping...");
+                return;
+            }
+            isRealtimeFetching = true;
             fetch('/api/realtime/prices')
                 .then(res => res.json())
                 .then(data => {
+                    isRealtimeFetching = false;
                     if (data.error) return;
                     lastRealtimeData = data;
                     const portfolioGrid = document.getElementById('realtimeGridPortfolio');
@@ -2005,6 +2012,10 @@
                     } else if (summaryArea) {
                         summaryArea.style.display = 'none';
                     }
+                })
+                .catch(err => {
+                    console.error("Error fetching realtime prices:", err);
+                    isRealtimeFetching = false;
                 });
         }
 

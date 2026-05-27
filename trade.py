@@ -1528,7 +1528,11 @@ def get_detailed_price(ticker):
     try:
         url = f"https://finance.naver.com/item/main.naver?code={ticker}"
         # Naver Finance는 EUC-KR을 사용하므로 명시적 처리
-        res = requests.get(url, timeout=10)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': f'https://finance.naver.com/item/main.naver?code={ticker}'
+        }
+        res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
         
         # 1. 현재가 추출
@@ -1664,7 +1668,10 @@ def get_daily_prices(code, pages=3):
     if entry and time.time() - entry['ts'] < 3600:
         return entry['data']
 
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
+    }
     prices = []
     try:
         for page in range(1, pages + 1):
@@ -1706,7 +1713,11 @@ def get_stock_market_cap_억(code):
         return market_cap_cache[code]['cap_억']
     try:
         url = f"https://finance.naver.com/item/main.naver?code={code}"
-        res = requests.get(url, timeout=10)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
+        }
+        res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
         table = soup.find('table', class_='tb_type1')
         if table:
@@ -1731,7 +1742,11 @@ def get_kospi_total_cap_억():
         return kospi_total_cap_cache['cap_억']
     try:
         url = "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://finance.naver.com/sise/sise_index.naver?code=KOSPI'
+        }
+        res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
         for tr in soup.find_all('tr'):
             th = tr.find('th')
@@ -1801,7 +1816,10 @@ def get_kospi_daily(pages=2):
     if time.time() - kospi_daily_cache['ts'] < 1800 and kospi_daily_cache['data']:
         return kospi_daily_cache['data']
 
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://finance.naver.com/sise/sise_index.naver?code=KOSPI'
+    }
     data = []
     try:
         for page in range(1, pages + 1):
@@ -2545,6 +2563,9 @@ def get_realtime_prices():
     try:
         kospi_data = get_kospi_daily(pages=2)
         kospi_current = kospi_data[0]['index'] if kospi_data else 0
+        
+        # [김선화] 스레드 간 중복 호출 방지를 위해 코스피 시가총액을 미리 구하여 캐싱
+        get_kospi_total_cap_억()
 
         db = get_db()
         cursor = db.cursor()
@@ -2579,82 +2600,115 @@ def get_realtime_prices():
             return jsonify([])
             
         results = []
+        
+        def fetch_stock_data(stock):
+            try:
+                price_info = get_detailed_price(stock['code'])
+                current_price = price_info['current_price']
+                purchase_price = stock['purchase_price']
+                quantity = stock.get('quantity', 0)
+                stop_loss_ratio = stock.get('stop_loss_ratio', 0)
+                
+                profit_rate = 0
+                profit = 0
+                is_stop_loss = False
+                holding_high = 0
+                effective_stop_loss_price = 0
+                original_stop_loss_price = 0
+                kospi_drop_pct = 0
+                kospi_weight_pct = 0
+
+                if stock['type'] == 'portfolio' and purchase_price > 0:
+                    profit_rate = round(((current_price - purchase_price) / purchase_price) * 100, 2)
+                    profit = (current_price - purchase_price) * quantity
+
+                    # [김선화] 보유 기간 최고가 기반 Trailing Stop-Loss 계산 (KOSPI 초과 하락 기준)
+                    high_info = get_holding_high(stock['code'], stock['added_at'], current_price, purchase_price, kospi_data)
+                    holding_high = high_info['high']
+
+                    if stop_loss_ratio > 0 and holding_high > 0:
+                        sl_ratio = stop_loss_ratio / 100
+                        original_stop_loss_price = round(holding_high * (1 - sl_ratio))
+                        high_kospi = high_info.get('high_kospi', 0)
+                        if high_kospi > 0 and kospi_current > 0:
+                            kospi_weight = get_kospi_weight(stock['code'])
+                            kospi_drop = (kospi_current - high_kospi) / high_kospi
+                            adjusted_kospi_drop = kospi_drop * (1 - kospi_weight)
+                            stock_drop = (current_price - holding_high) / holding_high
+                            is_stop_loss = (stock_drop - adjusted_kospi_drop) <= -sl_ratio
+                            effective_stop_loss_price = round(holding_high * (1 - sl_ratio + adjusted_kospi_drop))
+                            kospi_drop_pct = round(adjusted_kospi_drop * 100, 2)
+                            kospi_weight_pct = round(kospi_weight * 100, 1)
+                        else:
+                            is_stop_loss = current_price <= holding_high * (1 - sl_ratio)
+                            effective_stop_loss_price = original_stop_loss_price
+                            kospi_drop_pct = 0
+                            kospi_weight_pct = 0
+
+                return {
+                    'code': stock['code'],
+                    'name': stock['name'],
+                    'price': current_price,
+                    'prev_close': price_info['prev_close'],
+                    'holding_high': holding_high,
+                    'original_stop_loss_price': original_stop_loss_price,
+                    'effective_stop_loss_price': effective_stop_loss_price,
+                    'kospi_drop_pct': kospi_drop_pct,
+                    'kospi_weight_pct': kospi_weight_pct,
+                    'change': price_info['change'],
+                    'change_rate': price_info['change_rate'],
+                    'purchase_price': purchase_price,
+                    'quantity': quantity,
+                    'profit_rate': profit_rate,
+                    'profit': profit,
+                    'stop_loss_ratio': stop_loss_ratio,
+                    'owner': stock.get('owner', '나'),
+                    'is_stop_loss': is_stop_loss,
+                    'type': stock['type']
+                }
+            except Exception:
+                return {
+                    'code': stock['code'],
+                    'name': stock['name'],
+                    'price': 0,
+                    'prev_close': 0,
+                    'holding_high': 0,
+                    'original_stop_loss_price': 0,
+                    'effective_stop_loss_price': 0,
+                    'kospi_drop_pct': 0,
+                    'kospi_weight_pct': 0,
+                    'change': 'EVEN',
+                    'change_rate': 0,
+                    'purchase_price': stock['purchase_price'],
+                    'quantity': stock.get('quantity', 0),
+                    'profit_rate': 0,
+                    'profit': 0,
+                    'stop_loss_ratio': stock.get('stop_loss_ratio', 0),
+                    'owner': stock.get('owner', '나'),
+                    'is_stop_loss': False,
+                    'type': stock['type']
+                }
+
         with ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_stock = {executor.submit(get_detailed_price, s['code']): s for s in all_stocks}
+            future_to_stock = {executor.submit(fetch_stock_data, s): s for s in all_stocks}
             for future in as_completed(future_to_stock):
-                stock = future_to_stock[future]
                 try:
-                    price_info = future.result()
-                    current_price = price_info['current_price']
-                    purchase_price = stock['purchase_price']
-                    quantity = stock.get('quantity', 0)
-                    stop_loss_ratio = stock.get('stop_loss_ratio', 0)
-                    
-                    profit_rate = 0
-                    profit = 0
-                    is_stop_loss = False
-                    holding_high = 0
-                    effective_stop_loss_price = 0
-                    original_stop_loss_price = 0
-                    kospi_drop_pct = 0
-                    kospi_weight_pct = 0
-
-                    if stock['type'] == 'portfolio' and purchase_price > 0:
-                        profit_rate = round(((current_price - purchase_price) / purchase_price) * 100, 2)
-                        profit = (current_price - purchase_price) * quantity
-
-                        # [김선화] 보유 기간 최고가 기반 Trailing Stop-Loss 계산 (KOSPI 초과 하락 기준)
-                        high_info = get_holding_high(stock['code'], stock['added_at'], current_price, purchase_price, kospi_data)
-                        holding_high = high_info['high']
-
-                        if stop_loss_ratio > 0 and holding_high > 0:
-                            sl_ratio = stop_loss_ratio / 100
-                            original_stop_loss_price = round(holding_high * (1 - sl_ratio))
-                            high_kospi = high_info.get('high_kospi', 0)
-                            if high_kospi > 0 and kospi_current > 0:
-                                kospi_weight = get_kospi_weight(stock['code'])
-                                kospi_drop = (kospi_current - high_kospi) / high_kospi
-                                adjusted_kospi_drop = kospi_drop * (1 - kospi_weight)
-                                stock_drop = (current_price - holding_high) / holding_high
-                                is_stop_loss = (stock_drop - adjusted_kospi_drop) <= -sl_ratio
-                                effective_stop_loss_price = round(holding_high * (1 - sl_ratio + adjusted_kospi_drop))
-                                kospi_drop_pct = round(adjusted_kospi_drop * 100, 2)
-                                kospi_weight_pct = round(kospi_weight * 100, 1)
-                            else:
-                                is_stop_loss = current_price <= holding_high * (1 - sl_ratio)
-                                effective_stop_loss_price = original_stop_loss_price
-                                kospi_drop_pct = 0
-                                kospi_weight_pct = 0
-
+                    res_data = future.result()
+                    results.append(res_data)
+                except Exception:
+                    stock = future_to_stock[future]
                     results.append({
                         'code': stock['code'],
                         'name': stock['name'],
-                        'price': current_price,
-                        'prev_close': price_info['prev_close'],
-                        'holding_high': holding_high,
-                        'original_stop_loss_price': original_stop_loss_price,
-                        'effective_stop_loss_price': effective_stop_loss_price,
-                        'kospi_drop_pct': kospi_drop_pct,
-                        'kospi_weight_pct': kospi_weight_pct,
-                        'change': price_info['change'],
-                        'change_rate': price_info['change_rate'],
-                        'purchase_price': purchase_price,
-                        'quantity': quantity,
-                        'profit_rate': profit_rate,
-                        'profit': profit,
-                        'stop_loss_ratio': stop_loss_ratio,
-                        'owner': stock.get('owner', '나'),
-                        'is_stop_loss': is_stop_loss,
-                        'type': stock['type']
-                    })
-                except Exception:
-                    results.append({
-                        'code': stock['code'], 
-                        'name': stock['name'], 
-                        'price': 0, 
-                        'prev_close': 0, 
-                        'change': 0, 
-                        'change_rate': 0, 
+                        'price': 0,
+                        'prev_close': 0,
+                        'holding_high': 0,
+                        'original_stop_loss_price': 0,
+                        'effective_stop_loss_price': 0,
+                        'kospi_drop_pct': 0,
+                        'kospi_weight_pct': 0,
+                        'change': 'EVEN',
+                        'change_rate': 0,
                         'purchase_price': stock['purchase_price'],
                         'quantity': stock.get('quantity', 0),
                         'profit_rate': 0,
