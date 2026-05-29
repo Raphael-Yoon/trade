@@ -14,5 +14,6 @@ token.pickle
 .env
 trade.db-shm
 trade.db-wal
+/logo.png
 
 

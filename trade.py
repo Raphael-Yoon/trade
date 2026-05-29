@@ -125,6 +125,23 @@ def init_db():
             cursor.execute(f"ALTER TABLE stock_daily_history ADD COLUMN {col[0]} {col[1]}")
         except Exception:
             pass
+
+    # [김선화] 매도 거래 이력 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sell_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT,
+            name TEXT,
+            owner TEXT,
+            sell_price REAL,
+            sell_qty INTEGER,
+            purchase_price REAL,
+            profit REAL,
+            profit_rate REAL,
+            sell_date TEXT,
+            created_at TEXT
+        )
+    ''')
     
     # 분석 결과 테이블
     cursor.execute('''
@@ -219,6 +236,10 @@ def init_db():
         pass
     try:
         cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN reason TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN news_summary TEXT")
     except sqlite3.OperationalError:
         pass
 
@@ -953,14 +974,38 @@ def get_stock_pool():
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio,
-                   p.operating_margin, p.target_price, p.pool_score,
-                   a.score AS priority_score, a.reason AS ai_summary,
-                   a.upside, a.current_price
-            FROM stock_pool p
-            LEFT JOIN audit_recommendations a ON p.code = a.code
-                AND a.data_date = (SELECT MAX(data_date) FROM audit_recommendations)
-            ORDER BY CASE WHEN a.code IS NULL THEN 1 ELSE 0 END, a.score DESC, p.pool_score DESC
+            SELECT * FROM (
+                SELECT 
+                    a.code, a.name, p.sector, 
+                    COALESCE(a.roe, p.roe) as roe,
+                    p.pbr, p.per,
+                    COALESCE(a.debt, p.debt_ratio) as debt_ratio,
+                    p.operating_margin,
+                    a.target_price, p.pool_score,
+                    a.score AS priority_score, a.reason AS ai_summary,
+                    a.news_summary,
+                    a.upside, a.current_price,
+                    0 as is_rec
+                FROM audit_recommendations a
+                LEFT JOIN stock_pool p ON a.code = p.code
+                WHERE a.data_date = (SELECT MAX(data_date) FROM audit_recommendations)
+                
+                UNION ALL
+                
+                SELECT 
+                    p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio, p.operating_margin,
+                    p.target_price, p.pool_score,
+                    NULL as priority_score, NULL as ai_summary,
+                    NULL as news_summary,
+                    NULL as upside, NULL as current_price,
+                    1 as is_rec
+                FROM stock_pool p
+                WHERE p.code NOT IN (
+                    SELECT code FROM audit_recommendations 
+                    WHERE data_date = (SELECT MAX(data_date) FROM audit_recommendations)
+                )
+            )
+            ORDER BY is_rec, priority_score DESC, pool_score DESC
         """)
 
         rows = [dict(r) for r in cursor.fetchall()]
@@ -1528,7 +1573,11 @@ def get_detailed_price(ticker):
     try:
         url = f"https://finance.naver.com/item/main.naver?code={ticker}"
         # Naver Finance는 EUC-KR을 사용하므로 명시적 처리
-        res = requests.get(url, timeout=10)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': f'https://finance.naver.com/item/main.naver?code={ticker}'
+        }
+        res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
         
         # 1. 현재가 추출
@@ -1664,7 +1713,10 @@ def get_daily_prices(code, pages=3):
     if entry and time.time() - entry['ts'] < 3600:
         return entry['data']
 
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
+    }
     prices = []
     try:
         for page in range(1, pages + 1):
@@ -1706,7 +1758,11 @@ def get_stock_market_cap_억(code):
         return market_cap_cache[code]['cap_억']
     try:
         url = f"https://finance.naver.com/item/main.naver?code={code}"
-        res = requests.get(url, timeout=10)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
+        }
+        res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
         table = soup.find('table', class_='tb_type1')
         if table:
@@ -1731,7 +1787,11 @@ def get_kospi_total_cap_억():
         return kospi_total_cap_cache['cap_억']
     try:
         url = "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://finance.naver.com/sise/sise_index.naver?code=KOSPI'
+        }
+        res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
         for tr in soup.find_all('tr'):
             th = tr.find('th')
@@ -1801,7 +1861,10 @@ def get_kospi_daily(pages=2):
     if time.time() - kospi_daily_cache['ts'] < 1800 and kospi_daily_cache['data']:
         return kospi_daily_cache['data']
 
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://finance.naver.com/sise/sise_index.naver?code=KOSPI'
+    }
     data = []
     try:
         for page in range(1, pages + 1):
@@ -2026,6 +2089,57 @@ def delete_my_stock(code_val):
         cursor.execute("DELETE FROM my_stocks WHERE code = ?", (code_val,))
         db.commit()
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/my_stocks/<code_val>/sell', methods=['POST'])
+def sell_my_stock(code_val):
+    """[김선화] 보유 종목 매도 처리 - 수량 차감, 전량 시 포트폴리오 제거, sell_history 기록"""
+    try:
+        data = request.get_json() or {}
+        sell_price = float(data.get('sell_price', 0))
+        sell_qty = int(data.get('sell_qty', 0))
+        if sell_price <= 0 or sell_qty <= 0:
+            return jsonify({'success': False, 'message': '매도가와 수량을 올바르게 입력해주세요.'}), 400
+
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT code, name, purchase_price, quantity, owner FROM my_stocks WHERE code = ?", (code_val,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'success': False, 'message': '보유 종목을 찾을 수 없습니다.'}), 404
+
+        stock = dict(row)
+        current_qty = stock['quantity'] or 0
+        purchase_price = stock['purchase_price'] or 0
+
+        if sell_qty > current_qty:
+            return jsonify({'success': False, 'message': f'매도 수량({sell_qty:,}주)이 보유 수량({current_qty:,}주)을 초과합니다.'}), 400
+
+        profit = (sell_price - purchase_price) * sell_qty
+        profit_rate = ((sell_price - purchase_price) / purchase_price * 100) if purchase_price else 0
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        sell_date = datetime.now().strftime('%Y-%m-%d')
+
+        cursor.execute("""
+            INSERT INTO sell_history (code, name, owner, sell_price, sell_qty, purchase_price, profit, profit_rate, sell_date, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (code_val, stock['name'], stock.get('owner', '나'), sell_price, sell_qty, purchase_price, profit, profit_rate, sell_date, now))
+
+        new_qty = current_qty - sell_qty
+        if new_qty <= 0:
+            cursor.execute("DELETE FROM my_stocks WHERE code = ?", (code_val,))
+            fully_sold = True
+        else:
+            cursor.execute("UPDATE my_stocks SET quantity = ? WHERE code = ?", (new_qty, code_val))
+            fully_sold = False
+
+        db.commit()
+
+        profit_str = f"{profit:+,.0f}원 ({profit_rate:+.1f}%)"
+        msg = f"{stock['name']} {'전량' if fully_sold else f'{sell_qty:,}주'} 매도 완료 | 수익: {profit_str}"
+        return jsonify({'success': True, 'message': msg, 'profit': profit, 'profit_rate': profit_rate,
+                        'remaining_qty': new_qty, 'fully_sold': fully_sold})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -2545,6 +2659,9 @@ def get_realtime_prices():
     try:
         kospi_data = get_kospi_daily(pages=2)
         kospi_current = kospi_data[0]['index'] if kospi_data else 0
+        
+        # [김선화] 스레드 간 중복 호출 방지를 위해 코스피 시가총액을 미리 구하여 캐싱
+        get_kospi_total_cap_억()
 
         db = get_db()
         cursor = db.cursor()
@@ -2579,82 +2696,115 @@ def get_realtime_prices():
             return jsonify([])
             
         results = []
+        
+        def fetch_stock_data(stock):
+            try:
+                price_info = get_detailed_price(stock['code'])
+                current_price = price_info['current_price']
+                purchase_price = stock['purchase_price']
+                quantity = stock.get('quantity', 0)
+                stop_loss_ratio = stock.get('stop_loss_ratio', 0)
+                
+                profit_rate = 0
+                profit = 0
+                is_stop_loss = False
+                holding_high = 0
+                effective_stop_loss_price = 0
+                original_stop_loss_price = 0
+                kospi_drop_pct = 0
+                kospi_weight_pct = 0
+
+                if stock['type'] == 'portfolio' and purchase_price > 0:
+                    profit_rate = round(((current_price - purchase_price) / purchase_price) * 100, 2)
+                    profit = (current_price - purchase_price) * quantity
+
+                    # [김선화] 보유 기간 최고가 기반 Trailing Stop-Loss 계산 (KOSPI 초과 하락 기준)
+                    high_info = get_holding_high(stock['code'], stock['added_at'], current_price, purchase_price, kospi_data)
+                    holding_high = high_info['high']
+
+                    if stop_loss_ratio > 0 and holding_high > 0:
+                        sl_ratio = stop_loss_ratio / 100
+                        original_stop_loss_price = round(holding_high * (1 - sl_ratio))
+                        high_kospi = high_info.get('high_kospi', 0)
+                        if high_kospi > 0 and kospi_current > 0:
+                            kospi_weight = get_kospi_weight(stock['code'])
+                            kospi_drop = (kospi_current - high_kospi) / high_kospi
+                            adjusted_kospi_drop = kospi_drop * (1 - kospi_weight)
+                            stock_drop = (current_price - holding_high) / holding_high
+                            is_stop_loss = (stock_drop - adjusted_kospi_drop) <= -sl_ratio
+                            effective_stop_loss_price = round(holding_high * (1 - sl_ratio + adjusted_kospi_drop))
+                            kospi_drop_pct = round(adjusted_kospi_drop * 100, 2)
+                            kospi_weight_pct = round(kospi_weight * 100, 1)
+                        else:
+                            is_stop_loss = current_price <= holding_high * (1 - sl_ratio)
+                            effective_stop_loss_price = original_stop_loss_price
+                            kospi_drop_pct = 0
+                            kospi_weight_pct = 0
+
+                return {
+                    'code': stock['code'],
+                    'name': stock['name'],
+                    'price': current_price,
+                    'prev_close': price_info['prev_close'],
+                    'holding_high': holding_high,
+                    'original_stop_loss_price': original_stop_loss_price,
+                    'effective_stop_loss_price': effective_stop_loss_price,
+                    'kospi_drop_pct': kospi_drop_pct,
+                    'kospi_weight_pct': kospi_weight_pct,
+                    'change': price_info['change'],
+                    'change_rate': price_info['change_rate'],
+                    'purchase_price': purchase_price,
+                    'quantity': quantity,
+                    'profit_rate': profit_rate,
+                    'profit': profit,
+                    'stop_loss_ratio': stop_loss_ratio,
+                    'owner': stock.get('owner', '나'),
+                    'is_stop_loss': is_stop_loss,
+                    'type': stock['type']
+                }
+            except Exception:
+                return {
+                    'code': stock['code'],
+                    'name': stock['name'],
+                    'price': 0,
+                    'prev_close': 0,
+                    'holding_high': 0,
+                    'original_stop_loss_price': 0,
+                    'effective_stop_loss_price': 0,
+                    'kospi_drop_pct': 0,
+                    'kospi_weight_pct': 0,
+                    'change': 'EVEN',
+                    'change_rate': 0,
+                    'purchase_price': stock['purchase_price'],
+                    'quantity': stock.get('quantity', 0),
+                    'profit_rate': 0,
+                    'profit': 0,
+                    'stop_loss_ratio': stock.get('stop_loss_ratio', 0),
+                    'owner': stock.get('owner', '나'),
+                    'is_stop_loss': False,
+                    'type': stock['type']
+                }
+
         with ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_stock = {executor.submit(get_detailed_price, s['code']): s for s in all_stocks}
+            future_to_stock = {executor.submit(fetch_stock_data, s): s for s in all_stocks}
             for future in as_completed(future_to_stock):
-                stock = future_to_stock[future]
                 try:
-                    price_info = future.result()
-                    current_price = price_info['current_price']
-                    purchase_price = stock['purchase_price']
-                    quantity = stock.get('quantity', 0)
-                    stop_loss_ratio = stock.get('stop_loss_ratio', 0)
-                    
-                    profit_rate = 0
-                    profit = 0
-                    is_stop_loss = False
-                    holding_high = 0
-                    effective_stop_loss_price = 0
-                    original_stop_loss_price = 0
-                    kospi_drop_pct = 0
-                    kospi_weight_pct = 0
-
-                    if stock['type'] == 'portfolio' and purchase_price > 0:
-                        profit_rate = round(((current_price - purchase_price) / purchase_price) * 100, 2)
-                        profit = (current_price - purchase_price) * quantity
-
-                        # [김선화] 보유 기간 최고가 기반 Trailing Stop-Loss 계산 (KOSPI 초과 하락 기준)
-                        high_info = get_holding_high(stock['code'], stock['added_at'], current_price, purchase_price, kospi_data)
-                        holding_high = high_info['high']
-
-                        if stop_loss_ratio > 0 and holding_high > 0:
-                            sl_ratio = stop_loss_ratio / 100
-                            original_stop_loss_price = round(holding_high * (1 - sl_ratio))
-                            high_kospi = high_info.get('high_kospi', 0)
-                            if high_kospi > 0 and kospi_current > 0:
-                                kospi_weight = get_kospi_weight(stock['code'])
-                                kospi_drop = (kospi_current - high_kospi) / high_kospi
-                                adjusted_kospi_drop = kospi_drop * (1 - kospi_weight)
-                                stock_drop = (current_price - holding_high) / holding_high
-                                is_stop_loss = (stock_drop - adjusted_kospi_drop) <= -sl_ratio
-                                effective_stop_loss_price = round(holding_high * (1 - sl_ratio + adjusted_kospi_drop))
-                                kospi_drop_pct = round(adjusted_kospi_drop * 100, 2)
-                                kospi_weight_pct = round(kospi_weight * 100, 1)
-                            else:
-                                is_stop_loss = current_price <= holding_high * (1 - sl_ratio)
-                                effective_stop_loss_price = original_stop_loss_price
-                                kospi_drop_pct = 0
-                                kospi_weight_pct = 0
-
+                    res_data = future.result()
+                    results.append(res_data)
+                except Exception:
+                    stock = future_to_stock[future]
                     results.append({
                         'code': stock['code'],
                         'name': stock['name'],
-                        'price': current_price,
-                        'prev_close': price_info['prev_close'],
-                        'holding_high': holding_high,
-                        'original_stop_loss_price': original_stop_loss_price,
-                        'effective_stop_loss_price': effective_stop_loss_price,
-                        'kospi_drop_pct': kospi_drop_pct,
-                        'kospi_weight_pct': kospi_weight_pct,
-                        'change': price_info['change'],
-                        'change_rate': price_info['change_rate'],
-                        'purchase_price': purchase_price,
-                        'quantity': quantity,
-                        'profit_rate': profit_rate,
-                        'profit': profit,
-                        'stop_loss_ratio': stop_loss_ratio,
-                        'owner': stock.get('owner', '나'),
-                        'is_stop_loss': is_stop_loss,
-                        'type': stock['type']
-                    })
-                except Exception:
-                    results.append({
-                        'code': stock['code'], 
-                        'name': stock['name'], 
-                        'price': 0, 
-                        'prev_close': 0, 
-                        'change': 0, 
-                        'change_rate': 0, 
+                        'price': 0,
+                        'prev_close': 0,
+                        'holding_high': 0,
+                        'original_stop_loss_price': 0,
+                        'effective_stop_loss_price': 0,
+                        'kospi_drop_pct': 0,
+                        'kospi_weight_pct': 0,
+                        'change': 'EVEN',
+                        'change_rate': 0,
                         'purchase_price': stock['purchase_price'],
                         'quantity': stock.get('quantity', 0),
                         'profit_rate': 0,
@@ -2779,8 +2929,12 @@ def get_history_data():
 
 @app.route('/api/history/backfill', methods=['POST'])
 def backfill_history():
-    """[김정음] 최근 30일치 누락된 종가 데이터를 네이버 금융에서 소급 저장"""
+    """[김정음] 최근 30일치 혹은 특정 일자의 누락된 종가 데이터를 네이버 금융에서 소급 저장"""
     try:
+        body = request.get_json(silent=True) or {}
+        req_date = request.args.get('date') or body.get('date')
+        force = request.args.get('force', '').lower() == 'true' or body.get('force', False)
+
         db = get_db()
         cursor = db.cursor()
 
@@ -2790,11 +2944,26 @@ def backfill_history():
             return jsonify({'success': False, 'message': '등록된 종목이 없습니다.'})
 
         today = datetime.now().date()
-        since = today - timedelta(days=30)
         recorded_at = datetime.now().isoformat()
         inserted_total = 0
         skipped_total = 0
         errors = []
+
+        target_date_obj = None
+        since = today - timedelta(days=30)
+        req_pages = 2
+
+        if req_date:
+            try:
+                target_date_obj = datetime.strptime(req_date, '%Y-%m-%d').date()
+                if target_date_obj > today:
+                    return jsonify({'success': False, 'message': '미래 날짜는 소급할 수 없습니다.'}), 400
+                days_diff = (today - target_date_obj).days
+                req_pages = max(2, (days_diff // 7) + 1)
+                if req_pages > 10:
+                    req_pages = 10
+            except ValueError:
+                return jsonify({'success': False, 'message': '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)'}), 400
 
         for stock in stocks:
             code = stock['code']
@@ -2803,17 +2972,23 @@ def backfill_history():
             quantity = stock['quantity'] or 0
             owner = stock['owner'] or '나'
 
-            prices = get_daily_prices(code, pages=2)
+            prices = get_daily_prices(code, pages=req_pages)
             if not prices:
                 errors.append(f"{name}({code}): 데이터 조회 실패")
                 continue
 
             prices_sorted = sorted(prices, key=lambda x: x['date'])
 
-            cursor.execute(
-                "SELECT DISTINCT date FROM stock_daily_history WHERE code = ? AND date >= ?",
-                (code, since.strftime('%Y-%m-%d'))
-            )
+            if target_date_obj:
+                cursor.execute(
+                    "SELECT DISTINCT date FROM stock_daily_history WHERE code = ? AND date = ?",
+                    (code, req_date)
+                )
+            else:
+                cursor.execute(
+                    "SELECT DISTINCT date FROM stock_daily_history WHERE code = ? AND date >= ?",
+                    (code, since.strftime('%Y-%m-%d'))
+                )
             existing_dates = {row[0] for row in cursor.fetchall()}
 
             for i, p in enumerate(prices_sorted):
@@ -2823,11 +2998,19 @@ def backfill_history():
                 except Exception:
                     continue
 
-                if price_date < since or price_date > today:
-                    continue
+                if target_date_obj:
+                    if price_date != target_date_obj:
+                        continue
+                else:
+                    if price_date < since or price_date > today:
+                        continue
+
                 if date_str in existing_dates:
-                    skipped_total += 1
-                    continue
+                    if force:
+                        cursor.execute("DELETE FROM stock_daily_history WHERE code = ? AND date = ?", (code, date_str))
+                    else:
+                        skipped_total += 1
+                        continue
 
                 close = p['close']
                 prev_close = prices_sorted[i - 1]['close'] if i > 0 else None
@@ -2845,7 +3028,8 @@ def backfill_history():
                 inserted_total += 1
 
         db.commit()
-        msg = f"소급 완료: {inserted_total}건 저장, {skipped_total}건 기존 데이터 유지"
+        target_desc = f"{req_date} 자" if req_date else "최근 30일"
+        msg = f"{target_desc} 소급 완료: {inserted_total}건 저장, {skipped_total}건 기존 데이터 유지"
         if errors:
             msg += f" / 조회 실패: {', '.join(errors)}"
         return jsonify({'success': True, 'message': msg,

@@ -11,7 +11,8 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 
@@ -92,8 +93,81 @@
         </div>
     </div>
 
+    <!-- Real-time News Modal -->
+    <div id="newsModal" class="modal">
+        <div class="modal-content" style="max-width: 800px; width: 95%;">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 24px 32px; display:flex; justify-content:space-between; align-items:center; background:#0f172a;">
+                <h2 id="newsModalTitle" style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">
+                    📰 실시간 뉴스 및 심리 요약
+                </h2>
+                <span class="close-modal" onclick="closeNewsModal()" style="font-size: 32px; cursor:pointer;">&times;</span>
+            </div>
+            <div id="newsResultContent" class="modal-body" style="padding: 32px; background: #020617; max-height: 550px; overflow-y: auto;">
+                <div class="loading-ai">
+                    <div class="ai-spinner"></div>
+                    <p>뉴스를 수집 및 요약하는 중입니다...</p>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 24px 32px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; background: #0f172a;">
+                <button class="btn" style="background: rgba(255,255,255,0.1); border: none;" onclick="closeNewsModal()">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- [김선화] 매도 처리 모달 -->
+    <div id="sellModal" class="modal" style="z-index: 3000;">
+        <div class="modal-content" style="max-width: 460px; width: 95%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1);">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.07); padding: 24px 28px; display:flex; justify-content:space-between; align-items:center;">
+                <h2 style="margin:0; font-size:20px; font-weight:800; font-family:'Outfit',sans-serif; color:white;">📤 매도 처리</h2>
+                <span class="close-modal" onclick="closeSellModal()" style="font-size:28px; cursor:pointer;">&times;</span>
+            </div>
+            <div class="modal-body" style="padding: 28px; background: #020617;">
+                <div style="margin-bottom: 20px; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 14px; border: 1px solid rgba(255,255,255,0.07);">
+                    <div style="font-size:18px; font-weight:800; color:white;" id="sellModalStockName">-</div>
+                    <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">보유: <span id="sellModalCurrentQty" style="color:#fbbf24; font-weight:700;">0</span>주 &nbsp;|&nbsp; 평단: <span id="sellModalPurchasePrice" style="color:#94a3b8;">0</span>원</div>
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:16px;">
+                    <div>
+                        <label style="font-size:12px; color:var(--text-muted); font-weight:600; display:block; margin-bottom:6px;">매도가 (원)</label>
+                        <input type="text" id="sellPriceInput" placeholder="매도 가격 입력"
+                            oninput="this.value=formatNumber(this.value); updateSellPreview()"
+                            style="width:100%; padding:12px 16px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); color:white; font-size:16px; font-weight:700; box-sizing:border-box; outline:none;">
+                    </div>
+                    <div>
+                        <label style="font-size:12px; color:var(--text-muted); font-weight:600; display:block; margin-bottom:6px;">매도 수량 (주)</label>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <input type="number" id="sellQtyInput" placeholder="0" min="1"
+                                oninput="updateSellPreview()"
+                                style="flex:1; padding:12px 16px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); color:white; font-size:16px; font-weight:700; outline:none;">
+                            <button onclick="document.getElementById('sellQtyInput').value=document.getElementById('sellModalCurrentQty').textContent; updateSellPreview()"
+                                style="padding:10px 14px; border-radius:10px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.3); color:#fbbf24; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap;">전량</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 수익 미리보기 -->
+                <div id="sellPreviewArea" style="margin-top:20px; padding:16px; border-radius:14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); display:none;">
+                    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px; font-weight:600;">예상 수익/손실</div>
+                    <div id="sellPreviewProfit" style="font-size:22px; font-weight:900; font-family:'Outfit',sans-serif;">-</div>
+                    <div id="sellPreviewRate" style="font-size:13px; color:var(--text-muted); margin-top:2px;">-</div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding:20px 28px; border-top:1px solid rgba(255,255,255,0.07); display:flex; justify-content:flex-end; gap:12px; background:#0f172a;">
+                <button class="btn" style="background:rgba(255,255,255,0.08); border:none;" onclick="closeSellModal()">취소</button>
+                <button id="sellConfirmBtn" class="btn" style="background:linear-gradient(135deg,#ef4444,#dc2626); border:none; font-weight:800;" onclick="confirmSell()">📤 매도 확인</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
-        <h1><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="40" height="40" style="vertical-align:-9px;margin-right:10px"><path d="M9 10Q10 6 9 3" fill="none" stroke="#d4a853" stroke-width="2" stroke-linecap="round"/><path d="M15 8Q16 4 15 1" fill="none" stroke="#d4a853" stroke-width="2" stroke-linecap="round"/><path d="M21 10Q22 6 21 3" fill="none" stroke="#d4a853" stroke-width="2" stroke-linecap="round"/><rect x="3" y="13" width="23" height="4" rx="2" fill="#d4a853"/><path d="M4 17L7 28H23L26 17Z" fill="#a07840"/><path d="M26 20Q31 21 31 24Q31 27 26 28" fill="none" stroke="#d4a853" stroke-width="2.5" stroke-linecap="round"/><ellipse cx="15" cy="29" rx="13" ry="2" fill="#7a5c2e"/></svg>Jonathan's Coffee House</h1>
+        <!-- [김선화] 중앙 브랜딩 로고 영역 -->
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 32px; margin-bottom: 24px; text-align: center;">
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Jonathan's Coffee House" 
+                 style="height: 150px; width: auto; filter: drop-shadow(0 12px 24px rgba(0,0,0,0.3)); transition: transform 0.4s cubic-bezier(0.165, 0.84, 0.44, 1), filter 0.4s ease; cursor: pointer;"
+                 onmouseover="this.style.transform='scale(1.06) translateY(-4px)'; this.style.filter='drop-shadow(0 20px 35px rgba(99,102,241,0.25))';" 
+                 onmouseout="this.style.transform='scale(1) translateY(0)'; this.style.filter='drop-shadow(0 12px 24px rgba(0,0,0,0.3))';">
+        </div>
 
         <div class="tabs-nav">
             <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 분석</button>
@@ -456,16 +530,34 @@
                 </div>
 
                 <!-- 일별 컨트롤 -->
-                <div id="historyDailyControls" style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">
+                <div id="historyDailyControls" style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
                     <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">조회 날짜:</span>
-                    <select id="historyDateSelect" onchange="loadHistoryData(this.value)"
-                        style="padding: 10px 20px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 180px;">
-                        <option value="">데이터를 불러오는 중...</option>
-                    </select>
-                    <button onclick="deleteHistory(document.getElementById('historyDateSelect').value)"
-                        style="padding: 10px 18px; border-radius: 12px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                        🗑️ 선택 날짜 삭제
-                    </button>
+
+                    <!-- [김선화] 날짜 네비게이션: 드롭다운 → date picker + prev/next 버튼으로 개선 -->
+                    <button id="historyPrevBtn" onclick="navigateHistoryDate(-1)" title="이전 날짜"
+                        style="padding: 8px 14px; border-radius: 10px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 16px; cursor: pointer; transition: background 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.07)'">◀</button>
+
+                    <input type="date" id="historyDateSelect"
+                        onchange="loadHistoryData(this.value)"
+                        style="padding: 10px 16px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 160px;">
+
+                    <button id="historyNextBtn" onclick="navigateHistoryDate(1)" title="다음 날짜"
+                        style="padding: 8px 14px; border-radius: 10px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 16px; cursor: pointer; transition: background 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.07)'">▶</button>
+
+                    <span id="historyDateCount" style="font-size: 12px; color: var(--text-muted); margin-left: 4px;"></span>
+
+                    <!-- [김선화] 특정 일자 소급 적재 UI -->
+                    <div style="margin-left: auto; display: flex; align-items: center; gap: 12px;">
+                        <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">소급 날짜:</span>
+                        <input type="date" id="backfillDateInput"
+                            style="padding: 10px 16px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none;">
+                        <button onclick="backfillSpecificDate()" class="btn"
+                            style="height: auto; padding: 10px 18px; font-size: 13px; background: linear-gradient(135deg, var(--primary), var(--primary-hover)); border: none; font-weight: 700;">
+                            📥 특정일 소급 적재
+                        </button>
+                    </div>
                 </div>
 
                 <!-- 일별 뷰 -->
@@ -784,6 +876,22 @@
                 filter: grayscale(1);
                 background: #475569 !important;
             }
+            /* [유병욱] 차트 요소 호버 스타일 */
+            .chart-bar {
+                transition: opacity 0.15s ease, filter 0.15s ease;
+            }
+            .chart-bar:hover {
+                opacity: 1 !important;
+                filter: brightness(1.2);
+            }
+            .chart-point {
+                transition: r 0.15s ease, fill 0.15s ease, filter 0.15s ease;
+            }
+            .chart-point:hover {
+                r: 6.5 !important;
+                fill: #ffffff !important;
+                filter: drop-shadow(0 0 6px rgba(255,255,255,0.8));
+            }
         .sl-tooltip-wrap {
             position: relative;
             display: inline-block;
@@ -836,8 +944,51 @@
     </div>
 
     <div id="toastContainer" class="toast-container"></div>
+    <!-- [유병욱] 차트 마우스오버 툴팁 엘리먼트 -->
+    <div id="chartTooltip" class="chart-tooltip" style="position: absolute; display: none; pointer-events: none; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255,255,255,0.15); padding: 10px 14px; border-radius: 12px; color: white; font-size: 12px; z-index: 9999; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6); backdrop-filter: blur(8px); font-family: 'Inter', 'Outfit', sans-serif;"></div>
 
     <script>
+        // [유병욱] 차트 마우스 오버 툴팁 기능 구현
+        function showChartTooltip(event, date, title, val) {
+            const tooltip = document.getElementById('chartTooltip');
+            const isAsset = title.includes('보유자산');
+            const fmtVal = (!isAsset && val > 0 ? '+' : '') + Math.round(val).toLocaleString() + '원';
+            const color = isAsset ? '#6366f1' : (val >= 0 ? '#10b981' : '#ef4444');
+            
+            tooltip.innerHTML = `
+                <div style="font-weight: 700; color: #94a3b8; margin-bottom: 4px; font-size: 11px;">${date}</div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 12px; color: #e2e8f0;">${title}:</span>
+                    <span style="font-weight: 800; color: ${color}; font-size: 13px;">${fmtVal}</span>
+                </div>
+            `;
+            tooltip.style.display = 'block';
+            moveChartTooltip(event);
+        }
+
+        function moveChartTooltip(event) {
+            const tooltip = document.getElementById('chartTooltip');
+            const tooltipW = tooltip.offsetWidth || 140;
+            const tooltipH = tooltip.offsetHeight || 50;
+            let x = event.pageX + 15;
+            let y = event.pageY + 15;
+            
+            if (x + tooltipW > window.innerWidth + window.pageXOffset) {
+                x = event.pageX - tooltipW - 15;
+            }
+            if (y + tooltipH > window.innerHeight + window.pageYOffset) {
+                y = event.pageY - tooltipH - 15;
+            }
+            
+            tooltip.style.left = x + 'px';
+            tooltip.style.top = y + 'px';
+        }
+
+        function hideChartTooltip() {
+            const tooltip = document.getElementById('chartTooltip');
+            tooltip.style.display = 'none';
+        }
+
         // [김선화] JS 에러 발생 시 토스트로 알림 (디버깅용)
         window.onerror = function (message, source, lineno, colno, error) {
             console.error('JS Error:', message, 'at', source, 'line', lineno);
@@ -863,6 +1014,7 @@
         let realtimeTimer = null;
         let lastPrices = {};
         let lastRealtimeData = [];
+        let isRealtimeFetching = false;
         let investedHidden    = localStorage.getItem('investedHidden')    === 'true';
         let cumulProfitHidden = localStorage.getItem('cumulProfitHidden') === 'true';
         let todayProfitHidden = localStorage.getItem('todayProfitHidden') === 'true';
@@ -1062,30 +1214,96 @@
                 .catch(err => showToast('삭제 실패: ' + err, 'error'));
         }
 
-        // [김선화] 히스토리 날짜 목록 로드 및 최신 날짜 자동 선택
+        // [김선화] 특정 일자 소급 적재 기능
+        function backfillSpecificDate() {
+            const dateInput = document.getElementById('backfillDateInput');
+            const date = dateInput.value;
+            if (!date) {
+                showToast('소급 적재할 날짜를 선택해주세요.', 'error');
+                return;
+            }
+            
+            const today = new Date().toISOString().split('T')[0];
+            if (date > today) {
+                showToast('미래 날짜는 소급할 수 없습니다.', 'error');
+                return;
+            }
+
+            if (!confirm(`${date} 기준으로 네이버 금융 종가 데이터를 소급 적재하시겠습니까?`)) return;
+
+            showToast(`${date} 데이터 소급 중...`, 'success');
+            
+            fetch(`/api/history/backfill?date=${date}`, {
+                method: 'POST'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadHistoryDates();
+                } else {
+                    showToast(data.message, 'error');
+                }
+            })
+            .catch(err => showToast('소급 실패: ' + err, 'error'));
+        }
+
+        // [김선화] 히스토리 날짜 목록 로드 및 최신 날짜 자동 선택 (date picker + prev/next 방식)
+        let _historyDates = [];  // 전체 날짜 배열 (prev/next 네비게이션용)
+
         function loadHistoryDates() {
-            const select = document.getElementById('historyDateSelect');
+            const dateInput = document.getElementById('historyDateSelect');
             fetch('/api/history/dates')
                 .then(res => res.json())
                 .then(data => {
                     if (data.success && data.dates.length > 0) {
-                        select.innerHTML = '<option value="">날짜 선택...</option>' + 
-                            data.dates.map(date => `<option value="${date}">${date}</option>`).join('');
-                        
-                        // [김선화] 가장 최신 날짜(첫 번째) 자동 선택 및 로드
-                        const latestDate = data.dates[0];
-                        select.value = latestDate;
-                        loadHistoryData(latestDate);
+                        _historyDates = data.dates; // 최신순 정렬된 날짜 배열 보관
+
+                        // date picker 범위 설정 (min=가장 오래된 날짜, max=가장 최신 날짜)
+                        const oldest = _historyDates[_historyDates.length - 1];
+                        const latest = _historyDates[0];
+                        dateInput.min = oldest;
+                        dateInput.max = latest;
+
+                        // 날짜 건수 표시
+                        const countEl = document.getElementById('historyDateCount');
+                        if (countEl) countEl.textContent = `(총 ${_historyDates.length}일)`;
+
+                        // 가장 최신 날짜 자동 선택 및 로드
+                        dateInput.value = latest;
+                        loadHistoryData(latest);
                     } else {
-                        select.innerHTML = '<option value="">기록된 데이터 없음</option>';
+                        _historyDates = [];
                         document.getElementById('historyContent').innerHTML =
                             '<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: var(--text-muted);"><span style="font-size: 48px; margin-bottom: 16px;">📅</span><p>저장된 히스토리 데이터가 없습니다.</p></div>';
                     }
                 })
                 .catch(err => {
                     console.error('날짜 로드 실패:', err);
-                    select.innerHTML = '<option value="">로드 실패</option>';
                 });
+        }
+
+        // [김선화] 이전/다음 날짜로 이동 (direction: -1=이전, 1=다음)
+        function navigateHistoryDate(direction) {
+            if (_historyDates.length === 0) return;
+            const dateInput = document.getElementById('historyDateSelect');
+            const currentDate = dateInput.value;
+            const idx = _historyDates.indexOf(currentDate);
+
+            let nextIdx;
+            if (idx === -1) {
+                // 현재 날짜가 목록에 없으면 가장 최신 날짜로
+                nextIdx = 0;
+            } else {
+                // _historyDates는 최신순(내림차순) → 이전 날짜 = idx+1, 다음 날짜 = idx-1
+                nextIdx = idx + direction * -1;
+            }
+
+            if (nextIdx < 0 || nextIdx >= _historyDates.length) return; // 범위 초과
+
+            const targetDate = _historyDates[nextIdx];
+            dateInput.value = targetDate;
+            loadHistoryData(targetDate);
         }
 
         // [김선화] 특정 날짜의 히스토리 데이터 로드 및 렌더링
@@ -1339,6 +1557,11 @@
 
             // 소유자 목록 추출 후 select 갱신 (현재 선택값 유지)
             const allOwners = [...new Set(data.by_owner.map(r => r.owner))].sort();
+            const ownerColorMap = {};
+            allOwners.forEach((owner, index) => {
+                ownerColorMap[owner] = ownerColors[index % ownerColors.length];
+            });
+
             const ownerSel = document.getElementById('ownerFilterSelect');
             if (ownerSel) {
                 const prev = ownerSel.value;
@@ -1359,12 +1582,22 @@
             // ── 당일 실적 막대 차트 ──────────────────────────────────
             const dailyTotals = dates.map(d => {
                 const rows = filteredRows.filter(r => r.date === d);
-                return { date: d, day_profit: rows.reduce((s, r) => s + r.day_profit_sum, 0) };
+                return { 
+                    date: d, 
+                    day_profit: rows.reduce((s, r) => s + r.day_profit_sum, 0),
+                    rows: rows
+                };
             });
-            const vals = dailyTotals.map(d => d.day_profit);
-            const maxV = Math.max(...vals.map(Math.abs), 1);
-            const barW = Math.max(4, Math.floor(cW / n) - 4);
-            const xp = i => pL + (i + 0.5) * (cW / n);
+            // 그룹형 막대 차트이므로 maxV는 단일 소유자 실적의 최대 절댓값으로 구합니다.
+            const vals = filteredRows.map(r => Math.abs(r.day_profit_sum));
+            const maxV = Math.max(...vals, 1);
+            
+            const numActiveOwners = activeOwners.length;
+            const groupW = cW / n;
+            const barGap = 1;
+            // 각 막대의 너비를 계산 (하루 영역 내에서 채울 수 있도록)
+            const barW = Math.max(2, Math.floor((groupW - 4 - (numActiveOwners - 1) * barGap) / numActiveOwners));
+            const xp = i => pL + (i + 0.5) * groupW;
             const zY = pT + cH / 2;
             const yp = v => zY - (v / maxV) * (cH / 2);
 
@@ -1376,13 +1609,45 @@
                 svg += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${isZero?'0.2':'0.06'})" stroke-width="${isZero?'1.5':'1'}"/>`;
                 svg += `<text x="${pL-6}" y="${(y+4).toFixed(1)}" text-anchor="end" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${fmt(v)}</text>`;
             }
+
+            // 범례 (소유자 필터가 'all'일 때만 표시)
+            if (selectedOwner === 'all') {
+                allOwners.forEach((owner, oi) => {
+                    const color = ownerColorMap[owner];
+                    const lx = pL + oi * 90;
+                    svg += `<circle cx="${(lx+4).toFixed(1)}" cy="12" r="4" fill="${color}" opacity="0.9"/>`;
+                    svg += `<text x="${(lx+12).toFixed(1)}" y="16" fill="rgba(255,255,255,0.55)" font-size="11" font-family="Outfit,sans-serif">${owner}</text>`;
+                });
+            }
+
             dailyTotals.forEach((d, i) => {
                 const x = xp(i);
-                const y = yp(d.day_profit);
-                const h = Math.abs(zY - y);
-                const barY = d.day_profit >= 0 ? y : zY;
-                svg += `<rect x="${(x-barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(2,h).toFixed(1)}" fill="${pColor(d.day_profit)}" opacity="0.8" rx="2"/>`;
                 const skip = n > 20 && i % Math.ceil(n/10) !== 0 && i !== n-1;
+                
+                const totalW = numActiveOwners * barW + (numActiveOwners - 1) * barGap;
+                const startX = x - totalW / 2;
+
+                activeOwners.forEach((owner, oi) => {
+                    const r = d.rows.find(row => row.owner === owner);
+                    const val = r ? r.day_profit_sum : 0;
+                    if (val === 0) return; // 0원인 경우는 그리지 않음
+
+                    const h = (Math.abs(val) / maxV) * (cH / 2);
+                    const barY = val >= 0 ? zY - h : zY;
+                    const barX = startX + oi * (barW + barGap);
+                    const color = (selectedOwner === 'all') ? ownerColorMap[owner] : pColor(val);
+
+                    svg += `<rect class="chart-bar" x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(1.5, h).toFixed(1)}" fill="${color}" opacity="0.85" rx="1" style="cursor:pointer;"
+                        onmouseover="showChartTooltip(event, '${d.date}', '${owner} 일별 손익', ${val})"
+                        onmousemove="moveChartTooltip(event)"
+                        onmouseout="hideChartTooltip()"/>`;
+                });
+
+                // 만약 모든 소유자의 실적이 0이면 중앙에 얇은 선 표시
+                if (d.day_profit === 0) {
+                    svg += `<rect class="chart-bar" x="${(x - 2).toFixed(1)}" y="${(zY-1).toFixed(1)}" width="4" height="2" fill="rgba(255,255,255,0.1)" rx="1"/>`;
+                }
+
                 if (!skip) svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.date.slice(5).replace('-','/')}</text>`;
             });
             svg += `</svg>`;
@@ -1414,22 +1679,28 @@
             });
             // 범례
             activeOwners.forEach((owner, oi) => {
+                const color = ownerColorMap[owner];
                 const lx = pL + oi * 90;
-                svg2 += `<circle cx="${(lx+4).toFixed(1)}" cy="12" r="4" fill="${ownerColors[oi%ownerColors.length]}" opacity="0.9"/>`;
+                svg2 += `<circle cx="${(lx+4).toFixed(1)}" cy="12" r="4" fill="${color}" opacity="0.9"/>`;
                 svg2 += `<text x="${(lx+12).toFixed(1)}" y="16" fill="rgba(255,255,255,0.55)" font-size="11" font-family="Outfit,sans-serif">${owner}</text>`;
             });
             // 라인 + 포인트
             activeOwners.forEach((owner, oi) => {
-                const color = ownerColors[oi % ownerColors.length];
+                const color = ownerColorMap[owner];
                 const pts = dates.map((d, i) => {
                     const row = filteredRows.find(r => r.date === d && r.owner === owner);
-                    return row ? { x: xp2(i), y: yp2(row.cum_profit) } : null;
+                    return row ? { x: xp2(i), y: yp2(row.cum_profit), date: d, cum_profit: row.cum_profit } : null;
                 }).filter(Boolean);
                 if (pts.length >= 2) {
                     const lineD = pts.map((p,i) => `${i===0?'M':'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
                     svg2 += `<path d="${lineD}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
                 }
-                pts.forEach(p => { svg2 += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#0f172a" stroke="${color}" stroke-width="2"/>`; });
+                pts.forEach(p => {
+                    svg2 += `<circle class="chart-point" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#0f172a" stroke="${color}" stroke-width="2" style="cursor:pointer;"
+                        onmouseover="showChartTooltip(event, '${p.date}', '${owner} 누적 손익', ${p.cum_profit})"
+                        onmousemove="moveChartTooltip(event)"
+                        onmouseout="hideChartTooltip()"/>`;
+                });
             });
             svg2 += `</svg>`;
 
@@ -1466,13 +1737,16 @@
                 svg3 += `<path d="${linePath}" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
             }
             assetTotals.forEach((v, i) => {
-                svg3 += `<circle cx="${xp3(i).toFixed(1)}" cy="${yp3(v).toFixed(1)}" r="3.5" fill="#0f172a" stroke="#6366f1" stroke-width="2"/>`;
+                svg3 += `<circle class="chart-point" cx="${xp3(i).toFixed(1)}" cy="${yp3(v).toFixed(1)}" r="3.5" fill="#0f172a" stroke="#6366f1" stroke-width="2" style="cursor:pointer;"
+                    onmouseover="showChartTooltip(event, '${dates[i]}', '총 보유자산', ${v})"
+                    onmousemove="moveChartTooltip(event)"
+                    onmouseout="hideChartTooltip()"/>`;
             });
             svg3 += `</svg>`;
 
             // ── 요약 통계 ────────────────────────────────────────────
             const [yr, mo] = month.split('-');
-            const totalProfit = vals.reduce((s, v) => s + v, 0);
+            const totalProfit = dailyTotals.reduce((s, d) => s + d.day_profit, 0);
             const lastRows = filteredRows.filter(r => r.date === dates[dates.length - 1]);
             const finalCum = lastRows.reduce((s, r) => s + r.cum_profit, 0);
             const finalAsset = lastRows.reduce((s, r) => s + (r.portfolio_value || 0), 0);
@@ -1766,9 +2040,15 @@
         }
 
         function updateRealtimePrices() {
+            if (isRealtimeFetching) {
+                console.log("Realtime fetch is already in progress, skipping...");
+                return;
+            }
+            isRealtimeFetching = true;
             fetch('/api/realtime/prices')
                 .then(res => res.json())
                 .then(data => {
+                    isRealtimeFetching = false;
                     if (data.error) return;
                     lastRealtimeData = data;
                     const portfolioGrid = document.getElementById('realtimeGridPortfolio');
@@ -2005,6 +2285,10 @@
                     } else if (summaryArea) {
                         summaryArea.style.display = 'none';
                     }
+                })
+                .catch(err => {
+                    console.error("Error fetching realtime prices:", err);
+                    isRealtimeFetching = false;
                 });
         }
 
@@ -2290,6 +2574,12 @@
                                         style="width: 100%; background: rgba(248,113,113,0.05); border: 1px solid rgba(248,113,113,0.2); border-radius: 8px; color: #f87171; font-weight: 700; padding: 4px 6px; font-size: 12px; text-align: right;">
                                 </div>
                             </div>
+                            <!-- [김선화] 보유 종목 매도 버튼 -->
+                            <button onclick="openSellModal('${stock.code}', '${stock.name}', ${stock.quantity || 0}, ${stock.purchase_price || 0})"
+                                style="margin-top:10px; width:100%; padding:8px; border-radius:10px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.3); color:#ef4444; font-weight:800; font-size:13px; cursor:pointer; transition:background 0.2s;"
+                                onmouseover="this.style.background='rgba(239,68,68,0.22)'" onmouseout="this.style.background='rgba(239,68,68,0.12)'">
+                                📤 매도
+                            </button>
                         </div>
                         `;
                     }).join('');
@@ -2746,6 +3036,77 @@
                 });
         }
 
+        // [김선화] 매도 모달 열기
+        let _sellTargetCode = '';
+        function openSellModal(code, name, qty, purchasePrice) {
+            _sellTargetCode = code;
+            document.getElementById('sellModalStockName').textContent = name;
+            document.getElementById('sellModalCurrentQty').textContent = qty;
+            document.getElementById('sellModalPurchasePrice').textContent = purchasePrice.toLocaleString();
+            document.getElementById('sellPriceInput').value = '';
+            document.getElementById('sellQtyInput').value = '';
+            document.getElementById('sellPreviewArea').style.display = 'none';
+            document.getElementById('sellModal').style.display = 'flex';
+        }
+
+        function closeSellModal() {
+            document.getElementById('sellModal').style.display = 'none';
+            _sellTargetCode = '';
+        }
+
+        // [김선화] 수익/손실 미리보기 업데이트
+        function updateSellPreview() {
+            const sellPrice = parseFloat(unformatNumber(document.getElementById('sellPriceInput').value)) || 0;
+            const sellQty = parseInt(document.getElementById('sellQtyInput').value) || 0;
+            const purchasePrice = parseFloat(document.getElementById('sellModalPurchasePrice').textContent.replace(/,/g, '')) || 0;
+            const previewArea = document.getElementById('sellPreviewArea');
+
+            if (sellPrice > 0 && sellQty > 0 && purchasePrice > 0) {
+                const profit = (sellPrice - purchasePrice) * sellQty;
+                const rate = ((sellPrice - purchasePrice) / purchasePrice * 100);
+                const isProfit = profit >= 0;
+                const color = isProfit ? '#10b981' : '#ef4444';
+                document.getElementById('sellPreviewProfit').innerHTML = `<span style="color:${color}">${profit >= 0 ? '+' : ''}${profit.toLocaleString(undefined, {maximumFractionDigits:0})}원</span>`;
+                document.getElementById('sellPreviewRate').innerHTML = `<span style="color:${color}">${rate >= 0 ? '+' : ''}${rate.toFixed(2)}% &nbsp;(${sellQty.toLocaleString()}주 × ${(sellPrice - purchasePrice) >= 0 ? '+' : ''}${(sellPrice - purchasePrice).toLocaleString()}원)</span>`;
+                previewArea.style.display = 'block';
+            } else {
+                previewArea.style.display = 'none';
+            }
+        }
+
+        // [김선화] 매도 확인 처리
+        function confirmSell() {
+            const sellPrice = parseFloat(unformatNumber(document.getElementById('sellPriceInput').value)) || 0;
+            const sellQty = parseInt(document.getElementById('sellQtyInput').value) || 0;
+            const maxQty = parseInt(document.getElementById('sellModalCurrentQty').textContent) || 0;
+
+            if (sellPrice <= 0) { showToast('매도가를 입력해주세요.', 'error'); return; }
+            if (sellQty <= 0) { showToast('매도 수량을 입력해주세요.', 'error'); return; }
+            if (sellQty > maxQty) { showToast(`매도 수량(${sellQty}주)이 보유 수량(${maxQty}주)을 초과합니다.`, 'error'); return; }
+
+            const btn = document.getElementById('sellConfirmBtn');
+            btn.disabled = true;
+            btn.textContent = '처리 중...';
+
+            fetch(`/api/my_stocks/${_sellTargetCode}/sell`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sell_price: sellPrice, sell_qty: sellQty })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    closeSellModal();
+                    showToast(data.message, 'success');
+                    loadMyStocks();
+                } else {
+                    showToast(data.message, 'error');
+                }
+            })
+            .catch(err => showToast('매도 처리 실패: ' + err, 'error'))
+            .finally(() => { btn.disabled = false; btn.textContent = '📤 매도 확인'; });
+        }
+
         function updateStockDetail(code, type, value) {
             const payload = {};
             if (type === 'price') payload.purchase_price = parseFloat(unformatNumber(value)) || 0;
@@ -3077,6 +3438,7 @@
 
         let currentChartCode = '';
         let currentChartName = '';
+        let currentPoolStocks = [];
 
         function openChartModal(code, name) {
             currentChartCode = code;
@@ -3139,6 +3501,79 @@
             if (isAiAnalyzing) return;
             document.getElementById('aiModal').style.display = 'none';
             document.getElementById('aiSaveDriveBtn').style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        function showNewsModal(stockCode) {
+            const modal = document.getElementById('newsModal');
+            const titleEl = document.getElementById('newsModalTitle');
+            const contentEl = document.getElementById('newsResultContent');
+            
+            const stock = currentPoolStocks.find(s => s.code === stockCode);
+            if (!stock) {
+                showToast('종목 정보를 찾을 수 없습니다.', 'error');
+                return;
+            }
+            
+            titleEl.innerHTML = `📰 ${stock.name} - 추천 분석용 뉴스 요약`;
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+
+            const summaryText = stock.news_summary;
+            if (!summaryText || summaryText.trim() === '' || summaryText.includes('최근 관련 뉴스가 발견되지 않았습니다')) {
+                contentEl.innerHTML = `
+                    <div style="color:var(--text-muted);text-align:center;padding:40px;">
+                        <p>추천 분석 시 참조한 뉴스 요약이 없습니다.</p>
+                    </div>`;
+                return;
+            }
+            
+            const lines = summaryText.split('\n').filter(line => line.trim().length > 0);
+            
+            let html = `<div style="display:flex;flex-direction:column;gap:14px;">`;
+            html += `
+                <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);border-radius:12px;padding:14px 18px;margin-bottom:8px;font-size:13px;color:#a5b4fc;line-height:1.5;">
+                    💡 이 뉴스는 내일의 공략주 Top 10 선정 시점에 반영된 뉴스입니다.
+                </div>`;
+                
+            lines.forEach(line => {
+                let source = "네이버 금융";
+                let date = "";
+                let title = line;
+                
+                if (title.startsWith('•')) {
+                    title = title.substring(1).trim();
+                }
+                
+                const sourceMatch = title.match(/^\[(.*?)\]/);
+                if (sourceMatch) {
+                    source = sourceMatch[1];
+                    title = title.substring(sourceMatch[0].length).trim();
+                }
+                
+                const dateMatch = title.match(/\(([^)]+)\)$/);
+                if (dateMatch) {
+                    date = dateMatch[1];
+                    title = title.substring(0, title.length - dateMatch[0].length).trim();
+                }
+                
+                html += `
+                <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:8px;">
+                    <div style="font-size:16px;font-weight:800;color:white;line-height:1.4;">
+                        ${title}
+                    </div>
+                    <div style="display:flex;gap:12px;font-size:11px;color:#64748b;font-weight:600;margin-top:4px;">
+                        <span>📰 ${source}</span>
+                        ${date ? `<span>📅 ${date}</span>` : ''}
+                    </div>
+                </div>`;
+            });
+            html += `</div>`;
+            contentEl.innerHTML = html;
+        }
+
+        function closeNewsModal() {
+            document.getElementById('newsModal').style.display = 'none';
             document.body.style.overflow = 'auto';
         }
 
@@ -3511,6 +3946,7 @@
             fetch('/api/pool')
                 .then(res => res.json())
                 .then(data => {
+                    currentPoolStocks = data.stocks || [];
                     const rankedBy = data.ranked_by === 'ai' ? '🤖 AI 랭킹 기준' : '📊 재무점수 기준';
                     const el = document.getElementById('poolRankedBy');
                     if (el) el.textContent = rankedBy;
@@ -3585,10 +4021,16 @@
                                      style="width:100%;height:100%;object-fit:cover;display:block;"
                                      onerror="this.style.display='none';this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;color:#475569;font-size:11px;\'>차트 없음</div>'">
                             </div>
-                            <button onclick="openChartModal('${s.code}','${s.name}')"
-                                style="padding:10px;border-radius:10px;background:var(--primary);color:white;font-size:12px;font-weight:800;border:none;cursor:pointer;">
-                                정밀 분석 차트 ↗
-                            </button>
+                            <div style="display:flex;gap:6px;">
+                                <button onclick="openChartModal('${s.code}','${s.name}')"
+                                    style="flex:1;padding:10px 4px;border-radius:10px;background:var(--primary);color:white;font-size:12px;font-weight:800;border:none;cursor:pointer;white-space:nowrap;">
+                                    차트 ↗
+                                </button>
+                                <button onclick="showNewsModal('${s.code}')"
+                                    style="flex:1.2;padding:10px 4px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">
+                                    뉴스 요약 📰
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>`;
