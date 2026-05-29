@@ -1746,7 +1746,7 @@
 
             // ── 요약 통계 ────────────────────────────────────────────
             const [yr, mo] = month.split('-');
-            const totalProfit = vals.reduce((s, v) => s + v, 0);
+            const totalProfit = dailyTotals.reduce((s, d) => s + d.day_profit, 0);
             const lastRows = filteredRows.filter(r => r.date === dates[dates.length - 1]);
             const finalCum = lastRows.reduce((s, r) => s + r.cum_profit, 0);
             const finalAsset = lastRows.reduce((s, r) => s + (r.portfolio_value || 0), 0);
