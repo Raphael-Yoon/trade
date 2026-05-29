@@ -953,14 +953,36 @@ def get_stock_pool():
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio,
-                   p.operating_margin, p.target_price, p.pool_score,
-                   a.score AS priority_score, a.reason AS ai_summary,
-                   a.upside, a.current_price
-            FROM stock_pool p
-            LEFT JOIN audit_recommendations a ON p.code = a.code
-                AND a.data_date = (SELECT MAX(data_date) FROM audit_recommendations)
-            ORDER BY CASE WHEN a.code IS NULL THEN 1 ELSE 0 END, a.score DESC, p.pool_score DESC
+            SELECT * FROM (
+                SELECT 
+                    a.code, a.name, p.sector, 
+                    COALESCE(a.roe, p.roe) as roe,
+                    p.pbr, p.per,
+                    COALESCE(a.debt, p.debt_ratio) as debt_ratio,
+                    p.operating_margin,
+                    a.target_price, p.pool_score,
+                    a.score AS priority_score, a.reason AS ai_summary,
+                    a.upside, a.current_price,
+                    0 as is_rec
+                FROM audit_recommendations a
+                LEFT JOIN stock_pool p ON a.code = p.code
+                WHERE a.data_date = (SELECT MAX(data_date) FROM audit_recommendations)
+                
+                UNION ALL
+                
+                SELECT 
+                    p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio, p.operating_margin,
+                    p.target_price, p.pool_score,
+                    NULL as priority_score, NULL as ai_summary,
+                    NULL as upside, NULL as current_price,
+                    1 as is_rec
+                FROM stock_pool p
+                WHERE p.code NOT IN (
+                    SELECT code FROM audit_recommendations 
+                    WHERE data_date = (SELECT MAX(data_date) FROM audit_recommendations)
+                )
+            )
+            ORDER BY is_rec, priority_score DESC, pool_score DESC
         """)
 
         rows = [dict(r) for r in cursor.fetchall()]

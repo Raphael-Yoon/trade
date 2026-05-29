@@ -92,6 +92,27 @@
         </div>
     </div>
 
+    <!-- Real-time News Modal -->
+    <div id="newsModal" class="modal">
+        <div class="modal-content" style="max-width: 800px; width: 95%;">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 24px 32px; display:flex; justify-content:space-between; align-items:center; background:#0f172a;">
+                <h2 id="newsModalTitle" style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">
+                    📰 실시간 뉴스 및 심리 요약
+                </h2>
+                <span class="close-modal" onclick="closeNewsModal()" style="font-size: 32px; cursor:pointer;">&times;</span>
+            </div>
+            <div id="newsResultContent" class="modal-body" style="padding: 32px; background: #020617; max-height: 550px; overflow-y: auto;">
+                <div class="loading-ai">
+                    <div class="ai-spinner"></div>
+                    <p>뉴스를 수집 및 요약하는 중입니다...</p>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 24px 32px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; background: #0f172a;">
+                <button class="btn" style="background: rgba(255,255,255,0.1); border: none;" onclick="closeNewsModal()">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
         <h1><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="40" height="40" style="vertical-align:-9px;margin-right:10px"><path d="M9 10Q10 6 9 3" fill="none" stroke="#d4a853" stroke-width="2" stroke-linecap="round"/><path d="M15 8Q16 4 15 1" fill="none" stroke="#d4a853" stroke-width="2" stroke-linecap="round"/><path d="M21 10Q22 6 21 3" fill="none" stroke="#d4a853" stroke-width="2" stroke-linecap="round"/><rect x="3" y="13" width="23" height="4" rx="2" fill="#d4a853"/><path d="M4 17L7 28H23L26 17Z" fill="#a07840"/><path d="M26 20Q31 21 31 24Q31 27 26 28" fill="none" stroke="#d4a853" stroke-width="2.5" stroke-linecap="round"/><ellipse cx="15" cy="29" rx="13" ry="2" fill="#7a5c2e"/></svg>Jonathan's Coffee House</h1>
 
@@ -3198,6 +3219,57 @@
             document.body.style.overflow = 'auto';
         }
 
+        function showNewsModal(stockName) {
+            const modal = document.getElementById('newsModal');
+            const titleEl = document.getElementById('newsModalTitle');
+            const contentEl = document.getElementById('newsResultContent');
+            
+            titleEl.innerHTML = `📰 ${stockName} - 실시간 뉴스 요약`;
+            contentEl.innerHTML = `<div class="loading-ai"><div class="ai-spinner"></div><p>네이버 금융에서 '${stockName}' 실시간 뉴스를 수집 및 요약 중입니다...</p></div>`;
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            
+            fetch(`/api/news_search?q=${encodeURIComponent(stockName)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        contentEl.innerHTML = `<div style="color:#ef4444;text-align:center;padding:40px;"><p>오류 발생: ${data.error}</p></div>`;
+                        return;
+                    }
+                    if (!data || data.length === 0) {
+                        contentEl.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:40px;"><p>최근 뉴스가 없습니다.</p></div>`;
+                        return;
+                    }
+                    
+                    let html = `<div style="display:flex;flex-direction:column;gap:18px;">`;
+                    data.forEach(item => {
+                        html += `
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:8px;">
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+                                <a href="${item.link}" target="_blank" style="font-size:16px;font-weight:800;color:white;text-decoration:none;line-height:1.4;transition:color 0.2s;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='white'">
+                                    ${item.title}
+                                </a>
+                            </div>
+                            \${item.summary ? `<p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.6;background:rgba(0,0,0,0.15);padding:10px 14px;border-radius:8px;">\${item.summary}</p>` : ''}
+                            <div style="display:flex;gap:12px;font-size:11px;color:#64748b;font-weight:600;">
+                                <span>📰 \${item.source || '네이버 금융'}</span>
+                                <span>📅 \${item.date || ''}</span>
+                            </div>
+                        </div>`;
+                    });
+                    html += `</div>`;
+                    contentEl.innerHTML = html;
+                })
+                .catch(err => {
+                    contentEl.innerHTML = `<div style="color:#ef4444;text-align:center;padding:40px;"><p>로딩 실패: \${err}</p></div>`;
+                });
+        }
+
+        function closeNewsModal() {
+            document.getElementById('newsModal').style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
         function savePortfolioReportToDrive() {
             const filename = prompt('구글 드라이브에 저장할 파일명을 입력하세요:', '포트폴리오 분석 리포트');
             if (!filename || !filename.trim()) return;
@@ -3641,10 +3713,16 @@
                                      style="width:100%;height:100%;object-fit:cover;display:block;"
                                      onerror="this.style.display='none';this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;color:#475569;font-size:11px;\'>차트 없음</div>'">
                             </div>
-                            <button onclick="openChartModal('${s.code}','${s.name}')"
-                                style="padding:10px;border-radius:10px;background:var(--primary);color:white;font-size:12px;font-weight:800;border:none;cursor:pointer;">
-                                정밀 분석 차트 ↗
-                            </button>
+                            <div style="display:flex;gap:6px;">
+                                <button onclick="openChartModal('${s.code}','${s.name}')"
+                                    style="flex:1;padding:10px 4px;border-radius:10px;background:var(--primary);color:white;font-size:12px;font-weight:800;border:none;cursor:pointer;white-space:nowrap;">
+                                    차트 ↗
+                                </button>
+                                <button onclick="showNewsModal('${s.name}')"
+                                    style="flex:1.2;padding:10px 4px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">
+                                    뉴스 요약 📰
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>`;
