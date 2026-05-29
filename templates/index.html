@@ -466,6 +466,17 @@
                         style="padding: 10px 18px; border-radius: 12px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
                         🗑️ 선택 날짜 삭제
                     </button>
+                    
+                    <!-- [김선화] 특정 일자 소급 적재 UI -->
+                    <div style="margin-left: auto; display: flex; align-items: center; gap: 12px;">
+                        <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">소급 날짜:</span>
+                        <input type="date" id="backfillDateInput" 
+                            style="padding: 10px 16px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none;">
+                        <button onclick="backfillSpecificDate()" class="btn"
+                            style="height: auto; padding: 10px 18px; font-size: 13px; background: linear-gradient(135deg, var(--primary), var(--primary-hover)); border: none; font-weight: 700;">
+                            📥 특정일 소급 적재
+                        </button>
+                    </div>
                 </div>
 
                 <!-- 일별 뷰 -->
@@ -1061,6 +1072,40 @@
                     }
                 })
                 .catch(err => showToast('삭제 실패: ' + err, 'error'));
+        }
+
+        // [김선화] 특정 일자 소급 적재 기능
+        function backfillSpecificDate() {
+            const dateInput = document.getElementById('backfillDateInput');
+            const date = dateInput.value;
+            if (!date) {
+                showToast('소급 적재할 날짜를 선택해주세요.', 'error');
+                return;
+            }
+            
+            const today = new Date().toISOString().split('T')[0];
+            if (date > today) {
+                showToast('미래 날짜는 소급할 수 없습니다.', 'error');
+                return;
+            }
+
+            if (!confirm(`${date} 기준으로 네이버 금융 종가 데이터를 소급 적재하시겠습니까?`)) return;
+
+            showToast(`${date} 데이터 소급 중...`, 'success');
+            
+            fetch(`/api/history/backfill?date=${date}`, {
+                method: 'POST'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadHistoryDates();
+                } else {
+                    showToast(data.message, 'error');
+                }
+            })
+            .catch(err => showToast('소급 실패: ' + err, 'error'));
         }
 
         // [김선화] 히스토리 날짜 목록 로드 및 최신 날짜 자동 선택

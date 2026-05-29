@@ -2833,8 +2833,12 @@ def get_history_data():
 
 @app.route('/api/history/backfill', methods=['POST'])
 def backfill_history():
-    """[김정음] 최근 30일치 누락된 종가 데이터를 네이버 금융에서 소급 저장"""
+    """[김정음] 최근 30일치 혹은 특정 일자의 누락된 종가 데이터를 네이버 금융에서 소급 저장"""
     try:
+        body = request.get_json(silent=True) or {}
+        req_date = request.args.get('date') or body.get('date')
+        force = request.args.get('force', '').lower() == 'true' or body.get('force', False)
+
         db = get_db()
         cursor = db.cursor()
 
@@ -2844,11 +2848,26 @@ def backfill_history():
             return jsonify({'success': False, 'message': '등록된 종목이 없습니다.'})
 
         today = datetime.now().date()
-        since = today - timedelta(days=30)
         recorded_at = datetime.now().isoformat()
         inserted_total = 0
         skipped_total = 0
         errors = []
+
+        target_date_obj = None
+        since = today - timedelta(days=30)
+        req_pages = 2
+
+        if req_date:
+            try:
+                target_date_obj = datetime.strptime(req_date, '%Y-%m-%d').date()
+                if target_date_obj > today:
+                    return jsonify({'success': False, 'message': '미래 날짜는 소급할 수 없습니다.'}), 400
+                days_diff = (today - target_date_obj).days
+                req_pages = max(2, (days_diff // 7) + 1)
+                if req_pages > 10:
+                    req_pages = 10
+            except ValueError:
+                return jsonify({'success': False, 'message': '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)'}), 400
 
         for stock in stocks:
             code = stock['code']
@@ -2857,17 +2876,23 @@ def backfill_history():
             quantity = stock['quantity'] or 0
             owner = stock['owner'] or '나'
 
-            prices = get_daily_prices(code, pages=2)
+            prices = get_daily_prices(code, pages=req_pages)
             if not prices:
                 errors.append(f"{name}({code}): 데이터 조회 실패")
                 continue
 
             prices_sorted = sorted(prices, key=lambda x: x['date'])
 
-            cursor.execute(
-                "SELECT DISTINCT date FROM stock_daily_history WHERE code = ? AND date >= ?",
-                (code, since.strftime('%Y-%m-%d'))
-            )
+            if target_date_obj:
+                cursor.execute(
+                    "SELECT DISTINCT date FROM stock_daily_history WHERE code = ? AND date = ?",
+                    (code, req_date)
+                )
+            else:
+                cursor.execute(
+                    "SELECT DISTINCT date FROM stock_daily_history WHERE code = ? AND date >= ?",
+                    (code, since.strftime('%Y-%m-%d'))
+                )
             existing_dates = {row[0] for row in cursor.fetchall()}
 
             for i, p in enumerate(prices_sorted):
@@ -2877,11 +2902,19 @@ def backfill_history():
                 except Exception:
                     continue
 
-                if price_date < since or price_date > today:
-                    continue
+                if target_date_obj:
+                    if price_date != target_date_obj:
+                        continue
+                else:
+                    if price_date < since or price_date > today:
+                        continue
+
                 if date_str in existing_dates:
-                    skipped_total += 1
-                    continue
+                    if force:
+                        cursor.execute("DELETE FROM stock_daily_history WHERE code = ? AND date = ?", (code, date_str))
+                    else:
+                        skipped_total += 1
+                        continue
 
                 close = p['close']
                 prev_close = prices_sorted[i - 1]['close'] if i > 0 else None
@@ -2899,7 +2932,8 @@ def backfill_history():
                 inserted_total += 1
 
         db.commit()
-        msg = f"소급 완료: {inserted_total}건 저장, {skipped_total}건 기존 데이터 유지"
+        target_desc = f"{req_date} 자" if req_date else "최근 30일"
+        msg = f"{target_desc} 소급 완료: {inserted_total}건 저장, {skipped_total}건 기존 데이터 유지"
         if errors:
             msg += f" / 조회 실패: {', '.join(errors)}"
         return jsonify({'success': True, 'message': msg,
