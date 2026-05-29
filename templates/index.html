@@ -115,7 +115,13 @@
     </div>
 
     <div class="container">
-        <h1><img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" style="height: 40px; width: auto; vertical-align: -9px; margin-right: 12px; border-radius: 4px;">Jonathan's Coffee House</h1>
+        <!-- [김선화] 중앙 브랜딩 로고 영역 -->
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 32px; margin-bottom: 24px; text-align: center;">
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Jonathan's Coffee House" 
+                 style="height: 150px; width: auto; filter: drop-shadow(0 12px 24px rgba(0,0,0,0.3)); transition: transform 0.4s cubic-bezier(0.165, 0.84, 0.44, 1), filter 0.4s ease; cursor: pointer;"
+                 onmouseover="this.style.transform='scale(1.06) translateY(-4px)'; this.style.filter='drop-shadow(0 20px 35px rgba(99,102,241,0.25))';" 
+                 onmouseout="this.style.transform='scale(1) translateY(0)'; this.style.filter='drop-shadow(0 12px 24px rgba(0,0,0,0.3))';">
+        </div>
 
         <div class="tabs-nav">
             <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 분석</button>
