@@ -114,6 +114,52 @@
         </div>
     </div>
 
+    <!-- [김선화] 매도 처리 모달 -->
+    <div id="sellModal" class="modal" style="z-index: 3000;">
+        <div class="modal-content" style="max-width: 460px; width: 95%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1);">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.07); padding: 24px 28px; display:flex; justify-content:space-between; align-items:center;">
+                <h2 style="margin:0; font-size:20px; font-weight:800; font-family:'Outfit',sans-serif; color:white;">📤 매도 처리</h2>
+                <span class="close-modal" onclick="closeSellModal()" style="font-size:28px; cursor:pointer;">&times;</span>
+            </div>
+            <div class="modal-body" style="padding: 28px; background: #020617;">
+                <div style="margin-bottom: 20px; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 14px; border: 1px solid rgba(255,255,255,0.07);">
+                    <div style="font-size:18px; font-weight:800; color:white;" id="sellModalStockName">-</div>
+                    <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">보유: <span id="sellModalCurrentQty" style="color:#fbbf24; font-weight:700;">0</span>주 &nbsp;|&nbsp; 평단: <span id="sellModalPurchasePrice" style="color:#94a3b8;">0</span>원</div>
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:16px;">
+                    <div>
+                        <label style="font-size:12px; color:var(--text-muted); font-weight:600; display:block; margin-bottom:6px;">매도가 (원)</label>
+                        <input type="text" id="sellPriceInput" placeholder="매도 가격 입력"
+                            oninput="this.value=formatNumber(this.value); updateSellPreview()"
+                            style="width:100%; padding:12px 16px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); color:white; font-size:16px; font-weight:700; box-sizing:border-box; outline:none;">
+                    </div>
+                    <div>
+                        <label style="font-size:12px; color:var(--text-muted); font-weight:600; display:block; margin-bottom:6px;">매도 수량 (주)</label>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <input type="number" id="sellQtyInput" placeholder="0" min="1"
+                                oninput="updateSellPreview()"
+                                style="flex:1; padding:12px 16px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); color:white; font-size:16px; font-weight:700; outline:none;">
+                            <button onclick="document.getElementById('sellQtyInput').value=document.getElementById('sellModalCurrentQty').textContent; updateSellPreview()"
+                                style="padding:10px 14px; border-radius:10px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.3); color:#fbbf24; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap;">전량</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 수익 미리보기 -->
+                <div id="sellPreviewArea" style="margin-top:20px; padding:16px; border-radius:14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); display:none;">
+                    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px; font-weight:600;">예상 수익/손실</div>
+                    <div id="sellPreviewProfit" style="font-size:22px; font-weight:900; font-family:'Outfit',sans-serif;">-</div>
+                    <div id="sellPreviewRate" style="font-size:13px; color:var(--text-muted); margin-top:2px;">-</div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding:20px 28px; border-top:1px solid rgba(255,255,255,0.07); display:flex; justify-content:flex-end; gap:12px; background:#0f172a;">
+                <button class="btn" style="background:rgba(255,255,255,0.08); border:none;" onclick="closeSellModal()">취소</button>
+                <button id="sellConfirmBtn" class="btn" style="background:linear-gradient(135deg,#ef4444,#dc2626); border:none; font-weight:800;" onclick="confirmSell()">📤 매도 확인</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
         <!-- [김선화] 중앙 브랜딩 로고 영역 -->
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 32px; margin-bottom: 24px; text-align: center;">
@@ -484,21 +530,28 @@
                 </div>
 
                 <!-- 일별 컨트롤 -->
-                <div id="historyDailyControls" style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">
+                <div id="historyDailyControls" style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
                     <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">조회 날짜:</span>
-                    <select id="historyDateSelect" onchange="loadHistoryData(this.value)"
-                        style="padding: 10px 20px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 180px;">
-                        <option value="">데이터를 불러오는 중...</option>
-                    </select>
-                    <button onclick="deleteHistory(document.getElementById('historyDateSelect').value)"
-                        style="padding: 10px 18px; border-radius: 12px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                        🗑️ 선택 날짜 삭제
-                    </button>
-                    
+
+                    <!-- [김선화] 날짜 네비게이션: 드롭다운 → date picker + prev/next 버튼으로 개선 -->
+                    <button id="historyPrevBtn" onclick="navigateHistoryDate(-1)" title="이전 날짜"
+                        style="padding: 8px 14px; border-radius: 10px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 16px; cursor: pointer; transition: background 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.07)'">◀</button>
+
+                    <input type="date" id="historyDateSelect"
+                        onchange="loadHistoryData(this.value)"
+                        style="padding: 10px 16px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 160px;">
+
+                    <button id="historyNextBtn" onclick="navigateHistoryDate(1)" title="다음 날짜"
+                        style="padding: 8px 14px; border-radius: 10px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 16px; cursor: pointer; transition: background 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.07)'">▶</button>
+
+                    <span id="historyDateCount" style="font-size: 12px; color: var(--text-muted); margin-left: 4px;"></span>
+
                     <!-- [김선화] 특정 일자 소급 적재 UI -->
                     <div style="margin-left: auto; display: flex; align-items: center; gap: 12px;">
                         <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">소급 날짜:</span>
-                        <input type="date" id="backfillDateInput" 
+                        <input type="date" id="backfillDateInput"
                             style="padding: 10px 16px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none;">
                         <button onclick="backfillSpecificDate()" class="btn"
                             style="height: auto; padding: 10px 18px; font-size: 13px; background: linear-gradient(135deg, var(--primary), var(--primary-hover)); border: none; font-weight: 700;">
@@ -1136,30 +1189,62 @@
             .catch(err => showToast('소급 실패: ' + err, 'error'));
         }
 
-        // [김선화] 히스토리 날짜 목록 로드 및 최신 날짜 자동 선택
+        // [김선화] 히스토리 날짜 목록 로드 및 최신 날짜 자동 선택 (date picker + prev/next 방식)
+        let _historyDates = [];  // 전체 날짜 배열 (prev/next 네비게이션용)
+
         function loadHistoryDates() {
-            const select = document.getElementById('historyDateSelect');
+            const dateInput = document.getElementById('historyDateSelect');
             fetch('/api/history/dates')
                 .then(res => res.json())
                 .then(data => {
                     if (data.success && data.dates.length > 0) {
-                        select.innerHTML = '<option value="">날짜 선택...</option>' + 
-                            data.dates.map(date => `<option value="${date}">${date}</option>`).join('');
-                        
-                        // [김선화] 가장 최신 날짜(첫 번째) 자동 선택 및 로드
-                        const latestDate = data.dates[0];
-                        select.value = latestDate;
-                        loadHistoryData(latestDate);
+                        _historyDates = data.dates; // 최신순 정렬된 날짜 배열 보관
+
+                        // date picker 범위 설정 (min=가장 오래된 날짜, max=가장 최신 날짜)
+                        const oldest = _historyDates[_historyDates.length - 1];
+                        const latest = _historyDates[0];
+                        dateInput.min = oldest;
+                        dateInput.max = latest;
+
+                        // 날짜 건수 표시
+                        const countEl = document.getElementById('historyDateCount');
+                        if (countEl) countEl.textContent = `(총 ${_historyDates.length}일)`;
+
+                        // 가장 최신 날짜 자동 선택 및 로드
+                        dateInput.value = latest;
+                        loadHistoryData(latest);
                     } else {
-                        select.innerHTML = '<option value="">기록된 데이터 없음</option>';
+                        _historyDates = [];
                         document.getElementById('historyContent').innerHTML =
                             '<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: var(--text-muted);"><span style="font-size: 48px; margin-bottom: 16px;">📅</span><p>저장된 히스토리 데이터가 없습니다.</p></div>';
                     }
                 })
                 .catch(err => {
                     console.error('날짜 로드 실패:', err);
-                    select.innerHTML = '<option value="">로드 실패</option>';
                 });
+        }
+
+        // [김선화] 이전/다음 날짜로 이동 (direction: -1=이전, 1=다음)
+        function navigateHistoryDate(direction) {
+            if (_historyDates.length === 0) return;
+            const dateInput = document.getElementById('historyDateSelect');
+            const currentDate = dateInput.value;
+            const idx = _historyDates.indexOf(currentDate);
+
+            let nextIdx;
+            if (idx === -1) {
+                // 현재 날짜가 목록에 없으면 가장 최신 날짜로
+                nextIdx = 0;
+            } else {
+                // _historyDates는 최신순(내림차순) → 이전 날짜 = idx+1, 다음 날짜 = idx-1
+                nextIdx = idx + direction * -1;
+            }
+
+            if (nextIdx < 0 || nextIdx >= _historyDates.length) return; // 범위 초과
+
+            const targetDate = _historyDates[nextIdx];
+            dateInput.value = targetDate;
+            loadHistoryData(targetDate);
         }
 
         // [김선화] 특정 날짜의 히스토리 데이터 로드 및 렌더링
@@ -2374,6 +2459,12 @@
                                         style="width: 100%; background: rgba(248,113,113,0.05); border: 1px solid rgba(248,113,113,0.2); border-radius: 8px; color: #f87171; font-weight: 700; padding: 4px 6px; font-size: 12px; text-align: right;">
                                 </div>
                             </div>
+                            <!-- [김선화] 보유 종목 매도 버튼 -->
+                            <button onclick="openSellModal('${stock.code}', '${stock.name}', ${stock.quantity || 0}, ${stock.purchase_price || 0})"
+                                style="margin-top:10px; width:100%; padding:8px; border-radius:10px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.3); color:#ef4444; font-weight:800; font-size:13px; cursor:pointer; transition:background 0.2s;"
+                                onmouseover="this.style.background='rgba(239,68,68,0.22)'" onmouseout="this.style.background='rgba(239,68,68,0.12)'">
+                                📤 매도
+                            </button>
                         </div>
                         `;
                     }).join('');
@@ -2828,6 +2919,77 @@
                         showToast(data.message, 'error');
                     }
                 });
+        }
+
+        // [김선화] 매도 모달 열기
+        let _sellTargetCode = '';
+        function openSellModal(code, name, qty, purchasePrice) {
+            _sellTargetCode = code;
+            document.getElementById('sellModalStockName').textContent = name;
+            document.getElementById('sellModalCurrentQty').textContent = qty;
+            document.getElementById('sellModalPurchasePrice').textContent = purchasePrice.toLocaleString();
+            document.getElementById('sellPriceInput').value = '';
+            document.getElementById('sellQtyInput').value = '';
+            document.getElementById('sellPreviewArea').style.display = 'none';
+            document.getElementById('sellModal').style.display = 'flex';
+        }
+
+        function closeSellModal() {
+            document.getElementById('sellModal').style.display = 'none';
+            _sellTargetCode = '';
+        }
+
+        // [김선화] 수익/손실 미리보기 업데이트
+        function updateSellPreview() {
+            const sellPrice = parseFloat(unformatNumber(document.getElementById('sellPriceInput').value)) || 0;
+            const sellQty = parseInt(document.getElementById('sellQtyInput').value) || 0;
+            const purchasePrice = parseFloat(document.getElementById('sellModalPurchasePrice').textContent.replace(/,/g, '')) || 0;
+            const previewArea = document.getElementById('sellPreviewArea');
+
+            if (sellPrice > 0 && sellQty > 0 && purchasePrice > 0) {
+                const profit = (sellPrice - purchasePrice) * sellQty;
+                const rate = ((sellPrice - purchasePrice) / purchasePrice * 100);
+                const isProfit = profit >= 0;
+                const color = isProfit ? '#10b981' : '#ef4444';
+                document.getElementById('sellPreviewProfit').innerHTML = `<span style="color:${color}">${profit >= 0 ? '+' : ''}${profit.toLocaleString(undefined, {maximumFractionDigits:0})}원</span>`;
+                document.getElementById('sellPreviewRate').innerHTML = `<span style="color:${color}">${rate >= 0 ? '+' : ''}${rate.toFixed(2)}% &nbsp;(${sellQty.toLocaleString()}주 × ${(sellPrice - purchasePrice) >= 0 ? '+' : ''}${(sellPrice - purchasePrice).toLocaleString()}원)</span>`;
+                previewArea.style.display = 'block';
+            } else {
+                previewArea.style.display = 'none';
+            }
+        }
+
+        // [김선화] 매도 확인 처리
+        function confirmSell() {
+            const sellPrice = parseFloat(unformatNumber(document.getElementById('sellPriceInput').value)) || 0;
+            const sellQty = parseInt(document.getElementById('sellQtyInput').value) || 0;
+            const maxQty = parseInt(document.getElementById('sellModalCurrentQty').textContent) || 0;
+
+            if (sellPrice <= 0) { showToast('매도가를 입력해주세요.', 'error'); return; }
+            if (sellQty <= 0) { showToast('매도 수량을 입력해주세요.', 'error'); return; }
+            if (sellQty > maxQty) { showToast(`매도 수량(${sellQty}주)이 보유 수량(${maxQty}주)을 초과합니다.`, 'error'); return; }
+
+            const btn = document.getElementById('sellConfirmBtn');
+            btn.disabled = true;
+            btn.textContent = '처리 중...';
+
+            fetch(`/api/my_stocks/${_sellTargetCode}/sell`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sell_price: sellPrice, sell_qty: sellQty })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    closeSellModal();
+                    showToast(data.message, 'success');
+                    loadMyStocks();
+                } else {
+                    showToast(data.message, 'error');
+                }
+            })
+            .catch(err => showToast('매도 처리 실패: ' + err, 'error'))
+            .finally(() => { btn.disabled = false; btn.textContent = '📤 매도 확인'; });
         }
 
         function updateStockDetail(code, type, value) {

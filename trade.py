@@ -125,6 +125,23 @@ def init_db():
             cursor.execute(f"ALTER TABLE stock_daily_history ADD COLUMN {col[0]} {col[1]}")
         except Exception:
             pass
+
+    # [김선화] 매도 거래 이력 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sell_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT,
+            name TEXT,
+            owner TEXT,
+            sell_price REAL,
+            sell_qty INTEGER,
+            purchase_price REAL,
+            profit REAL,
+            profit_rate REAL,
+            sell_date TEXT,
+            created_at TEXT
+        )
+    ''')
     
     # 분석 결과 테이블
     cursor.execute('''
@@ -2072,6 +2089,57 @@ def delete_my_stock(code_val):
         cursor.execute("DELETE FROM my_stocks WHERE code = ?", (code_val,))
         db.commit()
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/my_stocks/<code_val>/sell', methods=['POST'])
+def sell_my_stock(code_val):
+    """[김선화] 보유 종목 매도 처리 - 수량 차감, 전량 시 포트폴리오 제거, sell_history 기록"""
+    try:
+        data = request.get_json() or {}
+        sell_price = float(data.get('sell_price', 0))
+        sell_qty = int(data.get('sell_qty', 0))
+        if sell_price <= 0 or sell_qty <= 0:
+            return jsonify({'success': False, 'message': '매도가와 수량을 올바르게 입력해주세요.'}), 400
+
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT code, name, purchase_price, quantity, owner FROM my_stocks WHERE code = ?", (code_val,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'success': False, 'message': '보유 종목을 찾을 수 없습니다.'}), 404
+
+        stock = dict(row)
+        current_qty = stock['quantity'] or 0
+        purchase_price = stock['purchase_price'] or 0
+
+        if sell_qty > current_qty:
+            return jsonify({'success': False, 'message': f'매도 수량({sell_qty:,}주)이 보유 수량({current_qty:,}주)을 초과합니다.'}), 400
+
+        profit = (sell_price - purchase_price) * sell_qty
+        profit_rate = ((sell_price - purchase_price) / purchase_price * 100) if purchase_price else 0
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        sell_date = datetime.now().strftime('%Y-%m-%d')
+
+        cursor.execute("""
+            INSERT INTO sell_history (code, name, owner, sell_price, sell_qty, purchase_price, profit, profit_rate, sell_date, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (code_val, stock['name'], stock.get('owner', '나'), sell_price, sell_qty, purchase_price, profit, profit_rate, sell_date, now))
+
+        new_qty = current_qty - sell_qty
+        if new_qty <= 0:
+            cursor.execute("DELETE FROM my_stocks WHERE code = ?", (code_val,))
+            fully_sold = True
+        else:
+            cursor.execute("UPDATE my_stocks SET quantity = ? WHERE code = ?", (new_qty, code_val))
+            fully_sold = False
+
+        db.commit()
+
+        profit_str = f"{profit:+,.0f}원 ({profit_rate:+.1f}%)"
+        msg = f"{stock['name']} {'전량' if fully_sold else f'{sell_qty:,}주'} 매도 완료 | 수익: {profit_str}"
+        return jsonify({'success': True, 'message': msg, 'profit': profit, 'profit_rate': profit_rate,
+                        'remaining_qty': new_qty, 'fully_sold': fully_sold})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
