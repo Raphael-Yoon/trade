@@ -1557,6 +1557,11 @@
 
             // 소유자 목록 추출 후 select 갱신 (현재 선택값 유지)
             const allOwners = [...new Set(data.by_owner.map(r => r.owner))].sort();
+            const ownerColorMap = {};
+            allOwners.forEach((owner, index) => {
+                ownerColorMap[owner] = ownerColors[index % ownerColors.length];
+            });
+
             const ownerSel = document.getElementById('ownerFilterSelect');
             if (ownerSel) {
                 const prev = ownerSel.value;
@@ -1577,10 +1582,18 @@
             // ── 당일 실적 막대 차트 ──────────────────────────────────
             const dailyTotals = dates.map(d => {
                 const rows = filteredRows.filter(r => r.date === d);
-                return { date: d, day_profit: rows.reduce((s, r) => s + r.day_profit_sum, 0) };
+                const posSum = rows.filter(r => r.day_profit_sum > 0).reduce((s, r) => s + r.day_profit_sum, 0);
+                const negSum = rows.filter(r => r.day_profit_sum < 0).reduce((s, r) => s + r.day_profit_sum, 0);
+                return { 
+                    date: d, 
+                    day_profit: rows.reduce((s, r) => s + r.day_profit_sum, 0),
+                    posSum: posSum,
+                    negSum: negSum,
+                    rows: rows
+                };
             });
-            const vals = dailyTotals.map(d => d.day_profit);
-            const maxV = Math.max(...vals.map(Math.abs), 1);
+            const vals = dailyTotals.map(d => Math.max(d.posSum, Math.abs(d.negSum)));
+            const maxV = Math.max(...vals, 1);
             const barW = Math.max(4, Math.floor(cW / n) - 4);
             const xp = i => pL + (i + 0.5) * (cW / n);
             const zY = pT + cH / 2;
@@ -1594,16 +1607,53 @@
                 svg += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${isZero?'0.2':'0.06'})" stroke-width="${isZero?'1.5':'1'}"/>`;
                 svg += `<text x="${pL-6}" y="${(y+4).toFixed(1)}" text-anchor="end" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${fmt(v)}</text>`;
             }
+
+            // 범례 (소유자 필터가 'all'일 때만 표시)
+            if (selectedOwner === 'all') {
+                allOwners.forEach((owner, oi) => {
+                    const color = ownerColorMap[owner];
+                    const lx = pL + oi * 90;
+                    svg += `<circle cx="${(lx+4).toFixed(1)}" cy="12" r="4" fill="${color}" opacity="0.9"/>`;
+                    svg += `<text x="${(lx+12).toFixed(1)}" y="16" fill="rgba(255,255,255,0.55)" font-size="11" font-family="Outfit,sans-serif">${owner}</text>`;
+                });
+            }
+
             dailyTotals.forEach((d, i) => {
                 const x = xp(i);
-                const y = yp(d.day_profit);
-                const h = Math.abs(zY - y);
-                const barY = d.day_profit >= 0 ? y : zY;
-                svg += `<rect class="chart-bar" x="${(x-barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(2,h).toFixed(1)}" fill="${pColor(d.day_profit)}" opacity="0.8" rx="2" style="cursor:pointer;"
-                    onmouseover="showChartTooltip(event, '${d.date}', '일별 손익', ${d.day_profit})"
-                    onmousemove="moveChartTooltip(event)"
-                    onmouseout="hideChartTooltip()"/>`;
                 const skip = n > 20 && i % Math.ceil(n/10) !== 0 && i !== n-1;
+                
+                let positiveY = zY;
+                let negativeY = zY;
+                
+                // 정렬: 일정한 순서로 쌓이도록 소유자명 순으로 정렬
+                const sortedRows = [...d.rows].sort((a, b) => a.owner.localeCompare(b.owner, 'ko'));
+                
+                sortedRows.forEach(r => {
+                    const val = r.day_profit_sum;
+                    if (val === 0) return;
+                    
+                    const h = (Math.abs(val) / maxV) * (cH / 2);
+                    const color = (selectedOwner === 'all') ? ownerColorMap[r.owner] : pColor(val);
+                    
+                    let barY;
+                    if (val > 0) {
+                        barY = positiveY - h;
+                        positiveY -= h;
+                    } else {
+                        barY = negativeY;
+                        negativeY += h;
+                    }
+                    
+                    svg += `<rect class="chart-bar" x="${(x-barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(1.5, h).toFixed(1)}" fill="${color}" opacity="0.85" rx="1.5" style="cursor:pointer;"
+                        onmouseover="showChartTooltip(event, '${d.date}', '${r.owner} 일별 손익', ${val})"
+                        onmousemove="moveChartTooltip(event)"
+                        onmouseout="hideChartTooltip()"/>`;
+                });
+                
+                if (d.day_profit === 0) {
+                    svg += `<rect class="chart-bar" x="${(x-barW/2).toFixed(1)}" y="${(zY-1).toFixed(1)}" width="${barW}" height="2" fill="rgba(255,255,255,0.1)" rx="1"/>`;
+                }
+
                 if (!skip) svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.date.slice(5).replace('-','/')}</text>`;
             });
             svg += `</svg>`;
@@ -1635,13 +1685,14 @@
             });
             // 범례
             activeOwners.forEach((owner, oi) => {
+                const color = ownerColorMap[owner];
                 const lx = pL + oi * 90;
-                svg2 += `<circle cx="${(lx+4).toFixed(1)}" cy="12" r="4" fill="${ownerColors[oi%ownerColors.length]}" opacity="0.9"/>`;
+                svg2 += `<circle cx="${(lx+4).toFixed(1)}" cy="12" r="4" fill="${color}" opacity="0.9"/>`;
                 svg2 += `<text x="${(lx+12).toFixed(1)}" y="16" fill="rgba(255,255,255,0.55)" font-size="11" font-family="Outfit,sans-serif">${owner}</text>`;
             });
             // 라인 + 포인트
             activeOwners.forEach((owner, oi) => {
-                const color = ownerColors[oi % ownerColors.length];
+                const color = ownerColorMap[owner];
                 const pts = dates.map((d, i) => {
                     const row = filteredRows.find(r => r.date === d && r.owner === owner);
                     return row ? { x: xp2(i), y: yp2(row.cum_profit), date: d, cum_profit: row.cum_profit } : null;
