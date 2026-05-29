@@ -221,6 +221,10 @@ def init_db():
         cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN reason TEXT")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN news_summary TEXT")
+    except sqlite3.OperationalError:
+        pass
 
     # [감사팀 협업] 감사팀 추천 종목 테이블
     cursor.execute('''
@@ -962,6 +966,7 @@ def get_stock_pool():
                     p.operating_margin,
                     a.target_price, p.pool_score,
                     a.score AS priority_score, a.reason AS ai_summary,
+                    a.news_summary,
                     a.upside, a.current_price,
                     0 as is_rec
                 FROM audit_recommendations a
@@ -974,6 +979,7 @@ def get_stock_pool():
                     p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio, p.operating_margin,
                     p.target_price, p.pool_score,
                     NULL as priority_score, NULL as ai_summary,
+                    NULL as news_summary,
                     NULL as upside, NULL as current_price,
                     1 as is_rec
                 FROM stock_pool p
