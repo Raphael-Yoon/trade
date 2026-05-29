@@ -876,6 +876,22 @@
                 filter: grayscale(1);
                 background: #475569 !important;
             }
+            /* [유병욱] 차트 요소 호버 스타일 */
+            .chart-bar {
+                transition: opacity 0.15s ease, filter 0.15s ease;
+            }
+            .chart-bar:hover {
+                opacity: 1 !important;
+                filter: brightness(1.2);
+            }
+            .chart-point {
+                transition: r 0.15s ease, fill 0.15s ease, filter 0.15s ease;
+            }
+            .chart-point:hover {
+                r: 6.5 !important;
+                fill: #ffffff !important;
+                filter: drop-shadow(0 0 6px rgba(255,255,255,0.8));
+            }
         .sl-tooltip-wrap {
             position: relative;
             display: inline-block;
@@ -928,8 +944,51 @@
     </div>
 
     <div id="toastContainer" class="toast-container"></div>
+    <!-- [유병욱] 차트 마우스오버 툴팁 엘리먼트 -->
+    <div id="chartTooltip" class="chart-tooltip" style="position: absolute; display: none; pointer-events: none; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255,255,255,0.15); padding: 10px 14px; border-radius: 12px; color: white; font-size: 12px; z-index: 9999; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6); backdrop-filter: blur(8px); font-family: 'Inter', 'Outfit', sans-serif;"></div>
 
     <script>
+        // [유병욱] 차트 마우스 오버 툴팁 기능 구현
+        function showChartTooltip(event, date, title, val) {
+            const tooltip = document.getElementById('chartTooltip');
+            const isAsset = title.includes('보유자산');
+            const fmtVal = (!isAsset && val > 0 ? '+' : '') + Math.round(val).toLocaleString() + '원';
+            const color = isAsset ? '#6366f1' : (val >= 0 ? '#10b981' : '#ef4444');
+            
+            tooltip.innerHTML = `
+                <div style="font-weight: 700; color: #94a3b8; margin-bottom: 4px; font-size: 11px;">${date}</div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 12px; color: #e2e8f0;">${title}:</span>
+                    <span style="font-weight: 800; color: ${color}; font-size: 13px;">${fmtVal}</span>
+                </div>
+            `;
+            tooltip.style.display = 'block';
+            moveChartTooltip(event);
+        }
+
+        function moveChartTooltip(event) {
+            const tooltip = document.getElementById('chartTooltip');
+            const tooltipW = tooltip.offsetWidth || 140;
+            const tooltipH = tooltip.offsetHeight || 50;
+            let x = event.pageX + 15;
+            let y = event.pageY + 15;
+            
+            if (x + tooltipW > window.innerWidth + window.pageXOffset) {
+                x = event.pageX - tooltipW - 15;
+            }
+            if (y + tooltipH > window.innerHeight + window.pageYOffset) {
+                y = event.pageY - tooltipH - 15;
+            }
+            
+            tooltip.style.left = x + 'px';
+            tooltip.style.top = y + 'px';
+        }
+
+        function hideChartTooltip() {
+            const tooltip = document.getElementById('chartTooltip');
+            tooltip.style.display = 'none';
+        }
+
         // [김선화] JS 에러 발생 시 토스트로 알림 (디버깅용)
         window.onerror = function (message, source, lineno, colno, error) {
             console.error('JS Error:', message, 'at', source, 'line', lineno);
@@ -1540,7 +1599,10 @@
                 const y = yp(d.day_profit);
                 const h = Math.abs(zY - y);
                 const barY = d.day_profit >= 0 ? y : zY;
-                svg += `<rect x="${(x-barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(2,h).toFixed(1)}" fill="${pColor(d.day_profit)}" opacity="0.8" rx="2"/>`;
+                svg += `<rect class="chart-bar" x="${(x-barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(2,h).toFixed(1)}" fill="${pColor(d.day_profit)}" opacity="0.8" rx="2" style="cursor:pointer;"
+                    onmouseover="showChartTooltip(event, '${d.date}', '일별 손익', ${d.day_profit})"
+                    onmousemove="moveChartTooltip(event)"
+                    onmouseout="hideChartTooltip()"/>`;
                 const skip = n > 20 && i % Math.ceil(n/10) !== 0 && i !== n-1;
                 if (!skip) svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.date.slice(5).replace('-','/')}</text>`;
             });
@@ -1582,13 +1644,18 @@
                 const color = ownerColors[oi % ownerColors.length];
                 const pts = dates.map((d, i) => {
                     const row = filteredRows.find(r => r.date === d && r.owner === owner);
-                    return row ? { x: xp2(i), y: yp2(row.cum_profit) } : null;
+                    return row ? { x: xp2(i), y: yp2(row.cum_profit), date: d, cum_profit: row.cum_profit } : null;
                 }).filter(Boolean);
                 if (pts.length >= 2) {
                     const lineD = pts.map((p,i) => `${i===0?'M':'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
                     svg2 += `<path d="${lineD}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
                 }
-                pts.forEach(p => { svg2 += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#0f172a" stroke="${color}" stroke-width="2"/>`; });
+                pts.forEach(p => {
+                    svg2 += `<circle class="chart-point" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#0f172a" stroke="${color}" stroke-width="2" style="cursor:pointer;"
+                        onmouseover="showChartTooltip(event, '${p.date}', '${owner} 누적 손익', ${p.cum_profit})"
+                        onmousemove="moveChartTooltip(event)"
+                        onmouseout="hideChartTooltip()"/>`;
+                });
             });
             svg2 += `</svg>`;
 
@@ -1625,7 +1692,10 @@
                 svg3 += `<path d="${linePath}" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
             }
             assetTotals.forEach((v, i) => {
-                svg3 += `<circle cx="${xp3(i).toFixed(1)}" cy="${yp3(v).toFixed(1)}" r="3.5" fill="#0f172a" stroke="#6366f1" stroke-width="2"/>`;
+                svg3 += `<circle class="chart-point" cx="${xp3(i).toFixed(1)}" cy="${yp3(v).toFixed(1)}" r="3.5" fill="#0f172a" stroke="#6366f1" stroke-width="2" style="cursor:pointer;"
+                    onmouseover="showChartTooltip(event, '${dates[i]}', '총 보유자산', ${v})"
+                    onmousemove="moveChartTooltip(event)"
+                    onmouseout="hideChartTooltip()"/>`;
             });
             svg3 += `</svg>`;
 
