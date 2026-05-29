@@ -11,7 +11,8 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 
@@ -114,7 +115,7 @@
     </div>
 
     <div class="container">
-        <h1><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="40" height="40" style="vertical-align:-9px;margin-right:10px"><path d="M9 10Q10 6 9 3" fill="none" stroke="#d4a853" stroke-width="2" stroke-linecap="round"/><path d="M15 8Q16 4 15 1" fill="none" stroke="#d4a853" stroke-width="2" stroke-linecap="round"/><path d="M21 10Q22 6 21 3" fill="none" stroke="#d4a853" stroke-width="2" stroke-linecap="round"/><rect x="3" y="13" width="23" height="4" rx="2" fill="#d4a853"/><path d="M4 17L7 28H23L26 17Z" fill="#a07840"/><path d="M26 20Q31 21 31 24Q31 27 26 28" fill="none" stroke="#d4a853" stroke-width="2.5" stroke-linecap="round"/><ellipse cx="15" cy="29" rx="13" ry="2" fill="#7a5c2e"/></svg>Jonathan's Coffee House</h1>
+        <h1><img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" style="height: 40px; width: auto; vertical-align: -9px; margin-right: 12px; border-radius: 4px;">Jonathan's Coffee House</h1>
 
         <div class="tabs-nav">
             <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 분석</button>
