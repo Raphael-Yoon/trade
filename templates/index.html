@@ -1582,20 +1582,22 @@
             // ── 당일 실적 막대 차트 ──────────────────────────────────
             const dailyTotals = dates.map(d => {
                 const rows = filteredRows.filter(r => r.date === d);
-                const posSum = rows.filter(r => r.day_profit_sum > 0).reduce((s, r) => s + r.day_profit_sum, 0);
-                const negSum = rows.filter(r => r.day_profit_sum < 0).reduce((s, r) => s + r.day_profit_sum, 0);
                 return { 
                     date: d, 
                     day_profit: rows.reduce((s, r) => s + r.day_profit_sum, 0),
-                    posSum: posSum,
-                    negSum: negSum,
                     rows: rows
                 };
             });
-            const vals = dailyTotals.map(d => Math.max(d.posSum, Math.abs(d.negSum)));
+            // 그룹형 막대 차트이므로 maxV는 단일 소유자 실적의 최대 절댓값으로 구합니다.
+            const vals = filteredRows.map(r => Math.abs(r.day_profit_sum));
             const maxV = Math.max(...vals, 1);
-            const barW = Math.max(4, Math.floor(cW / n) - 4);
-            const xp = i => pL + (i + 0.5) * (cW / n);
+            
+            const numActiveOwners = activeOwners.length;
+            const groupW = cW / n;
+            const barGap = 1;
+            // 각 막대의 너비를 계산 (하루 영역 내에서 채울 수 있도록)
+            const barW = Math.max(2, Math.floor((groupW - 4 - (numActiveOwners - 1) * barGap) / numActiveOwners));
+            const xp = i => pL + (i + 0.5) * groupW;
             const zY = pT + cH / 2;
             const yp = v => zY - (v / maxV) * (cH / 2);
 
@@ -1622,36 +1624,28 @@
                 const x = xp(i);
                 const skip = n > 20 && i % Math.ceil(n/10) !== 0 && i !== n-1;
                 
-                let positiveY = zY;
-                let negativeY = zY;
-                
-                // 정렬: 일정한 순서로 쌓이도록 소유자명 순으로 정렬
-                const sortedRows = [...d.rows].sort((a, b) => a.owner.localeCompare(b.owner, 'ko'));
-                
-                sortedRows.forEach(r => {
-                    const val = r.day_profit_sum;
-                    if (val === 0) return;
-                    
+                const totalW = numActiveOwners * barW + (numActiveOwners - 1) * barGap;
+                const startX = x - totalW / 2;
+
+                activeOwners.forEach((owner, oi) => {
+                    const r = d.rows.find(row => row.owner === owner);
+                    const val = r ? r.day_profit_sum : 0;
+                    if (val === 0) return; // 0원인 경우는 그리지 않음
+
                     const h = (Math.abs(val) / maxV) * (cH / 2);
-                    const color = (selectedOwner === 'all') ? ownerColorMap[r.owner] : pColor(val);
-                    
-                    let barY;
-                    if (val > 0) {
-                        barY = positiveY - h;
-                        positiveY -= h;
-                    } else {
-                        barY = negativeY;
-                        negativeY += h;
-                    }
-                    
-                    svg += `<rect class="chart-bar" x="${(x-barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(1.5, h).toFixed(1)}" fill="${color}" opacity="0.85" rx="1.5" style="cursor:pointer;"
-                        onmouseover="showChartTooltip(event, '${d.date}', '${r.owner} 일별 손익', ${val})"
+                    const barY = val >= 0 ? zY - h : zY;
+                    const barX = startX + oi * (barW + barGap);
+                    const color = (selectedOwner === 'all') ? ownerColorMap[owner] : pColor(val);
+
+                    svg += `<rect class="chart-bar" x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(1.5, h).toFixed(1)}" fill="${color}" opacity="0.85" rx="1" style="cursor:pointer;"
+                        onmouseover="showChartTooltip(event, '${d.date}', '${owner} 일별 손익', ${val})"
                         onmousemove="moveChartTooltip(event)"
                         onmouseout="hideChartTooltip()"/>`;
                 });
-                
+
+                // 만약 모든 소유자의 실적이 0이면 중앙에 얇은 선 표시
                 if (d.day_profit === 0) {
-                    svg += `<rect class="chart-bar" x="${(x-barW/2).toFixed(1)}" y="${(zY-1).toFixed(1)}" width="${barW}" height="2" fill="rgba(255,255,255,0.1)" rx="1"/>`;
+                    svg += `<rect class="chart-bar" x="${(x - 2).toFixed(1)}" y="${(zY-1).toFixed(1)}" width="4" height="2" fill="rgba(255,255,255,0.1)" rx="1"/>`;
                 }
 
                 if (!skip) svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.date.slice(5).replace('-','/')}</text>`;
