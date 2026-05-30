@@ -1,0 +1,6 @@
+#!/bin/sh
+# trade.db가 수정됐는데 스테이징 안 됐으면 자동으로 추가
+if git diff --name-only | grep -q "^trade.db$"; then
+    git add trade.db
+    echo "[pre-commit] trade.db 자동 스테이징 완료"
+fi

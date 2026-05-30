@@ -257,10 +257,30 @@ def init_db():
             created_at TEXT
         )
     ''')
+
+    # [감사팀/개발2팀] 기업 경영공시(수시공시 및 주요사항보고서) 테이블
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS stock_disclosures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT,
+            name TEXT,
+            rcept_no TEXT UNIQUE,
+            rcept_dt TEXT,
+            report_nm TEXT,
+            flr_nm TEXT,
+            corp_cls TEXT,
+            rm TEXT,
+            ai_impact_score REAL DEFAULT 0.0,
+            ai_summary TEXT,
+            created_at TEXT
+        )
+    ''')
     
     # 조회 성능 인덱스
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_price_alerts_created_at ON price_alerts(created_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_daily_history_date ON stock_daily_history(date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_disclosures_code ON stock_disclosures(code)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_disclosures_dt ON stock_disclosures(rcept_dt)")
 
     conn.commit()
     conn.close()
@@ -920,6 +940,69 @@ def get_alerts():
     except Exception as e:
         print(f"API 오류(get_alerts): {e}")
         return jsonify([])
+
+@app.route('/api/stock/<code>/disclosures')
+def get_stock_disclosures(code):
+    """[김선화] 특정 종목의 최근 공시 목록을 조회하여 반환합니다."""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT * FROM stock_disclosures 
+            WHERE code = ? 
+              AND (
+                report_nm LIKE '%단일판매%' 
+                OR report_nm LIKE '%공급계약%' 
+                OR report_nm LIKE '%특허%' 
+                OR report_nm LIKE '%증자%' 
+                OR report_nm LIKE '%감소%' 
+                OR report_nm LIKE '%소각%' 
+                OR report_nm LIKE '%소송%' 
+                OR report_nm LIKE '%횡령%' 
+                OR report_nm LIKE '%배임%' 
+                OR report_nm LIKE '%영업정지%' 
+                OR report_nm LIKE '%의견%' 
+                OR report_nm LIKE '%인수%' 
+                OR report_nm LIKE '%합병%' 
+                OR report_nm LIKE '%양수%'
+                OR report_nm LIKE '%공개매수%'
+              )
+            ORDER BY rcept_dt DESC, created_at DESC 
+            LIMIT 15
+        """, (code,))
+        
+        disclosures = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify(disclosures)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/targets/fast-track')
+def get_fast_track_targets():
+    """[개발2팀/감사팀] 풀(stock_pool) 외부에 있으면서 최근 30일 이내에 단일판매/공급계약 공시를 제출한 모멘텀 종목을 반환합니다."""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT DISTINCT code, name, report_nm, rcept_dt, corp_cls, flr_nm, rm
+            FROM stock_disclosures
+            WHERE (report_nm LIKE '%단일판매%' OR report_nm LIKE '%공급계약%')
+              AND code NOT IN (SELECT code FROM stock_pool)
+              AND code != ''
+              AND rcept_dt >= date('now', '-30 days')
+            ORDER BY rcept_dt DESC
+            LIMIT 10
+        """)
+        
+        candidates = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify(candidates)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/targets/tomorrow')
 def get_tomorrow_targets():

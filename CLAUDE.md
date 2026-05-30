@@ -7,6 +7,7 @@
 
 - **메인 시스템 실행**: `python trade.py`
 - **데이터 수집 파이프라인**: `python data_collect.py`
+- **DART 공시 일괄 수집**: `python collect_disclosures.py --days 30` (최근 N일간 시장 전체 공시 수집)
 - **AI 종목 분석 실행**: `python ai_analysis.py`
 - **드라이브 백업 동기화**: `python drive_sync.py`
 
@@ -21,6 +22,7 @@
 | 파일 | 설명 |
 |------|------|
 | `trade.py` | 메인 트레이딩 애플리케이션 |
+| `collect_disclosures.py` | DART 일괄 공시 수집 모듈 (AI-Free) |
 | `ai_analysis.py` | AI 기반 종목 분석 모듈 |
 | `data_collect.py` | 시장 데이터 수집 파이프라인 |
 | `drive_sync.py` | Google Drive 백업 동기화 |
