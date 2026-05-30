@@ -3598,14 +3598,78 @@
                 newsHtml += `</div>`;
             }
             
-            // 공시 영역 없이 뉴스만 생성
+            // 공시 영역 로딩 상태 생성
             contentEl.innerHTML = `
                 <div style="display:flex;flex-direction:column;gap:24px;">
                     <div>
                         <h4 style="margin:0 0 14px 0;font-size:15px;color:#a5b4fc;font-weight:700;">📰 추천 분석 뉴스 요약</h4>
                         ${newsHtml}
                     </div>
+                    <div id="disclosureSectionContainer">
+                        <h4 style="margin:0 0 14px 0;font-size:15px;color:#38bdf8;font-weight:700;display:flex;align-items:center;gap:6px;">
+                            🔍 최근 기업 경영 공시 자료 (DART)
+                        </h4>
+                        <div class="disclosure-loading" style="text-align:center;padding:20px;color:var(--text-muted);">
+                            <span class="ai-spinner" style="display:inline-block;width:16px;height:16px;border-width:2px;margin-right:8px;vertical-align:middle;"></span>
+                            공시 정보를 불러오는 중...
+                        </div>
+                    </div>
                 </div>`;
+                
+            // 공시 API 호출
+            fetch(`/api/stock/${stockCode}/disclosures`)
+                .then(res => res.json())
+                .then(disclosures => {
+                    const container = document.getElementById('disclosureSectionContainer');
+                    if (!container) return;
+                    
+                    let discHtml = '';
+                    if (!disclosures || disclosures.length === 0) {
+                        discHtml = `
+                            <div style="color:var(--text-muted);text-align:center;padding:20px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:16px;">
+                                최근 공시된 내역이 없습니다.
+                            </div>`;
+                    } else {
+                        discHtml = `<div style="display:flex;flex-direction:column;gap:10px;">`;
+                        disclosures.forEach(d => {
+                            const dartLink = `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${d.rcept_no}`;
+                            
+                            discHtml += `
+                            <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:16px;padding:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;transition:all 0.2s;" class="disclosure-item-hover">
+                                <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                                    <a href="${dartLink}" target="_blank" style="font-size:14px;font-weight:700;color:white;text-decoration:none;line-height:1.4;display:flex;align-items:center;gap:6px;">
+                                        🔗 ${d.report_nm}
+                                    </a>
+                                    <div style="display:flex;gap:12px;font-size:11px;color:#64748b;font-weight:600;">
+                                        <span>🏢 제출인: ${d.flr_nm}</span>
+                                        <span>📅 공시일: ${d.rcept_dt}</span>
+                                    </div>
+                                </div>
+                                <div style="text-align:right;flex-shrink:0;">
+                                    <span style="font-size:10px;padding:2px 8px;background:rgba(255,255,255,0.05);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);border-radius:4px;font-weight:700;">
+                                        DART ${d.corp_cls === 'Y' ? '유가' : (d.corp_cls === 'K' ? '코스닥' : '기타')}
+                                    </span>
+                                </div>
+                            </div>`;
+                        });
+                        discHtml += `</div>`;
+                    }
+                    
+                    // 기존 로딩 문구를 실제 내용으로 교체
+                    const loadingEl = container.querySelector('.disclosure-loading');
+                    if (loadingEl) loadingEl.outerHTML = discHtml;
+                })
+                .catch(err => {
+                    const container = document.getElementById('disclosureSectionContainer');
+                    if (!container) return;
+                    const loadingEl = container.querySelector('.disclosure-loading');
+                    if (loadingEl) {
+                        loadingEl.outerHTML = `
+                            <div style="color:#ef4444;text-align:center;padding:20px;">
+                                공시 자료 조회 실패: ${err}
+                            </div>`;
+                    }
+                });
         }
 
         function closeNewsModal() {
