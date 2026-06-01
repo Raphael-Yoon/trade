@@ -944,7 +944,7 @@ def get_alerts():
 @app.route('/api/stock/<code>/disclosures')
 def get_stock_disclosures(code):
     """[김선화] 특정 종목의 최근 공시 목록을 조회하여 반환합니다."""
-    try:
+    try:    
         conn = sqlite3.connect(DB_FILE)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()

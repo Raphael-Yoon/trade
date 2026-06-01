@@ -19,6 +19,63 @@
 <body>
 
 
+    <!-- Promote (Portfolio Conversion) Modal -->
+    <div id="promoteModal" class="modal" style="z-index: 2000;">
+        <div class="modal-content"
+            style="max-width: 480px; width: 90%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); border-radius: 28px; overflow: hidden;">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 20px 24px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <h2 id="promoteModalTitle" style="margin: 0; font-size: 20px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">포트폴리오 편입</h2>
+                    <span id="promoteModalCode" style="font-size: 12px; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 6px;">000000</span>
+                </div>
+                <span class="close-modal" onclick="closePromoteModal()" style="font-size: 28px; cursor: pointer;">&times;</span>
+            </div>
+            <div class="modal-body" style="padding: 24px; background: #020617; display: flex; flex-direction: column; gap: 20px;">
+                <!-- Owner Selection -->
+                <div>
+                    <label style="display: block; font-size: 13px; color: #a5b4fc; font-weight: 700; margin-bottom: 8px;">소유주</label>
+                    <div style="display: flex; gap: 10px;">
+                        <label style="flex: 1; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); color: white; text-align: center; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; font-size: 14px;">
+                            <input type="radio" name="promoteOwner" value="나" checked style="accent-color: #fbbf24;"> 나
+                        </label>
+                        <label style="flex: 1; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); color: white; text-align: center; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; font-size: 14px;">
+                            <input type="radio" name="promoteOwner" value="경미" style="accent-color: #fbbf24;"> 경미
+                        </label>
+                        <label style="flex: 1; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); color: white; text-align: center; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; font-size: 14px;">
+                            <input type="radio" name="promoteOwner" value="유주" style="accent-color: #fbbf24;"> 유주
+                        </label>
+                    </div>
+                </div>
+                <!-- Purchase Price -->
+                <div>
+                    <label for="promotePrice" style="display: block; font-size: 13px; color: #a5b4fc; font-weight: 700; margin-bottom: 8px;">매입단가 (원)</label>
+                    <input type="text" id="promotePrice" placeholder="0" oninput="formatPriceInput(this)"
+                        style="width: 100%; box-sizing: border-box; padding: 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; color: white; font-size: 16px; font-weight: 800; font-family: 'Outfit', sans-serif; text-align: right;">
+                </div>
+                <!-- Quantity -->
+                <div>
+                    <label for="promoteQty" style="display: block; font-size: 13px; color: #a5b4fc; font-weight: 700; margin-bottom: 8px;">보유수량 (주)</label>
+                    <input type="number" id="promoteQty" placeholder="0" min="1"
+                        style="width: 100%; box-sizing: border-box; padding: 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; color: white; font-size: 16px; font-weight: 800; text-align: right;">
+                </div>
+                <!-- Stop Loss Ratio -->
+                <div>
+                    <label for="promoteStopLoss" style="display: block; font-size: 13px; color: #a5b4fc; font-weight: 700; margin-bottom: 8px;">손절 비율 (%)</label>
+                    <div style="position: relative; display: flex; align-items: center;">
+                        <input type="number" id="promoteStopLoss" placeholder="0.0" step="0.1" min="0" max="100"
+                            style="width: 100%; box-sizing: border-box; padding: 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; color: white; font-size: 16px; font-weight: 800; text-align: right; padding-right: 40px;">
+                        <span style="position: absolute; right: 16px; color: var(--text-muted); font-weight: 700; font-size: 16px;">%</span>
+                    </div>
+                </div>
+                <!-- Action Buttons -->
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button class="btn" style="flex: 1; height: 48px; border-radius: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; cursor: pointer; padding: 0; box-sizing: border-box; line-height: 1;" onclick="closePromoteModal()">취소</button>
+                    <button class="btn" style="flex: 2; height: 48px; border-radius: 14px; background: #fbbf24; color: #020617; border: none; font-weight: 900; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; padding: 0; box-sizing: border-box; line-height: 1;" onclick="submitPromoteForm()">👛 포트폴리오 편입</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Chart Expansion Modal -->
     <div id="chartModal" class="modal" style="z-index: 2000;">
         <div class="modal-content"
@@ -2367,6 +2424,47 @@
                 });
         }
 
+        function addToWatchlistDirect(code, name, btn) {
+            if (!code) return;
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '추가 중...';
+            btn.style.opacity = '0.7';
+
+            fetch('/api/watchlist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code, name })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(`${name} 종목이 관심 목록에 추가되었습니다.`);
+                    btn.innerHTML = '✓ 등록됨';
+                    btn.style.background = 'rgba(16,185,129,0.15)';
+                    btn.style.border = '1px solid rgba(16,185,129,0.3)';
+                    btn.style.color = '#10b981';
+                    btn.style.cursor = 'default';
+                    btn.style.opacity = '1';
+                    btn.onclick = null;
+                    
+                    // 관심 종목 목록 비동기 갱신
+                    loadWatchlist();
+                } else {
+                    showToast(data.message || '추가 실패', 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    btn.style.opacity = '1';
+                }
+            })
+            .catch(err => {
+                showToast('네트워크 오류가 발생했습니다.', 'error');
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                btn.style.opacity = '1';
+            });
+        }
+
         function deleteFromWatchlist(code) {
             if (!confirm('관심 종목에서 삭제하시겠습니까?')) return;
             fetch(`/api/watchlist/${code}`, { method: 'DELETE' })
@@ -2379,39 +2477,91 @@
                 });
         }
 
-        function promoteStockUI(code, name) {
-            const owner = prompt(`${name} 종목의 소유주를 선택해주세요 (나, 경미, 유주)`, '나');
-            if (owner === null) return;
-            if (!['나', '경미', '유주'].includes(owner)) {
-                showToast('올바른 소유주를 입력해주세요 (나, 경미, 유주)', 'error');
+        let promoteState = { code: '', name: '' };
+
+        function formatPriceInput(input) {
+            let val = input.value.replace(/[^0-9]/g, '');
+            if (val === '') {
+                input.value = '';
                 return;
             }
-            const price = prompt(`${name} 종목의 매입단가를 입력해주세요 (숫자만)`, '0');
-            if (price === null) return;
-            const qty = prompt(`${name} 종목의 보유수량을 입력해주세요`, '0');
-            if (qty === null) return;
-            const stop_loss = prompt(`${name} 종목의 손절비율(%)을 입력해주세요 (예: 10.5)`, '0');
-            if (stop_loss === null) return;
+            input.value = parseInt(val).toLocaleString();
+        }
+
+        function promoteStockUI(code, name) {
+            promoteState.code = code;
+            promoteState.name = name;
+            
+            document.getElementById('promoteModalTitle').innerText = `${name} 편입`;
+            document.getElementById('promoteModalCode').innerText = code;
+            
+            document.getElementById('promotePrice').value = '';
+            document.getElementById('promoteQty').value = '';
+            document.getElementById('promoteStopLoss').value = '0.0';
+            
+            const radios = document.getElementsByName('promoteOwner');
+            for(let i = 0; i < radios.length; i++) {
+                radios[i].checked = radios[i].value === '나';
+            }
+            
+            document.getElementById('promoteModal').style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closePromoteModal() {
+            document.getElementById('promoteModal').style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        function submitPromoteForm() {
+            const code = promoteState.code;
+            const name = promoteState.name;
+            if (!code) return;
+
+            let owner = '나';
+            const radios = document.getElementsByName('promoteOwner');
+            for(let i = 0; i < radios.length; i++) {
+                if(radios[i].checked) {
+                    owner = radios[i].value;
+                    break;
+                }
+            }
+
+            const rawPrice = document.getElementById('promotePrice').value.replace(/,/g, '');
+            const price = parseFloat(rawPrice) || 0;
+            const qty = parseInt(document.getElementById('promoteQty').value) || 0;
+            const stopLoss = parseFloat(document.getElementById('promoteStopLoss').value) || 0;
+
+            if (price <= 0 || qty <= 0) {
+                showToast('매입단가와 수량은 0보다 큰 숫자여야 합니다.', 'error');
+                return;
+            }
 
             fetch('/api/watchlist/promote', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    code,
-                    name,
-                    purchase_price: parseFloat(price.replace(/,/g, '')) || 0,
-                    quantity: parseInt(qty) || 0,
-                    stop_loss_ratio: parseFloat(stop_loss) || 0,
+                    code: code,
+                    name: name,
+                    purchase_price: price,
+                    quantity: qty,
+                    stop_loss_ratio: stopLoss,
                     owner: owner
                 })
             })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast('포트폴리오로 전환되었습니다! ✨');
-                        loadAllStockContexts();
-                    }
-                });
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(`${name} 포트폴리오 편입 성공! ✨`);
+                    closePromoteModal();
+                    loadAllStockContexts();
+                } else {
+                    showToast(data.message || '편입 실패', 'error');
+                }
+            })
+            .catch(err => {
+                showToast('네트워크 오류가 발생했습니다.', 'error');
+            });
         }
 
         function showToast(message, type = 'success') {
@@ -4043,21 +4193,29 @@
         }
 
         function loadPoolData() {
-            fetch('/api/pool')
-                .then(res => res.json())
-                .then(data => {
-                    currentPoolStocks = data.stocks || [];
-                    const rankedBy = data.ranked_by === 'ai' ? '🤖 AI 랭킹 기준' : '📊 재무점수 기준';
-                    const el = document.getElementById('poolRankedBy');
-                    if (el) el.textContent = rankedBy;
-                    renderPoolTop10(data.stocks.slice(0, 10));
-                    const codes = data.stocks.slice(0, 10).map(s => s.code).join(',');
-                    fetch(`/api/targets/live-prices?codes=${codes}`)
-                        .then(r => r.json()).then(applyLivePrices).catch(() => {});
-                });
+            Promise.all([
+                fetch('/api/pool').then(res => res.json()),
+                fetch('/api/watchlist').then(res => res.json())
+            ])
+            .then(([poolData, watchlistData]) => {
+                currentPoolStocks = poolData.stocks || [];
+                const rankedBy = poolData.ranked_by === 'ai' ? '🤖 AI 랭킹 기준' : '📊 재무점수 기준';
+                const el = document.getElementById('poolRankedBy');
+                if (el) el.textContent = rankedBy;
+
+                const watchlistCodes = new Set((watchlistData || []).map(w => w.code));
+                renderPoolTop10(poolData.stocks.slice(0, 10), watchlistCodes);
+
+                const codes = poolData.stocks.slice(0, 10).map(s => s.code).join(',');
+                fetch(`/api/targets/live-prices?codes=${codes}`)
+                    .then(r => r.json()).then(applyLivePrices).catch(() => {});
+            })
+            .catch(err => {
+                console.error("Error loading pool & watchlist data:", err);
+            });
         }
 
-        function renderPoolTop10(stocks) {
+        function renderPoolTop10(stocks, watchlistCodes = new Set()) {
             const list = document.getElementById('targetsList');
             if (!list) return;
             if (!stocks || stocks.length === 0) {
@@ -4069,6 +4227,19 @@
                 const rank = s.rank || idx + 1;
                 const score = (s.priority_score || s.pool_score || 0).toFixed(1);
                 const summary = s.ai_summary || '';
+                const isAdded = watchlistCodes.has(s.code);
+                
+                const watchlistBtn = isAdded 
+                    ? `<button disabled style="flex:1.5;padding:10px 4px;border-radius:10px;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#10b981;font-size:12px;font-weight:800;cursor:default;white-space:nowrap;">
+                        ✓ 등록됨
+                       </button>`
+                    : `<button onclick="addToWatchlistDirect('${s.code}', '${s.name}', this)"
+                        style="flex:1.5;padding:10px 4px;border-radius:10px;background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;transition:all 0.2s;"
+                        onmouseover="this.style.background='rgba(251,191,36,0.25)'"
+                        onmouseout="this.style.background='rgba(251,191,36,0.15)'">
+                        ⭐ 관심 추가
+                       </button>`;
+
                 return `
                 <div class="result-card" style="background:rgba(255,255,255,0.03);border-radius:24px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;display:flex;flex-direction:column;">
                     <div style="height:4px;background:linear-gradient(to right,${rankColors[idx]||'#10b981'},${rankColors[idx]||'#059669'}88);"></div>
@@ -4122,13 +4293,10 @@
                                      onerror="this.style.display='none';this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;color:#475569;font-size:11px;\'>차트 없음</div>'">
                             </div>
                             <div style="display:flex;gap:6px;">
-                                <button onclick="openChartModal('${s.code}','${s.name}')"
-                                    style="flex:1;padding:10px 4px;border-radius:10px;background:var(--primary);color:white;font-size:12px;font-weight:800;border:none;cursor:pointer;white-space:nowrap;">
-                                    차트 ↗
-                                </button>
+                                ${watchlistBtn}
                                 <button onclick="showNewsModal('${s.code}')"
-                                    style="flex:1.2;padding:10px 4px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">
-                                    뉴스 요약 📰
+                                    style="flex:1;padding:10px 4px;border-radius:10px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">
+                                    뉴스 📰
                                 </button>
                             </div>
                         </div>
@@ -4187,11 +4355,13 @@
         window.onclick = function (event) {
             if (event.target == document.getElementById('aiModal')) closeAiModal();
             if (event.target == document.getElementById('chartModal')) closeChartModal();
+            if (event.target == document.getElementById('promoteModal')) closePromoteModal();
         }
         window.addEventListener('keydown', function (event) {
             if (event.key === 'Escape') {
                 closeAiModal();
                 closeChartModal();
+                closePromoteModal();
             }
         });
 
