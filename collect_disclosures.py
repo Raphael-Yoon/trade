@@ -116,9 +116,15 @@ def collect_disclosures(days_ago=1):
     
     print(f"[완료] 전체 수집: {len(disclosures)}건 | 신규 저장: {saved_count}건")
 
+import db_lock_guard
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='DART 공시 일괄 수집기')
     parser.add_argument('--days', type=int, default=1, help='수집 대상 과거 일수 (기본값: 1)')
+    parser.add_argument('--force-db', action='store_true', help='서버가 실행 중이라도 실행을 강제합니다.')
     args = parser.parse_args()
+    
+    # DB 락 충돌 방지 가드 체크
+    db_lock_guard.check_lock_and_exit("공시 수집 엔진")
     
     collect_disclosures(args.days)

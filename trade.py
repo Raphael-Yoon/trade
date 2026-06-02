@@ -2042,6 +2042,7 @@ def get_my_stocks_status():
     try:
         db = get_db()
         cursor = db.cursor()
+        audit_data = load_financial_health()
         
         # 1. 보유 종목 가져오기 (added_at 필드 추가)
         cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, added_at FROM my_stocks")
@@ -2084,6 +2085,25 @@ def get_my_stocks_status():
             profit = (price - purchase_price) * qty if purchase_price > 0 else 0
             profit_rate = ((price - purchase_price) / purchase_price * 100) if purchase_price > 0 else 0
             
+            # [김선화] 당일 변동 계산 (오늘 신규 매입한 종목인 경우 매수 단가 대비로 계산)
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            prev_price = detail.get('prev_price', 0)
+            is_today_buy = False
+            if stock.get('added_at'):
+                try:
+                    added_date = stock['added_at'][:10]
+                    if added_date == today_str:
+                        is_today_buy = True
+                except Exception:
+                    pass
+            
+            if is_today_buy:
+                change = price - purchase_price
+                change_rate = (change / purchase_price * 100) if purchase_price > 0 else 0.0
+            else:
+                change = price - prev_price if prev_price > 0 else 0
+                change_rate = (change / prev_price * 100) if prev_price > 0 else 0.0
+            
             # 손절 상태 진단 (보유 종목만)
             sl_diagnosis = {'signal': 'KEEP', 'reasons': []}
             if stock['type'] == 'portfolio':
@@ -2101,6 +2121,8 @@ def get_my_stocks_status():
                 'sl_diagnosis': sl_diagnosis, # 손절 진단 추가
                 'profit': profit,
                 'profit_rate': round(profit_rate, 2),
+                'change': change,
+                'change_rate': round(change_rate, 2),
                 'market_cap': detail.get('market_cap', 'N/A'),
                 'opinion': detail.get('opinion', 'N/A'),
                 'target_price': detail.get('target_price', 0),
@@ -3021,7 +3043,7 @@ def backfill_history():
         db = get_db()
         cursor = db.cursor()
 
-        cursor.execute("SELECT code, name, purchase_price, quantity, owner FROM my_stocks")
+        cursor.execute("SELECT code, name, purchase_price, quantity, owner, added_at FROM my_stocks")
         stocks = [dict(row) for row in cursor.fetchall()]
         if not stocks:
             return jsonify({'success': False, 'message': '등록된 종목이 없습니다.'})
@@ -3097,8 +3119,24 @@ def backfill_history():
 
                 close = p['close']
                 prev_close = prices_sorted[i - 1]['close'] if i > 0 else None
-                change_rate = round((close - prev_close) / prev_close * 100, 2) if prev_close else 0.0
-                day_profit = (close - prev_close) * quantity if prev_close else 0.0
+                
+                # [김선화] 매수 당일인 경우 전일 종가가 아닌 매수 단가 대비로 당일 수익 계산
+                is_buy_date = False
+                if stock.get('added_at'):
+                    try:
+                        added_date = stock['added_at'][:10]
+                        if added_date == date_str:
+                            is_buy_date = True
+                    except Exception:
+                        pass
+                
+                if is_buy_date:
+                    change_rate = round((close - purchase_price) / purchase_price * 100, 2) if purchase_price > 0 else 0.0
+                    day_profit = (close - purchase_price) * quantity if purchase_price > 0 else 0.0
+                else:
+                    change_rate = round((close - prev_close) / prev_close * 100, 2) if prev_close else 0.0
+                    day_profit = (close - prev_close) * quantity if prev_close else 0.0
+                    
                 cumulative_profit = (close - purchase_price) * quantity
 
                 cursor.execute('''
@@ -3223,7 +3261,7 @@ def auto_snapshot_scheduler():
                         conn = sqlite3.connect(DB_FILE, timeout=30)
                         conn.execute("PRAGMA journal_mode=WAL")
                         cursor = conn.cursor()
-                        cursor.execute("SELECT code, name, purchase_price, quantity, owner FROM my_stocks")
+                        cursor.execute("SELECT code, name, purchase_price, quantity, owner, added_at FROM my_stocks")
                         stocks = [dict(zip([column[0] for column in cursor.description], row)) for row in cursor.fetchall()]
                         
                         if stocks:
@@ -3240,9 +3278,25 @@ def auto_snapshot_scheduler():
                                 quantity = stock['quantity']
                                 purchase_price = stock['purchase_price']
 
-                                change = current_price - prev_price if prev_price > 0 else 0
-                                change_rate = round((change / prev_price * 100), 2) if prev_price > 0 else 0.0
-                                day_profit = change * quantity
+                                # [김선화] 매수 당일인 경우 전일 종가가 아닌 매수 단가 대비로 당일 수익 계산
+                                is_today_buy = False
+                                if stock.get('added_at'):
+                                    try:
+                                        added_date = stock['added_at'][:10]
+                                        if added_date == today:
+                                            is_today_buy = True
+                                    except Exception:
+                                        pass
+
+                                if is_today_buy:
+                                    change = current_price - purchase_price
+                                    change_rate = round((change / purchase_price * 100), 2) if purchase_price > 0 else 0.0
+                                    day_profit = change * quantity
+                                else:
+                                    change = current_price - prev_price if prev_price > 0 else 0
+                                    change_rate = round((change / prev_price * 100), 2) if prev_price > 0 else 0.0
+                                    day_profit = change * quantity
+                                    
                                 cumulative_profit = (current_price - purchase_price) * quantity if purchase_price > 0 else 0
 
                                 cursor.execute("SELECT id FROM stock_daily_history WHERE date = ? AND code = ?", (today, stock['code']))
