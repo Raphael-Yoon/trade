@@ -217,6 +217,99 @@
         </div>
     </div>
 
+    <!-- Real-time Surge Detection Modal -->
+    <div id="monitorModal" class="modal" style="z-index: 2500;">
+        <div class="modal-content" style="max-width: 1000px; width: 95%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 28px; overflow: hidden;">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 24px 32px; display:flex; justify-content:space-between; align-items:center; background:#0f172a;">
+                <h2 style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">
+                    🚨 실시간 급등주 탐지 현황
+                </h2>
+                <span class="close-modal" onclick="closeMonitorModal()" style="font-size: 32px; cursor:pointer;">&times;</span>
+            </div>
+            <div class="modal-body" style="padding: 32px; background: #020617; max-height: 75vh; overflow-y: auto;">
+                <div class="monitor-section" style="padding: 0;">
+                    <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+                        <div>
+                            <h3 style="margin: 0; font-size: 20px; color: var(--text-main); font-family: 'Outfit', sans-serif;">🚨 시장 급등주 실시간 탐지</h3>
+                            <p style="margin: 8px 0 0; font-size: 14px; color: var(--text-muted);">전 종목을 3분마다 스캔하여 비정상적 가격 변동을 포착합니다.</p>
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button id="monitorToggleBtn" class="btn" style="padding: 12px 32px;" onclick="toggleMonitor()">
+                                🚀 탐지 엔진 가동
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="monitorStatusArea" style="margin-bottom: 32px; padding: 20px; border-radius: 20px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+                        <div style="display: flex; align-items: center; gap: 20px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div id="monitorStatusIndicator" style="width: 12px; height: 12px; border-radius: 50%; background: #64748b;"></div>
+                                <span id="monitorStatusText" style="font-weight: 700; color: var(--text-muted);">엔진 중지됨</span>
+                            </div>
+                            <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1);"></div>
+                            <div id="marketTimeInfo" style="font-size: 13px; color: var(--text-muted);">
+                                장 운영 시간: 평일 09:00 - 18:00 (정규+시간외)
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- [김선화] 정규장 실시간 탐지 설정 (인라인 디자인) -->
+                    <div style="margin-bottom: 32px; display: flex; justify-content: center;">
+                        <div style="display: inline-flex; gap: 20px; align-items: center; background: rgba(0,0,0,0.3); padding: 12px 24px; border-radius: 24px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                            <div style="font-size: 13px; color: var(--primary); font-weight: 800; display: flex; align-items: center; gap: 6px;">
+                                <span style="width: 8px; height: 8px; background: var(--primary); border-radius: 50%; box-shadow: 0 0 8px var(--primary);"></span> 정규장 스캔 조건:
+                            </div>
+                            <div style="display: flex; gap: 12px; align-items: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">상승률</span>
+                                <input type="number" id="monitorThreshold" value="7.0" step="0.1"
+                                    style="width: 45px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">% ↑</span>
+                            </div>
+                            <div style="display: flex; gap: 12px; align-items: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">최소거래량</span>
+                                <input type="number" id="monitorMinVolume" value="50000" step="10000"
+                                    style="width: 70px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">주 ↑</span>
+                            </div>
+                            <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
+                            <button class="btn" style="padding: 6px 20px; font-size: 12px; background: var(--primary); border: none; color: white; height: 32px;"
+                                onclick="applyMonitorSettings()">설정 저장</button>
+                        </div>
+                    </div>
+
+                    <div class="results-section">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h4 style="margin: 0; font-size: 18px; color: var(--primary);">📡 실시간 이상 징후 포착 내역</h4>
+                            <div style="display: flex; gap: 8px; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                                <button id="sortRecommendBtn" class="sub-tab-btn active" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('recommend')">⭐ 추천순</button>
+                                <button id="sortForeignBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('foreign_net_buy')">🏢 외인수급순</button>
+                                <button id="sortMomentumBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('change_rate')">📈 수익률순</button>
+                                <button id="sortTimeBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('time')">🕒 최신순</button>
+                            </div>
+                        </div>
+                        
+                        <!-- [김선화] 섹터 모멘텀 분석 영역 -->
+                        <div style="margin-bottom: 24px; background: rgba(255,255,255,0.03); border-radius: 20px; padding: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                            <h5 style="margin: 0 0 12px 0; font-size: 14px; color: var(--text-muted);">🔥 섹터별 급등 포착 모멘텀</h5>
+                            <div id="sectorMomentumArea" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <!-- 섹터 요약 배지가 여기에 생성됩니다 -->
+                            </div>
+                        </div>
+                        <div id="alertsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                            <!-- 알림 카드가 여기에 동적으로 생성됩니다 -->
+                            <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 60px;">
+                                <p>탐지된 이상 징후가 없습니다.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 24px 32px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; background: #0f172a;">
+                <button class="btn" style="background: rgba(255,255,255,0.1); border: none;" onclick="closeMonitorModal()">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
         <!-- [김선화] 중앙 브랜딩 로고 영역 -->
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 32px; margin-bottom: 24px; text-align: center;">
@@ -227,10 +320,10 @@
         </div>
 
         <div class="tabs-nav">
-            <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 분석</button>
+            <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 수집</button>
             <button class="tab-btn" data-tab="myStocks" onclick="switchTab('myStocks')">⭐ 내 종목 관리</button>
             <button class="tab-btn" data-tab="realtime" onclick="switchTab('realtime')">⚡ 실시간 시세</button>
-            <button class="tab-btn" data-tab="monitor" onclick="switchTab('monitor')">🚨 급등주 탐지</button>
+            <button class="tab-btn" data-tab="monitor" onclick="switchTab('monitor')" style="display: none;">🚨 급등주 탐지</button>
             <button class="tab-btn" data-tab="targets" onclick="switchTab('targets')" style="position: relative;">
                 🎯 내일의 공략주
                 <span id="targetBadge" style="display: none; position: absolute; top: -5px; right: -5px; width: 10px; height: 10px; background: #ef4444; border-radius: 50%; border: 2px solid #0f172a;"></span>
@@ -724,88 +817,8 @@
             </div>
         </div>
 
-        <!-- Tab 4: Market Monitoring -->
-        <div id="monitorTab" class="tab-content">
-            <div class="monitor-section"
-                style="padding: 40px; background: rgba(255,255,255,0.03); border-radius: 32px; border: 1px solid rgba(255,255,255,0.1);">
-                <div class="section-header"
-                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-                    <div>
-                        <h3 style="margin: 0; font-size: 28px; color: var(--text-main); font-family: 'Outfit', sans-serif;">
-                            🚨 시장 급등주 실시간 탐지</h3>
-                        <p style="margin: 8px 0 0; font-size: 14px; color: var(--text-muted);">전 종목을 3분마다 스캔하여 비정상적 가격 변동을 포착합니다.</p>
-                    </div>
-                    <div style="display: flex; gap: 12px;">
-                        <button id="monitorToggleBtn" class="btn" style="padding: 12px 32px;" onclick="toggleMonitor()">
-                            🚀 탐지 엔진 가동
-                        </button>
-                    </div>
-                </div>
-
-                <div id="monitorStatusArea" style="margin-bottom: 32px; padding: 20px; border-radius: 20px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
-                    <div style="display: flex; align-items: center; gap: 20px;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div id="monitorStatusIndicator" style="width: 12px; height: 12px; border-radius: 50%; background: #64748b;"></div>
-                            <span id="monitorStatusText" style="font-weight: 700; color: var(--text-muted);">엔진 중지됨</span>
-                        </div>
-                        <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1);"></div>
-                        <div id="marketTimeInfo" style="font-size: 13px; color: var(--text-muted);">
-                            장 운영 시간: 평일 09:00 - 18:00 (정규+시간외)
-                        </div>
-                    </div>
-                </div>
-
-                <!-- [김선화] 정규장 실시간 탐지 설정 (인라인 디자인) -->
-                <div style="margin-bottom: 32px; display: flex; justify-content: center;">
-                    <div style="display: inline-flex; gap: 20px; align-items: center; background: rgba(0,0,0,0.3); padding: 12px 24px; border-radius: 24px; border: 1px solid rgba(99, 102, 241, 0.2);">
-                        <div style="font-size: 13px; color: var(--primary); font-weight: 800; display: flex; align-items: center; gap: 6px;">
-                            <span style="width: 8px; height: 8px; background: var(--primary); border-radius: 50%; box-shadow: 0 0 8px var(--primary);"></span> 정규장 스캔 조건:
-                        </div>
-                        <div style="display: flex; gap: 12px; align-items: center;">
-                            <span style="font-size: 12px; color: var(--text-muted);">상승률</span>
-                            <input type="number" id="monitorThreshold" value="7.0" step="0.1"
-                                style="width: 45px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
-                            <span style="font-size: 12px; color: var(--text-muted);">% ↑</span>
-                        </div>
-                        <div style="display: flex; gap: 12px; align-items: center;">
-                            <span style="font-size: 12px; color: var(--text-muted);">최소거래량</span>
-                            <input type="number" id="monitorMinVolume" value="50000" step="10000"
-                                style="width: 70px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
-                            <span style="font-size: 12px; color: var(--text-muted);">주 ↑</span>
-                        </div>
-                        <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-                        <button class="btn" style="padding: 6px 20px; font-size: 12px; background: var(--primary); border: none; color: white; height: 32px;"
-                            onclick="applyMonitorSettings()">설정 저장</button>
-                    </div>
-                </div>
-
-                <div class="results-section">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <h4 style="margin: 0; font-size: 18px; color: var(--primary);">📡 실시간 이상 징후 포착 내역</h4>
-                        <div style="display: flex; gap: 8px; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
-                            <button id="sortRecommendBtn" class="sub-tab-btn active" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('recommend')">⭐ 추천순</button>
-                            <button id="sortForeignBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('foreign_net_buy')">🏢 외인수급순</button>
-                            <button id="sortMomentumBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('change_rate')">📈 수익률순</button>
-                            <button id="sortTimeBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('time')">🕒 최신순</button>
-                        </div>
-                    </div>
-                    
-                    <!-- [김선화] 섹터 모멘텀 분석 영역 -->
-                    <div style="margin-bottom: 24px; background: rgba(255,255,255,0.03); border-radius: 20px; padding: 20px; border: 1px solid rgba(255,255,255,0.05);">
-                        <h5 style="margin: 0 0 12px 0; font-size: 14px; color: var(--text-muted);">🔥 섹터별 급등 포착 모멘텀</h5>
-                        <div id="sectorMomentumArea" style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <!-- 섹터 요약 배지가 여기에 생성됩니다 -->
-                        </div>
-                    </div>
-                    <div id="alertsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
-                        <!-- 알림 카드가 여기에 동적으로 생성됩니다 -->
-                        <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 60px;">
-                            <p>탐지된 이상 징후가 없습니다.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <!-- Tab 4: Market Monitoring (Hidden, moved to Modal) -->
+        <div id="monitorTab" class="tab-content" style="display: none;"></div>
 
         <!-- [개발2팀/감사팀] Tab 5: AI 우선순위 공략주 -->
         <div id="targetsTab" class="tab-content">
@@ -814,7 +827,7 @@
                 <div style="position: relative; z-index: 1;">
                     <h2 style="margin: 0 0 8px; color: white; font-size: 32px; font-weight: 900; letter-spacing: -1px;">🎯 AI Priority Targets</h2>
                     <p style="margin: 0 0 20px; color: var(--text-muted); font-size: 16px; font-weight: 500;">재무 건전성 + 뉴스 모멘텀 기반 AI 우선순위 종목 풀입니다.</p>
-                    <div style="display: flex; gap: 10px;">
+                    <div style="display: flex; gap: 10px; align-items: center;">
                         <button id="poolSubTab1" onclick="switchPoolTab('top10')"
                             style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(16,185,129,0.5); background: rgba(16,185,129,0.2); color: #10b981; font-weight: 800; cursor: pointer; font-size: 14px;">
                             🏆 AI TOP 10
@@ -822,6 +835,10 @@
                         <button id="poolSubTab2" onclick="switchPoolTab('full')"
                             style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px;">
                             📋 전체 풀 100
+                        </button>
+                        <button id="openMonitorModalBtn" onclick="openMonitorModal()"
+                            style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(239,68,68,0.5); background: rgba(239,68,68,0.15); color: #f87171; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 6px; font-family: 'Inter', 'Outfit', sans-serif;">
+                            🚨 실시간 급등주 탐지
                         </button>
                         <span id="poolRankedBy" style="margin-left: auto; align-self: center; font-size: 12px; color: #64748b;"></span>
                     </div>
@@ -3827,6 +3844,81 @@
             document.body.style.overflow = 'auto';
         }
 
+        function openMonitorModal() {
+            const modal = document.getElementById('monitorModal');
+            if (modal) {
+                modal.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+                
+                // 엔진 상태 조회 후 미가동 상태면 즉시 가동 시작
+                fetch('/api/monitor/status')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (!data.market_active) {
+                            // 낙관적 UI 업데이트
+                            const btn = document.getElementById('monitorToggleBtn');
+                            const indicator = document.getElementById('monitorStatusIndicator');
+                            const text = document.getElementById('monitorStatusText');
+                            if (btn) {
+                                btn.innerHTML = '⏳ 초기화 중...';
+                                btn.style.background = '#f59e0b';
+                                btn.disabled = true;
+                            }
+                            if (indicator) indicator.style.background = '#f59e0b';
+                            if (text) { text.innerHTML = '스캔 준비 중'; text.style.color = '#f59e0b'; }
+
+                            fetch('/api/monitor/toggle', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ target: 'market' })
+                            })
+                            .then(res => res.json())
+                            .then(toggleData => {
+                                if (btn) btn.disabled = false;
+                                updateMonitorStatus(toggleData.active, 'market');
+                            })
+                            .catch(() => {
+                                if (btn) btn.disabled = false;
+                                checkMonitorStatus();
+                            });
+                        } else {
+                            updateMonitorStatus(true, 'market');
+                        }
+                    })
+                    .catch(() => {});
+
+                startMonitorPolling();
+            }
+        }
+
+        function closeMonitorModal() {
+            const modal = document.getElementById('monitorModal');
+            if (modal) {
+                modal.style.display = 'none';
+                document.body.style.overflow = 'auto';
+                
+                // 엔진 상태 조회 후 가동 중이면 즉시 중지
+                fetch('/api/monitor/status')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.market_active) {
+                            fetch('/api/monitor/toggle', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ target: 'market' })
+                            })
+                            .then(res => res.json())
+                            .then(toggleData => {
+                                updateMonitorStatus(toggleData.active, 'market');
+                            });
+                        }
+                    })
+                    .catch(() => {});
+
+                stopMonitorPolling();
+            }
+        }
+
         function savePortfolioReportToDrive() {
             const filename = prompt('구글 드라이브에 저장할 파일명을 입력하세요:', '포트폴리오 분석 리포트');
             if (!filename || !filename.trim()) return;
@@ -4356,12 +4448,16 @@
             if (event.target == document.getElementById('aiModal')) closeAiModal();
             if (event.target == document.getElementById('chartModal')) closeChartModal();
             if (event.target == document.getElementById('promoteModal')) closePromoteModal();
+            if (event.target == document.getElementById('newsModal')) closeNewsModal();
+            if (event.target == document.getElementById('monitorModal')) closeMonitorModal();
         }
         window.addEventListener('keydown', function (event) {
             if (event.key === 'Escape') {
                 closeAiModal();
                 closeChartModal();
                 closePromoteModal();
+                closeNewsModal();
+                closeMonitorModal();
             }
         });
 
