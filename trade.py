@@ -966,69 +966,94 @@ def get_live_prices():
 
 @app.route('/api/pool')
 def get_stock_pool():
-    """투자적격 종목 풀 조회 (audit_recommendations Top 10 우선, 그 외 pool_score 순)"""
+    """투자적격 종목 풀 조회 (Neon DB audit_recommendations Top 10 우선, 그 외 pool_score 순)"""
     try:
         conn = _new_db_conn()
         cursor = conn.cursor()
         
-        # 1. 최신 추천 일자 조회
-        cursor.execute("SELECT MAX(data_date) FROM audit_recommendations")
-        max_date_row = cursor.fetchone()
-        max_date = max_date_row[0] if max_date_row and max_date_row[0] else None
+        # 1. audit_recommendations 테이블에서 추천 종목 조회
+        cursor.execute("""
+            SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary
+            FROM audit_recommendations
+        """)
+        rec_rows = [dict(r) for r in cursor.fetchall()]
         
-        if max_date:
-            # 2. 최신 추천 종목(10개) 및 나머지 종목 결합 쿼리 수행
-            cursor.execute("""
-                SELECT * FROM (
-                    SELECT 
-                        a.code, a.name, p.sector, 
-                        COALESCE(a.roe, p.roe) as roe,
-                        p.pbr, p.per,
-                        COALESCE(a.debt, p.debt_ratio) as debt_ratio,
-                        p.operating_margin,
-                        a.target_price, p.pool_score,
-                        a.score AS priority_score, a.reason AS ai_summary,
-                        a.news_summary,
-                        a.upside, a.current_price,
-                        0 as is_rec
-                    FROM audit_recommendations a
-                    LEFT JOIN stock_pool p ON a.code = p.code
-                    WHERE a.data_date = %s
-                    
-                    UNION ALL
-                    
-                    SELECT 
-                        p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio, p.operating_margin,
-                        p.target_price, p.pool_score,
-                        NULL as priority_score, NULL as ai_summary,
-                        NULL as news_summary,
-                        NULL as upside, NULL as current_price,
-                        1 as is_rec
-                    FROM stock_pool p
-                    WHERE p.code NOT IN (
-                        SELECT code FROM audit_recommendations 
-                        WHERE data_date = %s
-                    )
-                ) combined
-                ORDER BY is_rec, priority_score DESC, pool_score DESC
-            """, (max_date, max_date))
-        else:
-            # 추천 데이터가 없을 경우 재무 점수 순 정렬
-            cursor.execute("""
-                SELECT 
-                    code, name, sector, roe, pbr, per, debt_ratio, operating_margin,
-                    target_price, pool_score, pool_score AS priority_score, 
-                    NULL AS ai_summary, NULL AS news_summary, NULL AS upside, 
-                    NULL AS current_price, 1 AS is_rec
-                FROM stock_pool 
-                ORDER BY pool_score DESC
-            """)
-            
-        rows = [dict(r) for r in cursor.fetchall()]
+        # 2. stock_pool 전체 조회
+        cursor.execute("""
+            SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score
+            FROM stock_pool
+        """)
+        pool_rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
         
-        ranked_by = "ai" if max_date else "score"
-        return jsonify({"ranked_by": ranked_by, "stocks": rows})
+        pool_dict = {r['code']: r for r in pool_rows}
+        
+        results = []
+        rec_codes = set()
+        
+        # 추천 종목 우선 매핑
+        for rec in rec_rows:
+            code = rec.get('code')
+            if not code:
+                continue
+            rec_codes.add(code)
+            
+            pool_info = pool_dict.get(code, {})
+            
+            results.append({
+                "code": code,
+                "name": rec.get('name') or pool_info.get('name', ''),
+                "sector": pool_info.get('sector', '기타'),
+                "roe": rec.get('roe') or pool_info.get('roe', 0.0),
+                "pbr": pool_info.get('pbr'),
+                "per": pool_info.get('per'),
+                "debt_ratio": rec.get('debt') or pool_info.get('debt_ratio', 0.0),
+                "operating_margin": pool_info.get('operating_margin'),
+                "target_price": rec.get('target_price') or pool_info.get('target_price', 0.0),
+                "pool_score": pool_info.get('pool_score', 0.0),
+                "priority_score": rec.get('score', 0.0),
+                "ai_summary": rec.get('reason', ''),
+                "news_summary": rec.get('news_summary', ''),
+                "upside": rec.get('upside', 0.0),
+                "current_price": rec.get('current_price', 0.0),
+                "is_rec": 0
+            })
+            
+        # 추천 종목이 아닌 나머지 종목 추가
+        other_stocks = []
+        for r in pool_rows:
+            if r['code'] not in rec_codes:
+                other_stocks.append({
+                    "code": r['code'],
+                    "name": r['name'],
+                    "sector": r['sector'],
+                    "roe": r['roe'],
+                    "pbr": r['pbr'],
+                    "per": r['per'],
+                    "debt_ratio": r['debt_ratio'],
+                    "operating_margin": r['operating_margin'],
+                    "target_price": r['target_price'],
+                    "pool_score": r['pool_score'],
+                    "priority_score": None,
+                    "ai_summary": None,
+                    "news_summary": None,
+                    "upside": None,
+                    "current_price": None,
+                    "is_rec": 1
+                })
+                
+        # 나머지 종목 정렬 (pool_score DESC)
+        other_stocks.sort(key=lambda x: x['pool_score'] or 0.0, reverse=True)
+        
+        # 추천 종목 정렬 (priority_score DESC)
+        results.sort(key=lambda x: x['priority_score'] or 0.0, reverse=True)
+        
+        # 합산
+        combined = results + other_stocks
+        
+        ranked_by = "ai" if rec_rows else "score"
+        return jsonify({"ranked_by": ranked_by, "stocks": combined})
+        
     except Exception as e:
         print(f"pool 조회 오류: {e}")
         return jsonify({"ranked_by": "score", "stocks": []})

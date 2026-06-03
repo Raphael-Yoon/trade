@@ -496,7 +496,7 @@ def get_all_naver_data(ticker):
 
         # 11. 추가 데이터 수집 (뉴스 검색, 수급 추세)
         # ===================================================================
-        extra_data = get_extra_stock_data(ticker, data.get('name', ''), headers)
+        extra_data = get_extra_stock_data(ticker, data.get('name', ''), headers, data)
         data.update(extra_data)
 
         return data
@@ -571,7 +571,7 @@ def get_moving_averages(ticker, headers):
         print(f"MA calculation error for {ticker}: {e}")
     return ma_data
 
-def get_extra_stock_data(ticker, name, headers):
+def get_extra_stock_data(ticker, name, headers, data):
     """
     수급, 뉴스, 이동평균선 등 추가 데이터를 수집합니다.
     """
