@@ -10,10 +10,12 @@ results/
 .vscode/
 .idea/
 credentials.json
-token.pickle
+*.pickle
 .env
+trade.db
 trade.db-shm
 trade.db-wal
+recommendations.json
 /logo.png
 
 

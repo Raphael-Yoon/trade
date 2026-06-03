@@ -15,7 +15,8 @@ from datetime import datetime, timedelta
 import subprocess
 import json
 import psutil
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -34,32 +35,115 @@ RESULTS_DIR = os.path.join(os.path.dirname(__file__), 'results')
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
 
-# 데이터베이스 파일
-DB_FILE = os.path.join(os.path.dirname(__file__), 'trade.db')
+# PostgreSQL(Neon) 연결 문자열
+from dotenv import load_dotenv as _load_dotenv
+_load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+
+class _AdaptedCursor:
+    """sqlite3 ? 플레이스홀더를 psycopg2 %s로 변환하는 커서 래퍼."""
+
+    def __init__(self, cursor):
+        self._cur = cursor
+
+    @staticmethod
+    def _adapt(query, has_params):
+        if has_params:
+            return query.replace('%', '%%').replace('?', '%s')
+        return query
+
+    def execute(self, query, params=None):
+        if query.strip().upper().startswith('PRAGMA'):
+            return self
+        adapted = self._adapt(query, params is not None)
+        if params is not None:
+            self._cur.execute(adapted, params)
+        else:
+            self._cur.execute(adapted)
+        return self
+
+    def executemany(self, query, seq_of_params):
+        adapted = self._adapt(query, True)
+        self._cur.executemany(adapted, seq_of_params)
+        return self
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    @property
+    def description(self):
+        return self._cur.description
+
+
+class _PsycopgAdapter:
+    """sqlite3 Connection 인터페이스를 흉내내는 psycopg2 연결 래퍼."""
+
+    def __init__(self, dsn):
+        self._conn = psycopg2.connect(dsn, cursor_factory=psycopg2.extras.DictCursor)
+
+    @property
+    def row_factory(self):
+        return None
+
+    @row_factory.setter
+    def row_factory(self, value):
+        pass
+
+    def cursor(self):
+        return _AdaptedCursor(self._conn.cursor())
+
+    def execute(self, query, params=None):
+        if query.strip().upper().startswith('PRAGMA'):
+            return _AdaptedCursor(self._conn.cursor())
+        cur = self.cursor()
+        cur.execute(query, params)
+        return cur
+
+    def executemany(self, query, seq_of_params):
+        cur = self.cursor()
+        cur.executemany(query, seq_of_params)
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
+def _new_db_conn():
+    """백그라운드 스레드용 새 DB 연결 생성."""
+    return _PsycopgAdapter(DATABASE_URL)
+
 
 def get_db():
-    """요청별 DB 연결 관리 (동시성 향상을 위해 timeout 적용)"""
+    """Flask 요청별 DB 연결 관리."""
     if 'db' not in g:
-        g.db = sqlite3.connect(DB_FILE, timeout=30)
-        # WAL 모드는 영구적이므로 매 연결마다 호출 시 Exclusive Lock 병목 발생
-        # g.db.execute("PRAGMA journal_mode=WAL")
-        g.db.row_factory = sqlite3.Row
+        g.db = _PsycopgAdapter(DATABASE_URL)
     return g.db
 
 @app.teardown_appcontext
 def close_db(e=None):
-    """요청 종료 시 DB 연결 닫기"""
+    """요청 종료 시 DB 연결 닫기."""
     db = g.pop('db', None)
     if db is not None:
         db.close()
 
 def init_db():
-    """데이터베이스 초기화 및 테이블 생성"""
-    conn = sqlite3.connect(DB_FILE, timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
+    """데이터베이스 초기화 및 테이블 생성 (PostgreSQL)"""
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
-    
-    # 내 종목 테이블
+
+    # 종목 통합 테이블 (보유 종목 + 관심 종목)
+    # type = 'portfolio' (보유) / 'watchlist' (관심)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS my_stocks (
             code TEXT PRIMARY KEY,
@@ -68,46 +152,27 @@ def init_db():
             purchase_price REAL DEFAULT 0,
             quantity INTEGER DEFAULT 0,
             stop_loss_ratio REAL DEFAULT 0,
-            is_favorite INTEGER DEFAULT 0
+            is_favorite INTEGER DEFAULT 0,
+            peak_price REAL DEFAULT 0,
+            owner TEXT DEFAULT '나',
+            type TEXT DEFAULT 'portfolio'
         )
     ''')
-    
-    # 관심 종목 테이블
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS watchlist (
-            code TEXT PRIMARY KEY,
-            name TEXT,
-            added_at TEXT,
-            is_favorite INTEGER DEFAULT 0
-        )
-    ''')
-    
-    # [김선화] 즐겨찾기(별표) 및 소유주(나, 경미, 유주) 기능 스키마 업데이트
-    columns_to_add = {
-        'my_stocks': [
-            ('purchase_price', 'REAL DEFAULT 0'),
-            ('quantity', 'INTEGER DEFAULT 0'),
-            ('stop_loss_ratio', 'REAL DEFAULT 0'),
-            ('is_favorite', 'INTEGER DEFAULT 0'),
-            ('owner', "TEXT DEFAULT '나'")
-        ],
-        'watchlist': [
-            ('is_favorite', 'INTEGER DEFAULT 0'),
-            ('owner', "TEXT DEFAULT '나'")
-        ]
-    }
-    
-    for table, cols in columns_to_add.items():
-        for col_name, col_type in cols:
-            try:
-                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
-            except sqlite3.OperationalError:
-                pass
-                
-    # [김선화] 종목별 일자별 히스토리 테이블 추가
+    for col_name, col_def in [
+        ('purchase_price', 'REAL DEFAULT 0'),
+        ('quantity', 'INTEGER DEFAULT 0'),
+        ('stop_loss_ratio', 'REAL DEFAULT 0'),
+        ('is_favorite', 'INTEGER DEFAULT 0'),
+        ('peak_price', 'REAL DEFAULT 0'),
+        ("owner", "TEXT DEFAULT '나'"),
+        ("type", "TEXT DEFAULT 'portfolio'"),
+    ]:
+        cursor.execute(f"ALTER TABLE my_stocks ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
+
+    # 종목별 일자별 히스토리 테이블
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS stock_daily_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             date TEXT,
             code TEXT,
             name TEXT,
@@ -117,19 +182,21 @@ def init_db():
             owner TEXT,
             recorded_at TEXT,
             day_profit REAL DEFAULT 0,
-            cumulative_profit REAL DEFAULT 0
+            cumulative_profit REAL DEFAULT 0,
+            change_rate REAL DEFAULT 0
         )
     ''')
-    for col in [('day_profit', 'REAL DEFAULT 0'), ('cumulative_profit', 'REAL DEFAULT 0'), ('change_rate', 'REAL DEFAULT 0')]:
-        try:
-            cursor.execute(f"ALTER TABLE stock_daily_history ADD COLUMN {col[0]} {col[1]}")
-        except Exception:
-            pass
+    for col_name, col_def in [
+        ('day_profit', 'REAL DEFAULT 0'),
+        ('cumulative_profit', 'REAL DEFAULT 0'),
+        ('change_rate', 'REAL DEFAULT 0'),
+    ]:
+        cursor.execute(f"ALTER TABLE stock_daily_history ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
 
-    # [김선화] 매도 거래 이력 테이블
+    # 매도 거래 이력 테이블
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS sell_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             code TEXT,
             name TEXT,
             owner TEXT,
@@ -142,21 +209,7 @@ def init_db():
             created_at TEXT
         )
     ''')
-    
-    # 분석 결과 테이블
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS analysis_results (
-            filename TEXT PRIMARY KEY,
-            market TEXT,
-            stock_count TEXT,
-            created_at TEXT,
-            size INTEGER,
-            spreadsheet_id TEXT,
-            drive_link TEXT,
-            ai_result TEXT
-        )
-    ''')
-    
+
     # 종목 마스터 테이블 (검색용)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS stocks_master (
@@ -165,6 +218,7 @@ def init_db():
             market TEXT
         )
     ''')
+
     # 포트폴리오 AI 분석 캐시 테이블
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS portfolio_ai_cache (
@@ -174,113 +228,28 @@ def init_db():
         )
     ''')
 
-    # 실시간 알림 테이블
+    # 투자 풀 테이블 (감사팀 협업)
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS price_alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT,
+        CREATE TABLE IF NOT EXISTS stock_pool (
+            code TEXT PRIMARY KEY,
             name TEXT,
-            type TEXT, -- 'spike' or 'drop'
-            change_rate REAL,
-            price REAL,
-            volume INTEGER DEFAULT 0, -- [김선화] 거래량 추가
-            industry TEXT, -- [김선화] 업종 추가
-            created_at TEXT
-        )
-    ''')
-    
-    # 스키마 업데이트 (기존 테이블에 volume, industry 컬럼 추가)
-    try:
-        cursor.execute("ALTER TABLE price_alerts ADD COLUMN volume INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE price_alerts ADD COLUMN industry TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE price_alerts ADD COLUMN intensity REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE price_alerts ADD COLUMN related_stocks TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE price_alerts ADD COLUMN recommend_score REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE price_alerts ADD COLUMN prev_change_rate REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE price_alerts ADD COLUMN foreign_net_buy INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN opinion TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN score REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN roe REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN debt REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN reason TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE audit_recommendations ADD COLUMN news_summary TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    # [감사팀 협업] 감사팀 추천 종목 테이블
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS audit_recommendations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT,
-            name TEXT,
-            current_price REAL,
+            sector TEXT,
+            roe REAL,
+            pbr REAL,
+            per REAL,
+            debt_ratio REAL,
+            operating_margin REAL,
             target_price REAL,
-            upside REAL,
-            opinion TEXT,
-            data_date TEXT, -- 데이터 기준 일자 (예: 2026-05-10)
-            created_at TEXT
+            foreign_net_buy REAL,
+            inst_net_buy REAL,
+            pool_score REAL,
+            data_date TEXT,
+            updated_at TEXT
         )
     ''')
 
-    # [감사팀/개발2팀] 기업 경영공시(수시공시 및 주요사항보고서) 테이블
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS stock_disclosures (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT,
-            name TEXT,
-            rcept_no TEXT UNIQUE,
-            rcept_dt TEXT,
-            report_nm TEXT,
-            flr_nm TEXT,
-            corp_cls TEXT,
-            rm TEXT,
-            ai_impact_score REAL DEFAULT 0.0,
-            ai_summary TEXT,
-            created_at TEXT
-        )
-    ''')
-    
     # 조회 성능 인덱스
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_price_alerts_created_at ON price_alerts(created_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_daily_history_date ON stock_daily_history(date)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_disclosures_code ON stock_disclosures(code)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_disclosures_dt ON stock_disclosures(rcept_dt)")
 
     conn.commit()
     conn.close()
@@ -301,6 +270,10 @@ monitor_min_volume_ah = 1000 # 시간외 최소 거래량 (낮게 설정)
 
 # [김선화] ETF 필터링용 캐시
 etf_cache = {'codes': [], 'last_updated': 0}
+
+# [김정음] 급등주 알림 메모리 저장소 (DB 미사용 — 세션 내 실시간 데이터만 유지)
+# 구조: {code: {code, name, type, change_rate, price, volume, industry, ...}}
+price_alerts_store = {}
 
 # [김선화] 감사팀 재무 데이터 캐시
 financial_cache = {}
@@ -592,19 +565,17 @@ def run_market_monitor():
             mover_codes = {m['code'] for m in movers}
             
             # 2. 오늘 이미 포착된 종목들 목록 가져오기
-            today_str = now.strftime('%Y-%m-%d')
-            conn = sqlite3.connect(DB_FILE, timeout=30)
-            cursor = conn.cursor()
-            cursor.execute("SELECT code, name, industry FROM price_alerts WHERE created_at LIKE ?", (f'{today_str}%',))
-            today_alerts = cursor.fetchall()
-            conn.close()
+            # 메모리에서 오늘 포착된 종목 로드
+            today_alerts = list(price_alerts_store.values())
 
             # 캐시 업데이트
-            for code, name, ind in today_alerts:
+            for alert in today_alerts:
+                code, ind = alert['code'], alert.get('industry', '기타')
                 if code not in industry_cache: industry_cache[code] = ind
 
             # 포착된 종목 중 Movers에 없는 종목 업데이트 대상 포함
-            for alert_code, alert_name, _ in today_alerts:
+            for alert in today_alerts:
+                alert_code, alert_name = alert['code'], alert['name']
                 if alert_code not in mover_codes:
                     det = get_detailed_price(alert_code)
                     if det['current_price'] > 0:
@@ -630,44 +601,38 @@ def run_market_monitor():
             with ThreadPoolExecutor(max_workers=8) as executor:
                 update_data = list(executor.map(fetch_market_detail, movers))
 
-            # 4. DB 일괄 업데이트
-            conn = sqlite3.connect(DB_FILE, timeout=30)
-            conn.execute("PRAGMA journal_mode=WAL")
-            cursor = conn.cursor()
+            # 4. 메모리 업데이트
             for item in update_data:
                 m = item['m']
-                cursor.execute("SELECT id FROM price_alerts WHERE code = ? AND created_at LIKE ?", (m['code'], f'{today_str}%'))
-                existing = cursor.fetchone()
-                
-                # [김선화] 상세 데이터 보강 (추천 점수 등)
                 fin = load_financial_health().get(m['code'], {'audit': 'N/A'})
                 score = 10.0
                 if item['prev_change_rate'] < 0: score += 5
                 if item['intensity'] > 100: score += min((item['intensity'] - 100) / 5, 10)
                 if fin['audit'] == '적정의견': score += 5
-                
-                # [김선화] 외국인 수급 가중치 반영
                 f_buy = item.get('foreign_net_buy', 0)
                 if f_buy > 0: score += 5
-                if f_buy > 100000000: score += 5 # 1억 이상 매수 시 추가 가중치
-                
+                if f_buy > 100000000: score += 5
                 recommend_score = round(score, 2)
-                
-                if existing:
-                    cursor.execute("""
-                        UPDATE price_alerts 
-                        SET change_rate = ?, price = ?, volume = CASE WHEN ? > 0 THEN ? ELSE volume END, 
-                            intensity = ?, recommend_score = ?, prev_change_rate = ?, foreign_net_buy = ?, created_at = ?
-                        WHERE id = ?
-                    """, (m['change_rate'], m['price'], m['volume'], m['volume'], item['intensity'], recommend_score, item['prev_change_rate'], f_buy, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
+
+                if m['code'] in price_alerts_store:
+                    a = price_alerts_store[m['code']]
+                    a['change_rate'] = m['change_rate']
+                    a['price'] = m['price']
+                    if m['volume'] > 0: a['volume'] = m['volume']
+                    a['intensity'] = item['intensity']
+                    a['recommend_score'] = recommend_score
+                    a['prev_change_rate'] = item['prev_change_rate']
+                    a['foreign_net_buy'] = f_buy
+                    a['created_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 elif not m.get('is_update_only'):
                     print(f"📡 [SPIKE] {m['name']}({m['code']}) [{item['industry']}] {m['price']:,}원 {m['change_rate']}% (외인: {f_buy:,}원) 탐지!")
-                    cursor.execute("""
-                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, intensity, recommend_score, prev_change_rate, foreign_net_buy, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (m['code'], m['name'], 'spike', m['change_rate'], m['price'], m['volume'], item['industry'], item['intensity'], recommend_score, item['prev_change_rate'], f_buy, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-            conn.commit()
-            conn.close()
+                    price_alerts_store[m['code']] = {
+                        'code': m['code'], 'name': m['name'], 'type': 'spike',
+                        'change_rate': m['change_rate'], 'price': m['price'], 'volume': m['volume'],
+                        'industry': item['industry'], 'intensity': item['intensity'],
+                        'recommend_score': recommend_score, 'prev_change_rate': item['prev_change_rate'],
+                        'foreign_net_buy': f_buy, 'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    }
             time.sleep(180)
         except Exception as e:
             print(f"정규장 모니터링 오류: {e}")
@@ -694,15 +659,13 @@ def run_ah_monitor():
             mover_codes = {m['code'] for m in movers}
 
             # 2. 오늘 이미 포착된 종목들 목록 가져오기
-            today_str = now.strftime('%Y-%m-%d')
-            conn = sqlite3.connect(DB_FILE, timeout=30)
-            cursor = conn.cursor()
-            cursor.execute("SELECT code, name, industry FROM price_alerts WHERE created_at LIKE ? AND type='after_hours'", (f'{today_str}%',))
-            today_alerts = cursor.fetchall()
-            conn.close()
+            # 메모리에서 오늘 시간외 포착 종목 로드
+            today_alerts = [a for a in price_alerts_store.values() if a.get('type') == 'after_hours']
 
             # 오늘 포착된 종목 중 Movers에 없는 종목 업데이트 대상 포함
-            for alert_code, alert_name, ind in today_alerts:
+            for alert in today_alerts:
+                alert_code, alert_name = alert['code'], alert['name']
+                ind = alert.get('industry', '기타')
                 if alert_code not in industry_cache: industry_cache[alert_code] = ind
                 if alert_code not in mover_codes:
                     det = get_detailed_price(alert_code)
@@ -729,42 +692,36 @@ def run_ah_monitor():
             with ThreadPoolExecutor(max_workers=8) as executor:
                 update_data = list(executor.map(fetch_ah_detail, movers))
 
-            # 4. DB 일괄 업데이트
-            conn = sqlite3.connect(DB_FILE, timeout=30)
-            conn.execute("PRAGMA journal_mode=WAL")
-            cursor = conn.cursor()
+            # 4. 메모리 업데이트
             for item in update_data:
                 m = item['m']
-                cursor.execute("SELECT id FROM price_alerts WHERE code = ? AND created_at LIKE ?", (m['code'], f'{today_str}%'))
-                existing = cursor.fetchone()
-                
-                # [김선화] 시간외 점수 산출 보강
                 fin = load_financial_health().get(m['code'], {'audit': 'N/A'})
                 score = 10.0
                 if item['prev_change_rate'] < 0: score += 3
                 if fin['audit'] == '적정의견': score += 2
-                
-                # [김선화] 외국인 수급 가중치 반영
                 f_buy = item.get('foreign_net_buy', 0)
                 if f_buy > 0: score += 3
-                
                 recommend_score = round(score, 2)
-                
-                if existing:
-                    cursor.execute("""
-                        UPDATE price_alerts 
-                        SET change_rate = ?, price = ?, volume = CASE WHEN ? > 0 THEN ? ELSE volume END, 
-                            intensity = ?, recommend_score = ?, prev_change_rate = ?, foreign_net_buy = ?, created_at = ?
-                        WHERE id = ?
-                    """, (m['change_rate'], m['price'], m['volume'], m['volume'], item['intensity'], recommend_score, item['prev_change_rate'], f_buy, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing[0]))
+
+                if m['code'] in price_alerts_store:
+                    a = price_alerts_store[m['code']]
+                    a['change_rate'] = m['change_rate']
+                    a['price'] = m['price']
+                    if m['volume'] > 0: a['volume'] = m['volume']
+                    a['intensity'] = item['intensity']
+                    a['recommend_score'] = recommend_score
+                    a['prev_change_rate'] = item['prev_change_rate']
+                    a['foreign_net_buy'] = f_buy
+                    a['created_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 elif not m.get('is_update_only'):
                     print(f"📡 [AFTER_HOURS] {m['name']}({m['code']}) [{item['industry']}] {m['price']:,}원 {m['change_rate']}% (외인: {f_buy:,}원) 탐지!")
-                    cursor.execute("""
-                        INSERT INTO price_alerts (code, name, type, change_rate, price, volume, industry, intensity, recommend_score, prev_change_rate, foreign_net_buy, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (m['code'], m['name'], 'after_hours', m['change_rate'], m['price'], m['volume'], item['industry'], item['intensity'], recommend_score, item['prev_change_rate'], f_buy, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-            conn.commit()
-            conn.close()
+                    price_alerts_store[m['code']] = {
+                        'code': m['code'], 'name': m['name'], 'type': 'after_hours',
+                        'change_rate': m['change_rate'], 'price': m['price'], 'volume': m['volume'],
+                        'industry': item['industry'], 'intensity': item['intensity'],
+                        'recommend_score': recommend_score, 'prev_change_rate': item['prev_change_rate'],
+                        'foreign_net_buy': f_buy, 'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    }
             print(f"✅ [DONE] 시간외 업데이트 완료. 3분 뒤 재스캔합니다.")
             time.sleep(180)
         except Exception as e:
@@ -903,127 +860,66 @@ def get_alerts():
     """최근 알림 목록 조회 (필터링 조건 최적화 및 안정화)"""
     sort_by = request.args.get('sort', 'change_rate')
     try:
-        conn = sqlite3.connect(DB_FILE, timeout=30)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        today_str = datetime.now().strftime('%Y-%m-%d')
         now = datetime.now()
         is_after_hours = now.hour >= 16 and now.hour < 18
-        
-        # [김선화] 필터링 조건 완화 (DB에는 모두 저장하되, 조회 시에만 유연하게 필터링)
         current_threshold = float(monitor_threshold_ah if is_after_hours else monitor_threshold)
         current_min_volume = int(monitor_min_volume_ah if is_after_hours else monitor_min_volume)
-        
-        order_clause = "change_rate DESC"
-        if sort_by == 'recommend': order_clause = "recommend_score DESC"
-        elif sort_by == 'foreign_net_buy': order_clause = "foreign_net_buy DESC"
-        elif sort_by == 'time': order_clause = "created_at DESC"
-        
-        query = f"""
-            SELECT * FROM price_alerts 
-            WHERE created_at LIKE ? AND change_rate >= ?
-            ORDER BY {order_clause} LIMIT 100
-        """
-        cursor.execute(query, (f'{today_str}%', current_threshold))
-        
-        # [김선화] 거래량 필터는 Python 레벨에서 한 번 더 체크 (DB 타입 이슈 방지)
-        rows = cursor.fetchall()
-        alerts = []
-        for row in rows:
-            alert = dict(row)
-            if alert['volume'] >= current_min_volume:
-                alerts.append(alert)
-                
-        conn.close()
-        return jsonify(alerts)
+
+        alerts = [
+            a for a in price_alerts_store.values()
+            if a['change_rate'] >= current_threshold and a.get('volume', 0) >= current_min_volume
+        ]
+
+        sort_key = {
+            'recommend': lambda x: x.get('recommend_score', 0),
+            'foreign_net_buy': lambda x: x.get('foreign_net_buy', 0),
+            'time': lambda x: x.get('created_at', ''),
+        }.get(sort_by, lambda x: x.get('change_rate', 0))
+
+        alerts.sort(key=sort_key, reverse=True)
+        return jsonify(alerts[:100])
     except Exception as e:
         print(f"API 오류(get_alerts): {e}")
         return jsonify([])
 
 @app.route('/api/stock/<code>/disclosures')
 def get_stock_disclosures(code):
-    """[김선화] 특정 종목의 최근 공시 목록을 조회하여 반환합니다."""
-    try:    
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT * FROM stock_disclosures 
-            WHERE code = ? 
-              AND (
-                report_nm LIKE '%단일판매%' 
-                OR report_nm LIKE '%공급계약%' 
-                OR report_nm LIKE '%특허%' 
-                OR report_nm LIKE '%증자%' 
-                OR report_nm LIKE '%감소%' 
-                OR report_nm LIKE '%소각%' 
-                OR report_nm LIKE '%소송%' 
-                OR report_nm LIKE '%횡령%' 
-                OR report_nm LIKE '%배임%' 
-                OR report_nm LIKE '%영업정지%' 
-                OR report_nm LIKE '%의견%' 
-                OR report_nm LIKE '%인수%' 
-                OR report_nm LIKE '%합병%' 
-                OR report_nm LIKE '%양수%'
-                OR report_nm LIKE '%공개매수%'
-              )
-            ORDER BY rcept_dt DESC, created_at DESC 
-            LIMIT 15
-        """, (code,))
-        
-        disclosures = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return jsonify(disclosures)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/targets/fast-track')
-def get_fast_track_targets():
-    """[개발2팀/감사팀] 풀(stock_pool) 외부에 있으면서 최근 30일 이내에 단일판매/공급계약 공시를 제출한 모멘텀 종목을 반환합니다."""
+    """특정 종목의 최근 공시 목록 — DART API 직접 조회."""
     try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT DISTINCT code, name, report_nm, rcept_dt, corp_cls, flr_nm, rm
-            FROM stock_disclosures
-            WHERE (report_nm LIKE '%단일판매%' OR report_nm LIKE '%공급계약%')
-              AND code NOT IN (SELECT code FROM stock_pool)
-              AND code != ''
-              AND rcept_dt >= date('now', '-30 days')
-            ORDER BY rcept_dt DESC
-            LIMIT 10
-        """)
-        
-        candidates = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return jsonify(candidates)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        from dotenv import load_dotenv
+        import OpenDartReader
+        load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+        dart = OpenDartReader(os.getenv('DART_API_KEY'))
 
-@app.route('/api/targets/tomorrow')
-def get_tomorrow_targets():
-    """[감사팀 협업] 감사팀에서 선정한 우량주 후보군 목록을 가져옵니다."""
-    target_date = request.args.get('date') # 특정 일자 조회 지원
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        if target_date:
-            query = "SELECT * FROM audit_recommendations WHERE data_date = ? ORDER BY score DESC, upside DESC"
-            cursor.execute(query, (target_date,))
-        else:
-            # 일자 지정이 없으면 가장 최신 데이터 조회
-            query = "SELECT * FROM audit_recommendations ORDER BY data_date DESC, score DESC, upside DESC LIMIT 10"
-            cursor.execute(query)
-            
-        targets = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return jsonify(targets)
+        end_dt = datetime.now()
+        start_dt = end_dt - timedelta(days=90)
+
+        # corp_code DataFrame에서 stock_code 매핑
+        corp_df = dart.corp_code
+        matched = corp_df[corp_df['stock_code'] == code]
+        if matched.empty:
+            return jsonify([])
+
+        corp_code = matched.iloc[0]['corp_code']
+        df = dart.list(corp_code, start=start_dt.strftime('%Y%m%d'), end=end_dt.strftime('%Y%m%d'))
+        if df is None or len(df) == 0:
+            return jsonify([])
+
+        keywords = ['단일판매','공급계약','특허','증자','감소','소각','소송',
+                    '횡령','배임','영업정지','의견','인수','합병','양수','공개매수']
+        result = []
+        for _, row in df.iterrows():
+            report_nm = row.get('report_nm', '')
+            if any(kw in report_nm for kw in keywords):
+                raw_dt = str(row.get('rcept_dt', ''))
+                rcept_dt = f"{raw_dt[:4]}-{raw_dt[4:6]}-{raw_dt[6:]}" if len(raw_dt) == 8 else raw_dt
+                result.append({
+                    'code': code, 'name': row.get('corp_name', ''),
+                    'rcept_no': row.get('rcept_no', ''), 'rcept_dt': rcept_dt,
+                    'report_nm': report_nm, 'flr_nm': row.get('flr_nm', ''),
+                    'corp_cls': row.get('corp_cls', ''), 'rm': row.get('rm', ''),
+                })
+        return jsonify(result[:15])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1050,113 +946,18 @@ def get_live_prices():
 
 @app.route('/api/pool')
 def get_stock_pool():
-    """[IT 감사팀] 투자적격 종목 풀 조회 (audit_recommendations Top 10 우선, 나머지 pool_score 순)"""
+    """투자적격 종목 풀 조회 (pool_score 순)"""
     try:
-        conn = sqlite3.connect(DB_FILE, timeout=30)
-        conn.row_factory = sqlite3.Row
+        conn = _new_db_conn()
         cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT * FROM (
-                SELECT 
-                    a.code, a.name, p.sector, 
-                    COALESCE(a.roe, p.roe) as roe,
-                    p.pbr, p.per,
-                    COALESCE(a.debt, p.debt_ratio) as debt_ratio,
-                    p.operating_margin,
-                    a.target_price, p.pool_score,
-                    a.score AS priority_score, a.reason AS ai_summary,
-                    a.news_summary,
-                    a.upside, a.current_price,
-                    0 as is_rec
-                FROM audit_recommendations a
-                LEFT JOIN stock_pool p ON a.code = p.code
-                WHERE a.data_date = (SELECT MAX(data_date) FROM audit_recommendations)
-                
-                UNION ALL
-                
-                SELECT 
-                    p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio, p.operating_margin,
-                    p.target_price, p.pool_score,
-                    NULL as priority_score, NULL as ai_summary,
-                    NULL as news_summary,
-                    NULL as upside, NULL as current_price,
-                    1 as is_rec
-                FROM stock_pool p
-                WHERE p.code NOT IN (
-                    SELECT code FROM audit_recommendations 
-                    WHERE data_date = (SELECT MAX(data_date) FROM audit_recommendations)
-                )
-            )
-            ORDER BY is_rec, priority_score DESC, pool_score DESC
-        """)
-
+        cursor.execute("SELECT * FROM stock_pool ORDER BY pool_score DESC")
         rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
         return jsonify({"stocks": rows})
     except Exception as e:
-        print(f"[감사팀] pool 조회 오류: {e}")
+        print(f"pool 조회 오류: {e}")
         return jsonify({"stocks": []})
 
-@app.route('/api/audit/dates')
-def get_audit_dates():
-    """[감사팀 협업] 추천 데이터가 있는 일자 목록을 가져옵니다."""
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT data_date FROM audit_recommendations ORDER BY data_date DESC")
-        dates = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        return jsonify(dates)
-    except Exception as e:
-        print(f"⚠️ [김선화] 날짜 목록 조회 오류: {e}")
-        return jsonify([])
-
-def sync_audit_recommendations(df, file_name):
-    """[감사팀 협업] 드라이브에서 로드한 재무 데이터를 기반으로 추천 종목을 DB에 동기화합니다."""
-    try:
-        # 파일명에서 날짜 추출 (예: kospi_all_20260505_164059 -> 2026-05-05)
-        date_match = re.search(r'(\d{4})(\d{2})(\d{2})', file_name)
-        data_date = f"{date_match.group(1)}-{date_match.group(2)}-{date_match.group(3)}" if date_match else datetime.now().strftime('%Y-%m-%d')
-        
-        # 필터링: ROE > 15, 부채비율 < 100
-        # 종목코드 6자리 포맷팅 확인
-        df['종목코드'] = df['종목코드'].apply(lambda x: str(x).zfill(6))
-        qualified = df[(df['ROE'] > 15) & (df['부채비율'] < 100)].copy()
-        
-        conn = sqlite3.connect(DB_FILE, timeout=30)
-        cursor = conn.cursor()
-        
-        # 해당 일자의 기존 데이터 삭제 후 재입력 (Upsert 효과)
-        cursor.execute("DELETE FROM audit_recommendations WHERE data_date = ?", (data_date,))
-        
-        recommendations = []
-        for _, row in qualified.iterrows():
-            code = row['종목코드']
-            # 실시간 시세 및 목표가 조회 (get_portfolio_details 활용)
-            detail = get_portfolio_details(code)
-            curr = detail.get('current_price', 0)
-            target = detail.get('target_price', 0)
-            
-            # 상승여력이 있는 종목만 추천
-            if target > curr > 0:
-                upside = round((target - curr) / curr * 100, 2)
-                recommendations.append((
-                    code, row['종목명'], curr, target, upside, 
-                    detail.get('opinion', 'N/A'), data_date, datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                ))
-        
-        if recommendations:
-            cursor.executemany("""
-                INSERT OR REPLACE INTO audit_recommendations (code, name, current_price, target_price, upside, opinion, data_date, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, recommendations)
-            print(f"✅ [감사팀] {data_date} 기준 추천 종목 {len(recommendations)}개 동기화 완료")
-            
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"⚠️ [감사팀] 추천 종목 동기화 오류: {e}")
 
 def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', year=None, report_types=None):
     """백그라운드에서 데이터 수집 실행"""
@@ -1778,12 +1579,10 @@ def get_market_indices_api():
 @app.route('/api/my_stocks', methods=['GET'])
 def get_my_stocks():
     try:
-        db = sqlite3.connect(DB_FILE, timeout=30)
-        db.row_factory = sqlite3.Row
+        db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner FROM my_stocks ORDER BY added_at DESC")
+        cursor.execute("SELECT code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner FROM my_stocks WHERE type = 'portfolio' ORDER BY added_at DESC")
         stocks = [dict(row) for row in cursor.fetchall()]
-        db.close()
         return jsonify(stocks)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2044,26 +1843,11 @@ def get_my_stocks_status():
         cursor = db.cursor()
         audit_data = load_financial_health()
         
-        # 1. 보유 종목 가져오기 (added_at 필드 추가)
-        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, added_at FROM my_stocks")
-        portfolio_stocks = [dict(row) for row in cursor.fetchall()]
-        portfolio_codes = {s['code'] for s in portfolio_stocks}
-        for s in portfolio_stocks:
-            s['type'] = 'portfolio'
-            
-        # 2. 관심 종목 가져오기
-        cursor.execute("SELECT code, name FROM watchlist")
-        watchlist_stocks = []
-        for row in cursor.fetchall():
-            s = dict(row)
-            if s['code'] not in portfolio_codes:
-                s['type'] = 'watchlist'
-                s['purchase_price'] = 0
-                s['quantity'] = 0
-                s['stop_loss_ratio'] = 0
-                s['added_at'] = datetime.now().isoformat()
-                watchlist_stocks.append(s)
-            
+        # 보유 종목 + 관심 종목 통합 조회
+        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, added_at, type FROM my_stocks")
+        all_rows = [dict(row) for row in cursor.fetchall()]
+        portfolio_stocks = [s for s in all_rows if s.get('type') == 'portfolio']
+        watchlist_stocks = [s for s in all_rows if s.get('type') == 'watchlist']
         stocks = portfolio_stocks + watchlist_stocks
         
         # 상세 데이터 수집 (병렬 처리)
@@ -2179,8 +1963,15 @@ def add_my_stock():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                       (code, name, datetime.now().isoformat(), purchase_price, quantity, stop_loss_ratio, owner))
+        cursor.execute("""
+            INSERT INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
+            ON CONFLICT (code) DO UPDATE SET
+                name=EXCLUDED.name, added_at=EXCLUDED.added_at,
+                purchase_price=EXCLUDED.purchase_price, quantity=EXCLUDED.quantity,
+                stop_loss_ratio=EXCLUDED.stop_loss_ratio, owner=EXCLUDED.owner,
+                type='portfolio'
+        """, (code, name, datetime.now().isoformat(), purchase_price, quantity, stop_loss_ratio, owner))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -2263,23 +2054,23 @@ def update_my_stock(code_val):
         updates = []
         params = []
         if purchase_price is not None:
-            updates.append("purchase_price = ?")
+            updates.append("purchase_price = %s")
             params.append(purchase_price)
         if quantity is not None:
-            updates.append("quantity = ?")
+            updates.append("quantity = %s")
             params.append(quantity)
         if stop_loss_ratio is not None:
-            updates.append("stop_loss_ratio = ?")
+            updates.append("stop_loss_ratio = %s")
             params.append(stop_loss_ratio)
         if owner is not None:
-            updates.append("owner = ?")
+            updates.append("owner = %s")
             params.append(owner)
-            
+
         if not updates:
             return jsonify({'success': False, 'message': '수정할 데이터가 없습니다.'}), 400
-            
+
         params.append(code_val)
-        query = f"UPDATE my_stocks SET {', '.join(updates)} WHERE code = ?"
+        query = f"UPDATE my_stocks SET {', '.join(updates)} WHERE code = %s"
         cursor.execute(query, params)
         
         db.commit()
@@ -2348,9 +2139,12 @@ def update_master():
                 print(f"ETF 마스터 수집 중 오류: {etf_e}")
             
             if all_stocks:
-                conn = sqlite3.connect(DB_FILE, timeout=30)
+                conn = _new_db_conn()
                 cursor = conn.cursor()
-                cursor.executemany("INSERT OR REPLACE INTO stocks_master (code, name, market) VALUES (?, ?, ?)", all_stocks)
+                cursor.executemany("""
+                    INSERT INTO stocks_master (code, name, market) VALUES (?, ?, ?)
+                    ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name, market=EXCLUDED.market
+                """, all_stocks)
                 conn.commit()
                 conn.close()
                 print(f"종목 마스터 업데이트 완료: {len(all_stocks)}개 종목")
@@ -2448,14 +2242,6 @@ def delete_result(filename):
         if existing_report:
             delete_from_drive(existing_report['id'])
             
-        # 4. 로컬 및 DB 잔재 청소 (보조적 정리)
-        try:
-            db = get_db()
-            cursor = db.cursor()
-            cursor.execute("DELETE FROM analysis_results WHERE filename = ?", (filename,))
-            db.commit()
-        except: pass
-        
         for ext in ['.xlsx', '.json']:
             path = os.path.join(RESULTS_DIR, target_name_base + ext)
             if os.path.exists(path):
@@ -2595,8 +2381,10 @@ def ai_analyze_portfolio():
         
         # 5. 결과 저장 (유효한 경우만)
         if "오류" not in result_text and "제한" not in result_text:
-            cursor.execute("INSERT OR REPLACE INTO portfolio_ai_cache (cache_key, ai_result, created_at) VALUES (?, ?, ?)", 
-                           (cache_key, result_text, datetime.now().isoformat()))
+            cursor.execute("""
+                INSERT INTO portfolio_ai_cache (cache_key, ai_result, created_at) VALUES (?, ?, ?)
+                ON CONFLICT (cache_key) DO UPDATE SET ai_result=EXCLUDED.ai_result, created_at=EXCLUDED.created_at
+            """, (cache_key, result_text, datetime.now().isoformat()))
             db.commit()
             
         return jsonify({'success': True, 'result': result_text, 'cached': False})
@@ -2669,11 +2457,11 @@ def news_search():
 
 @app.route('/api/watchlist', methods=['GET'])
 def get_watchlist():
-    """[김정음] 관심 종목 리스트를 가져옵니다."""
+    """관심 종목 리스트."""
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT code, name, added_at FROM watchlist ORDER BY added_at DESC")
+        cursor.execute("SELECT code, name, added_at, owner FROM my_stocks WHERE type = 'watchlist' ORDER BY added_at DESC")
         stocks = [dict(row) for row in cursor.fetchall()]
         return jsonify(stocks)
     except Exception as e:
@@ -2681,20 +2469,22 @@ def get_watchlist():
 
 @app.route('/api/watchlist', methods=['POST'])
 def add_to_watchlist():
-    """[김정음] 관심 종목을 추가합니다."""
+    """관심 종목 추가."""
     try:
         data = request.get_json()
         code = data.get('code')
         name = data.get('name', '')
+        owner = data.get('owner', '나')
         if not code:
             return jsonify({'success': False, 'message': '코드가 누락되었습니다.'}), 400
-            
+
         db = get_db()
         cursor = db.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO watchlist (code, name, added_at) VALUES (?, ?, ?)",
-            (code, name, datetime.now().isoformat())
-        )
+        cursor.execute("""
+            INSERT INTO my_stocks (code, name, added_at, type, owner, purchase_price, quantity, stop_loss_ratio)
+            VALUES (?, ?, ?, 'watchlist', ?, 0, 0, 0)
+            ON CONFLICT (code) DO NOTHING
+        """, (code, name, datetime.now().isoformat(), owner))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -2702,11 +2492,11 @@ def add_to_watchlist():
 
 @app.route('/api/watchlist/<code>', methods=['DELETE'])
 def delete_from_watchlist(code):
-    """[김정음] 관심 종목을 삭제합니다."""
+    """관심 종목 삭제."""
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("DELETE FROM watchlist WHERE code = ?", (code,))
+        cursor.execute("DELETE FROM my_stocks WHERE code = ? AND type = 'watchlist'", (code,))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -2714,7 +2504,7 @@ def delete_from_watchlist(code):
 
 @app.route('/api/watchlist/promote', methods=['POST'])
 def promote_to_portfolio():
-    """[김정음] 관심 종목을 내 포트폴리오(보유 종목)로 승격시킵니다."""
+    """관심 종목 → 보유 종목 승격 (type 변경)."""
     try:
         data = request.get_json()
         code = data.get('code')
@@ -2723,16 +2513,17 @@ def promote_to_portfolio():
         qty = data.get('quantity', 0)
         stop_loss = data.get('stop_loss_ratio', 0)
         owner = data.get('owner', '나')
-        
+
         db = get_db()
         cursor = db.cursor()
-        # 1. 포트폴리오에 추가
-        cursor.execute(
-            "INSERT OR REPLACE INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (code, name, datetime.now().isoformat(), price, qty, stop_loss, owner)
-        )
-        # 2. 관심 종목에서 삭제
-        cursor.execute("DELETE FROM watchlist WHERE code = ?", (code,))
+        cursor.execute("""
+            INSERT INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
+            ON CONFLICT (code) DO UPDATE SET
+                type='portfolio', added_at=EXCLUDED.added_at,
+                purchase_price=EXCLUDED.purchase_price, quantity=EXCLUDED.quantity,
+                stop_loss_ratio=EXCLUDED.stop_loss_ratio, owner=EXCLUDED.owner
+        """, (code, name, datetime.now().isoformat(), price, qty, stop_loss, owner))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -2749,9 +2540,7 @@ def update_stock_owner():
         db = get_db()
         cursor = db.cursor()
         
-        # 양쪽 테이블 모두 업데이트 시도
         cursor.execute("UPDATE my_stocks SET owner = ? WHERE code = ?", (owner, code))
-        cursor.execute("UPDATE watchlist SET owner = ? WHERE code = ?", (owner, code))
         
         db.commit()
         return jsonify({'success': True})
@@ -2772,31 +2561,8 @@ def get_realtime_prices():
         cursor = db.cursor()
 
         # [김선화] 효율적 실시간 모니터링을 위해 손절 설정치, 소유주, 추가일자 조회
-        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, owner, added_at FROM my_stocks")
-        portfolio_stocks = [{
-            'code': s['code'], 
-            'name': s['name'], 
-            'purchase_price': s['purchase_price'], 
-            'quantity': s['quantity'], 
-            'stop_loss_ratio': s['stop_loss_ratio'],
-            'owner': s['owner'],
-            'added_at': s['added_at'],
-            'type': 'portfolio'
-        } for s in cursor.fetchall()]
-        
-        # 관심 종목 가져오기
-        cursor.execute("SELECT code, name, owner FROM watchlist")
-        watchlist_stocks = [{
-            'code': s['code'], 
-            'name': s['name'], 
-            'purchase_price': 0, 
-            'quantity': 0, 
-            'stop_loss_ratio': 0,
-            'owner': s['owner'],
-            'type': 'watchlist'
-        } for s in cursor.fetchall()]
-        
-        all_stocks = portfolio_stocks + watchlist_stocks
+        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, owner, added_at, type FROM my_stocks")
+        all_stocks = [dict(s) for s in cursor.fetchall()]
         if not all_stocks:
             return jsonify([])
             
@@ -2952,7 +2718,7 @@ def record_daily_snapshot():
         today = datetime.now().strftime('%Y-%m-%d')
 
         # 오늘 데이터 이미 존재 여부 확인
-        cursor.execute("SELECT COUNT(*) as cnt FROM stock_daily_history WHERE date = ?", (today,))
+        cursor.execute("SELECT COUNT(*) AS cnt FROM stock_daily_history WHERE date = ?", (today,))
         existing_count = cursor.fetchone()['cnt']
         if existing_count > 0 and not force:
             return jsonify({'success': False, 'exists': True,
@@ -3007,12 +2773,12 @@ def get_history_dates():
         db = get_db()
         cursor = db.cursor()
         cursor.execute("""
-            SELECT DISTINCT date 
-            FROM stock_daily_history 
-            WHERE date IS NOT NULL 
+            SELECT DISTINCT date
+            FROM stock_daily_history
+            WHERE date IS NOT NULL
             ORDER BY date DESC
         """)
-        dates = [row[0] for row in cursor.fetchall()]
+        dates = [row['date'] for row in cursor.fetchall()]
         return jsonify({'success': True, 'dates': dates})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -3043,7 +2809,7 @@ def backfill_history():
         db = get_db()
         cursor = db.cursor()
 
-        cursor.execute("SELECT code, name, purchase_price, quantity, owner, added_at FROM my_stocks")
+        cursor.execute("SELECT code, name, purchase_price, quantity, owner, added_at FROM my_stocks WHERE type = 'portfolio'")
         stocks = [dict(row) for row in cursor.fetchall()]
         if not stocks:
             return jsonify({'success': False, 'message': '등록된 종목이 없습니다.'})
@@ -3094,7 +2860,7 @@ def backfill_history():
                     "SELECT DISTINCT date FROM stock_daily_history WHERE code = ? AND date >= ?",
                     (code, since.strftime('%Y-%m-%d'))
                 )
-            existing_dates = {row[0] for row in cursor.fetchall()}
+            existing_dates = {row['date'] for row in cursor.fetchall()}
 
             for i, p in enumerate(prices_sorted):
                 date_str = p['date']
@@ -3164,11 +2930,11 @@ def get_history_report():
     """[김정음] 월/분기/연 단위 히스토리 집계 리포트"""
     period = request.args.get('period', 'month')
     if period == 'month':
-        period_expr = "strftime('%Y-%m', date)"
+        period_expr = "LEFT(date, 7)"
     elif period == 'quarter':
-        period_expr = "strftime('%Y', date) || '-Q' || ((CAST(strftime('%m', date) AS INTEGER) - 1) / 3 + 1)"
+        period_expr = "LEFT(date, 4) || '-Q' || ((CAST(SUBSTRING(date, 6, 2) AS INTEGER) - 1) / 3 + 1)"
     else:
-        period_expr = "strftime('%Y', date)"
+        period_expr = "LEFT(date, 4)"
     try:
         db = get_db()
         cursor = db.cursor()
@@ -3223,7 +2989,7 @@ def get_daily_chart():
                    ROUND(SUM(cumulative_profit), 0) AS cum_profit,
                    ROUND(SUM(current_price * quantity), 0) AS portfolio_value
             FROM stock_daily_history
-            WHERE strftime('%Y-%m', date) = ?
+            WHERE LEFT(date, 7) = ?
             GROUP BY date, owner
             ORDER BY date, owner
         """, (month,))
@@ -3257,12 +3023,10 @@ def auto_snapshot_scheduler():
                 with app.app_context():
                     # 내부 함수 호출 (API 로직 재사용)
                     try:
-                        # db = get_db() logic duplicated here for internal use
-                        conn = sqlite3.connect(DB_FILE, timeout=30)
-                        conn.execute("PRAGMA journal_mode=WAL")
+                        conn = _new_db_conn()
                         cursor = conn.cursor()
-                        cursor.execute("SELECT code, name, purchase_price, quantity, owner, added_at FROM my_stocks")
-                        stocks = [dict(zip([column[0] for column in cursor.description], row)) for row in cursor.fetchall()]
+                        cursor.execute("SELECT code, name, purchase_price, quantity, owner, added_at FROM my_stocks WHERE type = 'portfolio'")
+                        stocks = [dict(row) for row in cursor.fetchall()]
                         
                         if stocks:
                             with ThreadPoolExecutor(max_workers=10) as executor:
@@ -3304,7 +3068,7 @@ def auto_snapshot_scheduler():
                                 if existing:
                                     cursor.execute(
                                         "UPDATE stock_daily_history SET purchase_price=?, current_price=?, quantity=?, owner=?, recorded_at=?, day_profit=?, change_rate=?, cumulative_profit=? WHERE id=?",
-                                        (purchase_price, current_price, quantity, stock['owner'], recorded_at, day_profit, change_rate, cumulative_profit, existing[0])
+                                        (purchase_price, current_price, quantity, stock['owner'], recorded_at, day_profit, change_rate, cumulative_profit, existing['id'])
                                     )
                                 else:
                                     cursor.execute(

@@ -2,9 +2,11 @@
 import sys
 import os
 import json
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import argparse
-from datetime import datetime
+import OpenDartReader
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Windows 콘솔 UTF-8 설정
@@ -19,7 +21,7 @@ if os.name == 'nt':
 import db_lock_guard
 
 # Add trade path to import get_all_naver_data
-sys.path.append('c:/Pythons/trade')
+sys.path.append('c:/Python/trade')
 from get_all_naver_data import get_all_naver_data
 
 def evaluate_single_candidate(cand, pool, disclosures_map):
@@ -136,45 +138,60 @@ def evaluate_single_candidate(cand, pool, disclosures_map):
     }
 
 def run_selection():
-    candidates_file = 'C:/Users/Yuju/.gemini/antigravity-ide/brain/2b2404c7-070a-4a0c-be5a-eedfc837ee67/scratch/candidates.json'
-    if not os.path.exists(candidates_file):
-        print(f"[오류] 후보군 파일이 존재하지 않습니다: {candidates_file}")
-        sys.exit(1)
-        
-    with open(candidates_file, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-        
-    fast_track = data['fast_track']
-    pool = data['pool']
-    
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
+    database_url = os.getenv('DATABASE_URL')
+
+    conn = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.DictCursor)
+    cursor = conn.cursor()
+
+    # Fetch candidates from the database stock_pool table
+    cursor.execute("SELECT code, name, target_price, roe, debt_ratio FROM stock_pool")
+    rows = cursor.fetchall()
+
+    pool = []
     seen_codes = set()
     candidates = []
-    
-    for item in fast_track:
-        if item['code'] not in seen_codes:
-            seen_codes.add(item['code'])
-            candidates.append({'code': item['code'], 'name': item['name'], 'is_fast_track': True})
-            
-    for item in pool:
-        if item['code'] not in seen_codes:
-            seen_codes.add(item['code'])
-            candidates.append({'code': item['code'], 'name': item['name'], 'is_fast_track': False})
-            
-    conn = sqlite3.connect('c:/Pythons/trade/trade.db')
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT code, report_nm, rcept_dt, rm 
-        FROM stock_disclosures
-        WHERE rcept_dt >= date('now', '-30 days')
-    """)
-    disclosures_map = {}
-    for code, report_nm, rcept_dt, rm in cursor.fetchall():
-        if code not in disclosures_map:
-            disclosures_map[code] = []
-        disclosures_map[code].append((report_nm, rcept_dt, rm))
-        
+
+    for row in rows:
+        code = row['code']
+        name = row['name']
+        target_price = row['target_price'] or 0
+        roe = row['roe'] or 0.0
+        debt = row['debt_ratio'] or 0.0
+
+        pool_item = {'code': code, 'name': name, 'target_price': target_price, 'roe': roe, 'debt': debt}
+        pool.append(pool_item)
+
+        if code not in seen_codes:
+            seen_codes.add(code)
+            candidates.append({'code': code, 'name': name})
+
     conn.close()
+
+    # DART API에서 최근 30일 공시 직접 조회
+    disclosures_map = {}
+    try:
+        dart_key = os.getenv('DART_API_KEY')
+        if dart_key:
+            dart = OpenDartReader(dart_key)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=30)
+            df = dart.list(None, start=start_date.strftime('%Y%m%d'), end=end_date.strftime('%Y%m%d'))
+            if df is not None and len(df) > 0:
+                for _, row in df.iterrows():
+                    stock_code = row.get('stock_code')
+                    if not stock_code:
+                        continue
+                    c = str(stock_code).strip().zfill(6)
+                    raw_dt = str(row.get('rcept_dt', ''))
+                    rcept_dt = f"{raw_dt[:4]}-{raw_dt[4:6]}-{raw_dt[6:]}" if len(raw_dt) == 8 else raw_dt
+                    if c not in disclosures_map:
+                        disclosures_map[c] = []
+                    disclosures_map[c].append((row.get('report_nm', ''), rcept_dt, row.get('rm', '')))
+            print(f"[DART] 최근 30일 공시 {sum(len(v) for v in disclosures_map.values())}건 로드 완료")
+    except Exception as e:
+        print(f"[DART] 공시 조회 실패 (계속 진행): {e}")
     
     results = []
     print(f"Total candidates to evaluate in parallel: {len(candidates)}")
@@ -194,7 +211,7 @@ def run_selection():
     results.sort(key=lambda x: x['score'], reverse=True)
     top_10 = results[:10]
     
-    output_path = 'c:/Pythons/cowork/recommendations.json'
+    output_path = 'c:/Python/cowork/recommendations.json'
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(top_10, f, ensure_ascii=False, indent=2)

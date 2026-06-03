@@ -1,25 +1,32 @@
-# Core dependencies
-pandas
-requests
-beautifulsoup4
-openpyxl
-python-dotenv
+# ─────────────────────────────────────────
+# Jonathan's Coffee House - requirements
+# Python 3.11+
+# ─────────────────────────────────────────
 
-# DART API
-OpenDartReader
+# Core
+Flask==3.1.3
+requests==2.34.2
+beautifulsoup4==4.14.3
+lxml==6.1.1
+pandas==2.3.3
+openpyxl==3.1.5
+python-dotenv==1.2.2
 
-# Google APIs
-google-genai
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
+# PostgreSQL (Neon)
+psycopg2-binary==2.9.12
 
-# Flask web framework
-Flask
+# DART 공시 API
+OpenDartReader==0.2.2
+
+# Google APIs (Drive, Gemini)
+google-genai==2.6.0
+google-api-python-client==2.196.0
+google-auth-httplib2==0.4.0
+google-auth-oauthlib==1.4.0
 
 # Process management
-psutil
+psutil==7.2.2
 
-# Additional utilities
-urllib3
-markdown>=3.9
+# Utilities
+urllib3==2.7.0
+Markdown==3.10.2
