@@ -248,6 +248,26 @@ def init_db():
         )
     ''')
 
+    # 감사팀 추천 종목 테이블 복원
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS audit_recommendations (
+            id SERIAL PRIMARY KEY,
+            code TEXT,
+            name TEXT,
+            current_price REAL,
+            target_price REAL,
+            upside REAL,
+            opinion TEXT,
+            data_date TEXT,
+            created_at TEXT,
+            score REAL DEFAULT 0.0,
+            roe REAL DEFAULT 0.0,
+            debt REAL DEFAULT 0.0,
+            reason TEXT,
+            news_summary TEXT
+        )
+    ''')
+
     # 조회 성능 인덱스
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_daily_history_date ON stock_daily_history(date)")
 
@@ -946,17 +966,72 @@ def get_live_prices():
 
 @app.route('/api/pool')
 def get_stock_pool():
-    """투자적격 종목 풀 조회 (pool_score 순)"""
+    """투자적격 종목 풀 조회 (audit_recommendations Top 10 우선, 그 외 pool_score 순)"""
     try:
         conn = _new_db_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM stock_pool ORDER BY pool_score DESC")
+        
+        # 1. 최신 추천 일자 조회
+        cursor.execute("SELECT MAX(data_date) FROM audit_recommendations")
+        max_date_row = cursor.fetchone()
+        max_date = max_date_row[0] if max_date_row and max_date_row[0] else None
+        
+        if max_date:
+            # 2. 최신 추천 종목(10개) 및 나머지 종목 결합 쿼리 수행
+            cursor.execute("""
+                SELECT * FROM (
+                    SELECT 
+                        a.code, a.name, p.sector, 
+                        COALESCE(a.roe, p.roe) as roe,
+                        p.pbr, p.per,
+                        COALESCE(a.debt, p.debt_ratio) as debt_ratio,
+                        p.operating_margin,
+                        a.target_price, p.pool_score,
+                        a.score AS priority_score, a.reason AS ai_summary,
+                        a.news_summary,
+                        a.upside, a.current_price,
+                        0 as is_rec
+                    FROM audit_recommendations a
+                    LEFT JOIN stock_pool p ON a.code = p.code
+                    WHERE a.data_date = %s
+                    
+                    UNION ALL
+                    
+                    SELECT 
+                        p.code, p.name, p.sector, p.roe, p.pbr, p.per, p.debt_ratio, p.operating_margin,
+                        p.target_price, p.pool_score,
+                        NULL as priority_score, NULL as ai_summary,
+                        NULL as news_summary,
+                        NULL as upside, NULL as current_price,
+                        1 as is_rec
+                    FROM stock_pool p
+                    WHERE p.code NOT IN (
+                        SELECT code FROM audit_recommendations 
+                        WHERE data_date = %s
+                    )
+                ) combined
+                ORDER BY is_rec, priority_score DESC, pool_score DESC
+            """, (max_date, max_date))
+        else:
+            # 추천 데이터가 없을 경우 재무 점수 순 정렬
+            cursor.execute("""
+                SELECT 
+                    code, name, sector, roe, pbr, per, debt_ratio, operating_margin,
+                    target_price, pool_score, pool_score AS priority_score, 
+                    NULL AS ai_summary, NULL AS news_summary, NULL AS upside, 
+                    NULL AS current_price, 1 AS is_rec
+                FROM stock_pool 
+                ORDER BY pool_score DESC
+            """)
+            
         rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
-        return jsonify({"stocks": rows})
+        
+        ranked_by = "ai" if max_date else "score"
+        return jsonify({"ranked_by": ranked_by, "stocks": rows})
     except Exception as e:
         print(f"pool 조회 오류: {e}")
-        return jsonify({"stocks": []})
+        return jsonify({"ranked_by": "score", "stocks": []})
 
 
 def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', year=None, report_types=None):

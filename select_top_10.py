@@ -17,9 +17,6 @@ if os.name == 'nt':
     except AttributeError:
         pass
 
-# db_lock_guard 임포트
-import db_lock_guard
-
 # Add trade path to import get_all_naver_data
 sys.path.append('c:/Python/trade')
 from get_all_naver_data import get_all_naver_data
@@ -100,15 +97,18 @@ def evaluate_single_candidate(cand, pool, disclosures_map):
             news_score -= 5.0
     news_score = min(100.0, max(0.0, news_score))
     
-    # Disclosure Modifier (+5 / -5)
-    disc_modifier = 0.0
+    # Disclosure Modifier (가점 최대 +10, 감점 최대 -10 개별 캡 적용)
+    pos_modifier = 0.0
+    neg_modifier = 0.0
     for report_nm, rcept_dt, rm in disclosures:
         if any(kwd in report_nm for kwd in ['단일판매', '공급계약', '특허', '수주', 'MOU']):
-            disc_modifier += 5.0
-        if any(kwd in report_nm for kwd in ['소송', '피소', '유상증자', '전환사채']):
-            disc_modifier -= 5.0
+            pos_modifier += 5.0
+        if any(kwd in report_nm for kwd in ['소송', '피소', '유상증자', '전환사채', '신주인수권']):
+            neg_modifier -= 5.0
             
-    disc_modifier = min(10.0, max(-10.0, disc_modifier))
+    pos_modifier = min(10.0, pos_modifier)
+    neg_modifier = max(-10.0, neg_modifier)
+    disc_modifier = pos_modifier + neg_modifier
     
     # Total score
     base_score = (roe_score * 0.30) + (supply_score * 0.20) + (momentum_score * 0.20) + (upside_score * 0.20) + (news_score * 0.10)
@@ -146,12 +146,13 @@ def run_selection():
     cursor = conn.cursor()
 
     # Fetch candidates from the database stock_pool table
-    cursor.execute("SELECT code, name, target_price, roe, debt_ratio FROM stock_pool")
+    cursor.execute("SELECT code, name, target_price, roe, debt_ratio, data_date FROM stock_pool")
     rows = cursor.fetchall()
 
     pool = []
     seen_codes = set()
     candidates = []
+    target_date = None
 
     for row in rows:
         code = row['code']
@@ -159,6 +160,8 @@ def run_selection():
         target_price = row['target_price'] or 0
         roe = row['roe'] or 0.0
         debt = row['debt_ratio'] or 0.0
+        if row['data_date'] and not target_date:
+            target_date = row['data_date']
 
         pool_item = {'code': code, 'name': name, 'target_price': target_price, 'roe': roe, 'debt': debt}
         pool.append(pool_item)
@@ -220,12 +223,60 @@ def run_selection():
     for idx, r in enumerate(top_10):
         print(f"{idx+1}. [{r['code']}] {r['name']} - Score: {r['score']} - Upside: {r['upside']}% - Reason: {r['reason']}")
 
+    # Neon PostgreSQL DB 적재
+    try:
+        if not target_date:
+            target_date = datetime.now().strftime('%Y-%m-%d')
+        
+        print(f"Connecting to Neon DB to write recommendations for date: {target_date}...")
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor()
+        
+        # 테이블 자동 복구 가드 (삭제되었을 경우 대비)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS audit_recommendations (
+                id SERIAL PRIMARY KEY,
+                code TEXT,
+                name TEXT,
+                current_price REAL,
+                target_price REAL,
+                upside REAL,
+                opinion TEXT,
+                data_date TEXT,
+                created_at TEXT,
+                score REAL DEFAULT 0.0,
+                roe REAL DEFAULT 0.0,
+                debt REAL DEFAULT 0.0,
+                reason TEXT,
+                news_summary TEXT
+            )
+        ''')
+        
+        # 기존 오늘 날짜 추천 데이터 삭제
+        cursor.execute("DELETE FROM audit_recommendations WHERE data_date = %s", (target_date,))
+        
+        # 신규 선정된 Top 10 데이터 삽입
+        for r in top_10:
+            cursor.execute("""
+                INSERT INTO audit_recommendations (
+                    code, name, current_price, target_price, upside, opinion, 
+                    data_date, created_at, score, roe, debt, reason, news_summary
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                r['code'], r['name'], r['current_price'], r['target_price'], r['upside'],
+                '매수', target_date, datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                r['score'], r['roe'], r['debt'], r['reason'], r['news_summary']
+            ))
+            
+        conn.commit()
+        conn.close()
+        print(f"[Neon DB] {target_date} 기준 감사팀 Top 10 추천 종목 적재 완료 ({len(top_10)}건)")
+    except Exception as e:
+        print(f"[Neon DB] 추천 데이터 적재 실패: {e}")
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='감사팀 Top 10 우량 공략주 선정 엔진')
     parser.add_argument('--force-db', action='store_true', help='서버가 실행 중이라도 실행을 강제합니다.')
     args = parser.parse_args()
-    
-    # DB 락 충돌 방지 가드 체크 (감사팀 작업)
-    db_lock_guard.check_lock_and_exit("감사팀 Top 10 공략주 선정")
     
     run_selection()

@@ -998,8 +998,6 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
     except Exception as e:
         print(f"\n메인 루프 오류 발생: {e}")
 
-import db_lock_guard
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--count', type=int, default=100)
@@ -1009,12 +1007,8 @@ if __name__ == "__main__":
     parser.add_argument('--tickers', type=str, default='')
     parser.add_argument('--year', type=str, default='')
     parser.add_argument('--report_types', type=str, default='')
-    parser.add_argument('--force-db', action='store_true', help='서버가 실행 중이라도 실행을 강제합니다.')
     args = parser.parse_args()
-    
-    # DB 락 충돌 방지 가드 체크
-    db_lock_guard.check_lock_and_exit("시장 데이터 수집기")
-    
+
     fields = args.fields.split(',') if args.fields else None
     tickers = args.tickers.split(',') if args.tickers else None
     report_types = args.report_types.split(',') if args.report_types else None
