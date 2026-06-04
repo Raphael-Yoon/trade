@@ -26,11 +26,10 @@
 | `ai_analysis.py` | AI 기반 종목 분석 모듈 |
 | `data_collect.py` | 시장 데이터 수집 파이프라인 |
 | `drive_sync.py` | Google Drive 백업 동기화 |
-| `trade.db` | SQLite 메인 데이터베이스 |
 | `results/` | 분석 결과 저장 폴더 |
 | `docs_cache/` | 수집된 공시 데이터 캐시 |
 
 ## 4. 환경 관리 원칙 (Local)
 
-- **보존 대상**: `trade.db`, `results/`, `docs_cache/`
+- **보존 대상**: `results/`, `docs_cache/`
 - **삭제 대상**: 작업 중 생성한 임시 `.py` 스크립트 및 디버깅용 로그 파일
