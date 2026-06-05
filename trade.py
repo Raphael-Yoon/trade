@@ -2154,23 +2154,23 @@ def update_my_stock(code_val):
         updates = []
         params = []
         if purchase_price is not None:
-            updates.append("purchase_price = %s")
+            updates.append("purchase_price = ?")
             params.append(purchase_price)
         if quantity is not None:
-            updates.append("quantity = %s")
+            updates.append("quantity = ?")
             params.append(quantity)
         if stop_loss_ratio is not None:
-            updates.append("stop_loss_ratio = %s")
+            updates.append("stop_loss_ratio = ?")
             params.append(stop_loss_ratio)
         if owner is not None:
-            updates.append("owner = %s")
+            updates.append("owner = ?")
             params.append(owner)
 
         if not updates:
             return jsonify({'success': False, 'message': '수정할 데이터가 없습니다.'}), 400
 
         params.append(code_val)
-        query = f"UPDATE my_stocks SET {', '.join(updates)} WHERE code = %s"
+        query = f"UPDATE my_stocks SET {', '.join(updates)} WHERE code = ?"
         cursor.execute(query, params)
         
         db.commit()

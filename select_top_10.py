@@ -18,7 +18,7 @@ if os.name == 'nt':
         pass
 
 # Add trade path to import get_all_naver_data
-sys.path.append('c:/Python/trade')
+sys.path.append('c:/Pythons/trade')
 from get_all_naver_data import get_all_naver_data
 
 def evaluate_single_candidate(cand, pool, dart_key):
@@ -87,29 +87,59 @@ def evaluate_single_candidate(cand, pool, dart_key):
         return None
         
     # Compute Scoring
-    roe_score = min(100.0, max(0.0, roe)) / 50.0 * 100.0
+    roe_score = (min(100.0, max(0.0, roe)) / 50.0) * 100.0
     
     f_net = naver_data.get('foreign_5d_net', 0)
     i_net = naver_data.get('inst_5d_net', 0)
-    supply_score = 0.0
-    if f_net > 0:
-        supply_score += 60.0
-    if i_net > 0:
-        supply_score += 40.0
+    
+    foreign_subscore = 100.0 if f_net > 0 else (0.0 if f_net == 0 else -10.0)
+    inst_subscore = 100.0 if i_net > 0 else 0.0
+    supply_score = (foreign_subscore * 0.6) + (inst_subscore * 0.4)
         
     momentum_score = naver_data.get('price_position_52w', 50.0)
-    upside_score = min(100.0, max(0.0, upside)) / 100.0 * 100.0
+    upside_score = (min(100.0, max(0.0, upside)) / 100.0) * 100.0
     
-    # 뉴스 헤드라인 수집
+    # 뉴스 헤드라인 수집 및 심리 점수 계산
     news_list = naver_data.get('news', [])
     news_headlines = [n for n in news_list]
+    
+    pos_keywords = ['수주', '계약', '상승', '호재', '최고', '급등', '돌파', '흑자', '성장', '개선', '대규모', '신기록', '호실적']
+    neg_keywords = ['소송', '피소', '하락', '악재', '급락', '적자', '감소', '횡령', '배임', '위기', '우려', '이탈', '손실']
+    
+    pos_count = 0
+    neg_count = 0
+    for n in news_headlines[:10]:
+        title = n.get('title', '')
+        for kw in pos_keywords:
+            if kw in title:
+                pos_count += 1
+                break
+        for kw in neg_keywords:
+            if kw in title:
+                neg_count += 1
+                break
+                
+    news_score = 60.0
+    if pos_count > neg_count:
+        news_score = min(100.0, 80.0 + (pos_count - neg_count) * 10.0)
+    elif neg_count > pos_count:
+        news_score = max(0.0, 40.0 - (neg_count - pos_count) * 10.0)
+
+    # 공시 모멘텀 가감점 계산
+    disclosure_adjustment = 0.0
+    for report_nm, rcept_dt, rm in disclosures:
+        if any(term in report_nm for term in ['단일판매', '공급계약', '특허']):
+            disclosure_adjustment += 5.0
+        if any(term in report_nm for term in ['소송', '피소', '유상증자']):
+            disclosure_adjustment -= 5.0
+    disclosure_adjustment = max(-5.0, min(5.0, disclosure_adjustment))
  
-    # Total score
-    base_score = (roe_score * 0.35) + (supply_score * 0.25) + (momentum_score * 0.20) + (upside_score * 0.20)
-    final_score = round(min(100.0, max(0.0, base_score)), 2)
+    # Total score (audit_logic.md: ROE 30%, Supply 20%, Momentum 20%, Upside 20%, News 10% + Disclosure Adj)
+    base_score = (roe_score * 0.30) + (supply_score * 0.20) + (momentum_score * 0.20) + (upside_score * 0.20) + (news_score * 0.10)
+    final_score = round(min(100.0, max(0.0, base_score + disclosure_adjustment)), 2)
  
     sector = naver_data.get('industry_name', '기타')
-    reason = f"[{sector}] ROE {roe:.1f}% | 수급 외인{'유입' if f_net > 0 else '이탈'}/기관{'유입' if i_net > 0 else '이탈'} | 상승여력 {round(upside, 1)}%"
+    reason = f"[{sector}] ROE {roe:.1f}% | 수급 외인{'유입' if f_net > 0 else '이탈'}/기관{'유입' if i_net > 0 else '이탈'} | 상승여력 {round(upside, 1)}% | 뉴스 {round(news_score, 1)}점 | 공시조정 {disclosure_adjustment:+.1f}점"
  
     news_summary = ""
     if news_headlines:
