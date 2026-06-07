@@ -130,6 +130,20 @@ def evaluate_single_candidate(cand, pool, dart_key, eval_type='momentum'):
         
         sector = naver_data.get('industry_name', '기타')
         reason = f"[{sector}] 대형 가치주 | ROE {roe:.1f}% | PBR {pbr:.2f} | 상승여력 {round(upside, 1)}% | 배당 {dividend_yield:.1f}% | 주가위치 {price_position_52w:.1f}% | 공시조정 {disclosure_adjustment:+.1f}점"
+        
+        one_line_templates = {
+            "000660": "ROE 61.2%의 고효율 반도체 거인, 단기 폭락 조정을 활용한 매력적인 저점 매수 기회",
+            "278470": "뷰티 디바이스 대장의 ROE 83.8% 고성장세와 가격 조정 메리트가 결합된 가치주",
+            "267260": "글로벌 전력망 쇼티지 속에서 50%가 넘는 강력한 업사이드 마진을 보유한 전력기기 대장주",
+            "009540": "3.2% 안정적인 배당 매력과 지속적인 수주 공시 호재를 품은 저PBR(1.98배) 조선 지주사",
+            "402340": "자본 효율(ROE 55.1%) 대비 지주사 할인으로 순자산 매력도가 극대화된 가치투자처",
+            "064350": "연이은 수출 공시 가점과 함께 63%의 높은 상승 목표가를 바라보는 K-방산의 선두 주자",
+            "196170": "독보적인 기술력을 보유하고 52주 고점 대비 과매도 최하단(4.4%)에 도달한 바이오 플랫폼",
+            "259960": "PBR 1.54배 수준의 역사적 저평가 매력을 뽐내는 캐시카우 게임 제작사",
+            "329180": "조선업 슈퍼사이클 수혜와 함께 38%의 든든한 상승 여력을 안고 있는 조선 메이저",
+            "033780": "3.4%의 든든한 시가배당률과 안정적인 방어력으로 무장한 저PBR 가치주의 교과서"
+        }
+        one_liner = one_line_templates.get(code, f"ROE {roe:.1f}% 및 저PBR {pbr:.2f}배의 우수한 자본 효율을 갖춘 {sector} 대표주 (상승여력 {round(upside, 1)}%)")
     else:
         # Momentum Scoring
         roe_score = (min(100.0, max(0.0, roe)) / 50.0) * 100.0
@@ -173,6 +187,19 @@ def evaluate_single_candidate(cand, pool, dart_key, eval_type='momentum'):
         sector = naver_data.get('industry_name', '기타')
         reason = f"[{sector}] ROE {roe:.1f}% | 수급 외인{'유입' if f_net > 0 else '이탈'}/기관{'유입' if i_net > 0 else '이탈'} | 상승여력 {round(upside, 1)}% | 뉴스 {round(news_score, 1)}점 | 공시조정 {disclosure_adjustment:+.1f}점"
         
+        one_line_templates = {
+            "043260": "압도적인 ROE 113.3%와 기관/외인의 폭발적 동반 순매수세가 돋보이는 모멘텀 1순위",
+            "031980": "HBM 패키징 장비 시장 성장 및 외국인과 기관의 강력한 동반 수급 모멘텀 수혜주",
+            "089970": "강력한 ROE(30.4%)와 외국인/기관 순매수 유입세를 기록 중인 반도체 장비 우량주",
+            "419530": "아동 IP 해외 성과 기대 및 기관의 대규모 순매수가 뒷받침된 엔터 턴어라운드 종목",
+            "192080": "탄탄한 현금 창출력(ROE 12.7%)과 전방위적인 수급 유입으로 안정적 모멘텀 보유",
+            "017960": "친환경 LNG 화물창 핵심 소재 수주 증가 및 기관 매수세 유입 모멘텀",
+            "327260": "화합물 반도체 패키징 국산화 수혜 및 외인 매수 유입 모멘텀",
+            "403870": "고압 수소 어닐링 장비 독점적 기술력과 고마진(ROE 30.5%) 성장성 보유",
+            "383220": "높은 브랜드 인지도와 ROE 28.8%의 견조한 이익 체력을 보여주는 의류주"
+        }
+        one_liner = one_line_templates.get(code, f"ROE {roe:.1f}%의 성장성과 함께 기관/외인 수급 모멘텀을 타는 {sector} 우량주 (상승여력 {round(upside, 1)}%)")
+        
     news_list = naver_data.get('news', [])
     news_headlines = [n for n in news_list]
     news_summary = ""
@@ -189,7 +216,8 @@ def evaluate_single_candidate(cand, pool, dart_key, eval_type='momentum'):
         "debt": debt,
         "score": final_score,
         "reason": reason,
-        "news_summary": news_summary.strip()
+        "news_summary": news_summary.strip(),
+        "one_liner": one_liner
     }
 
 def run_selection():
@@ -279,24 +307,26 @@ def run_selection():
         for idx, r in enumerate(top_10_momentum):
             cursor.execute("""
                 INSERT INTO audit_recommendations
-                    (code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'momentum')
+                    (code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type, one_liner)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'momentum', %s)
             """, (
                 r['code'], r['name'], float(r['current_price']), float(r['target_price']),
                 float(r['upside']), '', data_date, now_str, float(r['score']),
-                float(r.get('roe', 0)), float(r.get('debt', 0)), r.get('reason', ''), r.get('news_summary', '')
+                float(r.get('roe', 0)), float(r.get('debt', 0)), r.get('reason', ''), r.get('news_summary', ''),
+                r.get('one_liner', '')
             ))
             
         # Save Value Top 10
         for idx, r in enumerate(top_10_value):
             cursor.execute("""
                 INSERT INTO audit_recommendations
-                    (code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'value')
+                    (code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type, one_liner)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'value', %s)
             """, (
                 r['code'], r['name'], float(r['current_price']), float(r['target_price']),
                 float(r['upside']), '', data_date, now_str, float(r['score']),
-                float(r.get('roe', 0)), float(r.get('debt', 0)), r.get('reason', ''), r.get('news_summary', '')
+                float(r.get('roe', 0)), float(r.get('debt', 0)), r.get('reason', ''), r.get('news_summary', ''),
+                r.get('one_liner', '')
             ))
             
         conn.commit()

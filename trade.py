@@ -270,6 +270,7 @@ def init_db():
     ''')
     for col_name, col_def in [
         ('rec_type', "TEXT DEFAULT 'momentum'"),
+        ('one_liner', "TEXT DEFAULT ''"),
     ]:
         cursor.execute(f"ALTER TABLE audit_recommendations ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
 
@@ -978,7 +979,7 @@ def get_stock_pool():
         
         # 1. audit_recommendations 테이블에서 추천 종목 조회
         cursor.execute("""
-            SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type
+            SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner
             FROM audit_recommendations
         """)
         rec_rows = [dict(r) for r in cursor.fetchall()]
@@ -1025,7 +1026,8 @@ def get_stock_pool():
                 "upside": rec.get('upside', 0.0),
                 "current_price": rec.get('current_price', 0.0),
                 "is_rec": is_rec_val,
-                "rec_type": rec_type
+                "rec_type": rec_type,
+                "one_liner": rec.get('one_liner', '')
             })
             
         # 추천 종목이 아닌 나머지 종목 추가
