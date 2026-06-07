@@ -264,9 +264,14 @@ def init_db():
             roe REAL DEFAULT 0.0,
             debt REAL DEFAULT 0.0,
             reason TEXT,
-            news_summary TEXT
+            news_summary TEXT,
+            rec_type TEXT DEFAULT 'momentum'
         )
     ''')
+    for col_name, col_def in [
+        ('rec_type', "TEXT DEFAULT 'momentum'"),
+    ]:
+        cursor.execute(f"ALTER TABLE audit_recommendations ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
 
     # 조회 성능 인덱스
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_daily_history_date ON stock_daily_history(date)")
@@ -915,7 +920,7 @@ def get_stock_disclosures(code):
         start_dt = end_dt - timedelta(days=90)
 
         # corp_code DataFrame에서 stock_code 매핑
-        corp_df = dart.corp_code
+        corp_df = dart.corp_codes
         matched = corp_df[corp_df['stock_code'] == code]
         if matched.empty:
             return jsonify([])
@@ -973,7 +978,7 @@ def get_stock_pool():
         
         # 1. audit_recommendations 테이블에서 추천 종목 조회
         cursor.execute("""
-            SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary
+            SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type
             FROM audit_recommendations
         """)
         rec_rows = [dict(r) for r in cursor.fetchall()]
@@ -1000,6 +1005,9 @@ def get_stock_pool():
             
             pool_info = pool_dict.get(code, {})
             
+            rec_type = rec.get('rec_type', 'momentum')
+            is_rec_val = 2 if rec_type == 'value' else 0
+            
             results.append({
                 "code": code,
                 "name": rec.get('name') or pool_info.get('name', ''),
@@ -1016,7 +1024,8 @@ def get_stock_pool():
                 "news_summary": rec.get('news_summary', ''),
                 "upside": rec.get('upside', 0.0),
                 "current_price": rec.get('current_price', 0.0),
-                "is_rec": 0
+                "is_rec": is_rec_val,
+                "rec_type": rec_type
             })
             
         # 추천 종목이 아닌 나머지 종목 추가
@@ -1039,7 +1048,8 @@ def get_stock_pool():
                     "news_summary": None,
                     "upside": None,
                     "current_price": None,
-                    "is_rec": 1
+                    "is_rec": 1,
+                    "rec_type": None
                 })
                 
         # 나머지 종목 정렬 (pool_score DESC)

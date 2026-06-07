@@ -847,6 +847,17 @@
 
             <!-- TOP 10 -->
             <div id="poolTop10Section">
+                <!-- [감사팀/개발2팀] 추천 이원화 서브탭 -->
+                <div style="display: flex; gap: 10px; margin-bottom: 24px; background: rgba(255,255,255,0.02); padding: 6px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); width: fit-content;">
+                    <button id="recTypeTabValue" onclick="switchRecTypeTab('value')"
+                        style="padding: 10px 24px; border-radius: 12px; border: none; background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
+                        💎 대형 가치 추천주
+                    </button>
+                    <button id="recTypeTabMomentum" onclick="switchRecTypeTab('momentum')"
+                        style="padding: 10px 24px; border-radius: 12px; border: none; background: transparent; color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
+                        ⚡ 모멘텀 추천주
+                    </button>
+                </div>
                 <div id="targetsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
                     <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 80px;"><p>불러오는 중...</p></div>
                 </div>
@@ -3791,7 +3802,13 @@
                     if (!container) return;
                     
                     let discHtml = '';
-                    if (!disclosures || disclosures.length === 0) {
+                    if (!disclosures || disclosures.error || !Array.isArray(disclosures)) {
+                        const errorMsg = (disclosures && disclosures.error) ? disclosures.error : '최근 공시된 내역이 없습니다.';
+                        discHtml = `
+                            <div style="color:var(--text-muted);text-align:center;padding:20px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:16px;">
+                                ${errorMsg}
+                            </div>`;
+                    } else if (disclosures.length === 0) {
                         discHtml = `
                             <div style="color:var(--text-muted);text-align:center;padding:20px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:16px;">
                                 최근 공시된 내역이 없습니다.
@@ -4268,6 +4285,42 @@
         function loadAuditDates() { loadPoolData(); }
 
         let currentPoolTab = 'top10';
+        let currentRecType = 'value';
+        let currentWatchlistCodes = new Set();
+
+        function switchRecTypeTab(type) {
+            currentRecType = type;
+            const btnMom = document.getElementById('recTypeTabMomentum');
+            const btnVal = document.getElementById('recTypeTabValue');
+            if (btnMom && btnVal) {
+                if (type === 'momentum') {
+                    btnMom.style.cssText = 'padding: 10px 24px; border-radius: 12px; border: none; background: rgba(99, 102, 241, 0.2); color: white; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
+                    btnVal.style.cssText = 'padding: 10px 24px; border-radius: 12px; border: none; background: transparent; color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
+                } else {
+                    btnMom.style.cssText = 'padding: 10px 24px; border-radius: 12px; border: none; background: transparent; color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
+                    btnVal.style.cssText = 'padding: 10px 24px; border-radius: 12px; border: none; background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
+                }
+            }
+            refreshPoolTop10Rendering();
+        }
+
+        function refreshPoolTop10Rendering() {
+            const filtered = currentPoolStocks.filter(s => {
+                if (currentRecType === 'momentum') {
+                    return s.is_rec === 0 || s.rec_type === 'momentum';
+                } else {
+                    return s.is_rec === 2 || s.rec_type === 'value';
+                }
+            });
+            const top10 = filtered.slice(0, 10);
+            renderPoolTop10(top10, currentWatchlistCodes);
+
+            if (top10.length > 0) {
+                const codes = top10.map(s => s.code).join(',');
+                fetch(`/api/targets/live-prices?codes=${codes}`)
+                    .then(r => r.json()).then(applyLivePrices).catch(() => {});
+            }
+        }
 
         function switchPoolTab(tab) {
             currentPoolTab = tab;
@@ -4295,12 +4348,8 @@
                 const el = document.getElementById('poolRankedBy');
                 if (el) el.textContent = rankedBy;
 
-                const watchlistCodes = new Set((watchlistData || []).map(w => w.code));
-                renderPoolTop10(poolData.stocks.slice(0, 10), watchlistCodes);
-
-                const codes = poolData.stocks.slice(0, 10).map(s => s.code).join(',');
-                fetch(`/api/targets/live-prices?codes=${codes}`)
-                    .then(r => r.json()).then(applyLivePrices).catch(() => {});
+                currentWatchlistCodes = new Set((watchlistData || []).map(w => w.code));
+                refreshPoolTop10Rendering();
             })
             .catch(err => {
                 console.error("Error loading pool & watchlist data:", err);
@@ -4311,7 +4360,7 @@
             const list = document.getElementById('targetsList');
             if (!list) return;
             if (!stocks || stocks.length === 0) {
-                list.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:80px;"><p>풀 데이터가 없습니다. build_stock_pool.py를 실행해주세요.</p></div>';
+                list.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:80px;"><p>추천 종목 데이터가 없습니다. select_top_10.py를 구동해주세요.</p></div>';
                 return;
             }
             const rankColors = ['#fbbf24','#94a3b8','#cd7c3e','#10b981','#10b981','#10b981','#10b981','#10b981','#10b981','#10b981'];
@@ -4320,6 +4369,13 @@
                 const score = (s.priority_score || s.pool_score || 0).toFixed(1);
                 const summary = s.ai_summary || '';
                 const isAdded = watchlistCodes.has(s.code);
+                const isValue = s.rec_type === 'value' || s.is_rec === 2;
+
+                const topBarBg = isValue 
+                    ? 'linear-gradient(to right, #3b82f6, #06b6d4)'
+                    : `linear-gradient(to right, ${rankColors[idx]||'#10b981'}, ${rankColors[idx]||'#059669'}88)`;
+
+                const badgeColor = isValue ? '#3b82f6' : (rankColors[idx] || '#10b981');
                 
                 const watchlistBtn = isAdded 
                     ? `<button disabled style="flex:1.5;padding:10px 4px;border-radius:10px;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#10b981;font-size:12px;font-weight:800;cursor:default;white-space:nowrap;">
@@ -4332,16 +4388,24 @@
                         ⭐ 관심 추가
                        </button>`;
 
+                const scoreLabel = isValue ? '가치점수' : 'AI 점수';
+                const scoreColor = isValue ? '#3b82f6' : '#fbbf24';
+                const cardBg = isValue 
+                    ? 'linear-gradient(135deg, rgba(59,130,246,0.05), rgba(6,182,212,0.03))'
+                    : 'rgba(255,255,255,0.03)';
+                const cardBorder = isValue ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.07)';
+
                 return `
-                <div class="result-card" style="background:rgba(255,255,255,0.03);border-radius:24px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;display:flex;flex-direction:column;">
-                    <div style="height:4px;background:linear-gradient(to right,${rankColors[idx]||'#10b981'},${rankColors[idx]||'#059669'}88);"></div>
+                <div class="result-card" style="background:${cardBg};border-radius:24px;border:1px solid ${cardBorder};overflow:hidden;display:flex;flex-direction:column;">
+                    <div style="height:4px;background:${topBarBg};"></div>
                     <div style="display:flex;">
                         <div style="flex:55;padding:24px;display:flex;flex-direction:column;gap:14px;border-right:1px solid rgba(255,255,255,0.06);">
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                                <span style="font-size:13px;font-weight:900;color:${rankColors[idx]||'#10b981'};background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);padding:3px 10px;border-radius:8px;font-family:'Outfit',sans-serif;">${rank}위</span>
+                                <span style="font-size:13px;font-weight:900;color:${badgeColor};background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);padding:3px 10px;border-radius:8px;font-family:'Outfit',sans-serif;">${rank}위</span>
                                 <span style="font-size:22px;font-weight:900;color:white;font-family:'Outfit',sans-serif;">${s.name}</span>
                                 <span style="font-size:11px;color:#64748b;">${s.code}</span>
                                 <span style="font-size:11px;color:#94a3b8;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:20px;">${s.sector||''}</span>
+                                ${isValue ? '<span style="font-size:11px;color:#3b82f6;background:rgba(59,130,246,0.15);padding:2px 8px;border-radius:20px;font-weight:700;">💎 대형가치</span>' : '<span style="font-size:11px;color:#818cf8;background:rgba(99,102,241,0.15);padding:2px 8px;border-radius:20px;font-weight:700;">⚡ 모멘텀</span>'}
                             </div>
                             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
                                 <div style="padding:10px 8px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
@@ -4357,8 +4421,8 @@
                                     <div style="font-size:15px;font-weight:900;color:#3b82f6;">${(s.debt_ratio||0).toFixed(0)}%</div>
                                 </div>
                                 <div style="padding:10px 8px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
-                                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">AI 점수</div>
-                                    <div style="font-size:15px;font-weight:900;color:#fbbf24;">${score}</div>
+                                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">${scoreLabel}</div>
+                                    <div style="font-size:15px;font-weight:900;color:${scoreColor};">${score}</div>
                                 </div>
                             </div>
                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
@@ -4371,7 +4435,7 @@
                                     <div style="font-size:20px;font-weight:900;color:#818cf8;font-family:'Outfit',sans-serif;">${(s.pool_score||0).toFixed(1)}</div>
                                 </div>
                             </div>
-                            ${summary ? `<div style="padding:12px 14px;background:rgba(16,185,129,0.05);border-radius:12px;border:1px solid rgba(16,185,129,0.1);font-size:12px;color:#94a3b8;line-height:1.6;"><span style="color:#10b981;font-weight:700;">🤖 AI 분석 </span>${summary}</div>` : ''}
+                            ${summary ? `<div style="padding:12px 14px;background:rgba(16,185,129,0.05);border-radius:12px;border:1px solid rgba(16,185,129,0.1);font-size:12px;color:#94a3b8;line-height:1.6;"><span style="color:#10b981;font-weight:700;">분석 요약 </span>${summary}</div>` : ''}
                         </div>
                         <div style="flex:45;padding:20px;display:flex;flex-direction:column;gap:12px;">
                             <div id="live-${s.code}" style="padding:12px 16px;background:rgba(255,255,255,0.02);border-radius:12px;border:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center;">

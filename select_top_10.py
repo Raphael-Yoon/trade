@@ -18,10 +18,10 @@ if os.name == 'nt':
         pass
 
 # Add trade path to import get_all_naver_data
-sys.path.append('c:/Pythons/trade')
+sys.path.append('c:/Python/trade')
 from get_all_naver_data import get_all_naver_data
 
-def evaluate_single_candidate(cand, pool, dart_key):
+def evaluate_single_candidate(cand, pool, dart_key, eval_type='momentum'):
     code = cand['code']
     name = cand['name']
     
@@ -57,6 +57,12 @@ def evaluate_single_candidate(cand, pool, dart_key):
     if upside <= 0:
         return None
         
+    # Large cap filter for value evaluation (Market cap >= 10 Trillion KRW)
+    market_cap_calc = naver_data.get('outstanding_shares', 0) * current_price
+    is_large_cap = market_cap_calc >= 10_000_000_000_000
+    if eval_type == 'value' and not is_large_cap:
+        return None
+        
     # Hard Filter B: Bad disclosures (audit, internal control, embezzlement/trust breach)
     disclosures = []
     if dart_key:
@@ -82,49 +88,15 @@ def evaluate_single_candidate(cand, pool, dart_key):
     if is_filtered:
         return None
         
-    # Hard Filter C: Short-term Trend Filter
-    if ma5_diff <= 0 and ma20_diff <= 0:
-        return None
+    # Hard Filter C: Short-term Trend Filter (Bypassed for value evaluation)
+    if eval_type != 'value':
+        if ma5_diff <= 0 and ma20_diff <= 0:
+            return None
         
     # Compute Scoring
-    roe_score = (min(100.0, max(0.0, roe)) / 50.0) * 100.0
-    
     f_net = naver_data.get('foreign_5d_net', 0)
     i_net = naver_data.get('inst_5d_net', 0)
     
-    foreign_subscore = 100.0 if f_net > 0 else (0.0 if f_net == 0 else -10.0)
-    inst_subscore = 100.0 if i_net > 0 else 0.0
-    supply_score = (foreign_subscore * 0.6) + (inst_subscore * 0.4)
-        
-    momentum_score = naver_data.get('price_position_52w', 50.0)
-    upside_score = (min(100.0, max(0.0, upside)) / 100.0) * 100.0
-    
-    # 뉴스 헤드라인 수집 및 심리 점수 계산
-    news_list = naver_data.get('news', [])
-    news_headlines = [n for n in news_list]
-    
-    pos_keywords = ['수주', '계약', '상승', '호재', '최고', '급등', '돌파', '흑자', '성장', '개선', '대규모', '신기록', '호실적']
-    neg_keywords = ['소송', '피소', '하락', '악재', '급락', '적자', '감소', '횡령', '배임', '위기', '우려', '이탈', '손실']
-    
-    pos_count = 0
-    neg_count = 0
-    for n in news_headlines[:10]:
-        title = n.get('title', '')
-        for kw in pos_keywords:
-            if kw in title:
-                pos_count += 1
-                break
-        for kw in neg_keywords:
-            if kw in title:
-                neg_count += 1
-                break
-                
-    news_score = 60.0
-    if pos_count > neg_count:
-        news_score = min(100.0, 80.0 + (pos_count - neg_count) * 10.0)
-    elif neg_count > pos_count:
-        news_score = max(0.0, 40.0 - (neg_count - pos_count) * 10.0)
-
     # 공시 모멘텀 가감점 계산
     disclosure_adjustment = 0.0
     for report_nm, rcept_dt, rm in disclosures:
@@ -133,14 +105,76 @@ def evaluate_single_candidate(cand, pool, dart_key):
         if any(term in report_nm for term in ['소송', '피소', '유상증자']):
             disclosure_adjustment -= 5.0
     disclosure_adjustment = max(-5.0, min(5.0, disclosure_adjustment))
- 
-    # Total score (audit_logic.md: ROE 30%, Supply 20%, Momentum 20%, Upside 20%, News 10% + Disclosure Adj)
-    base_score = (roe_score * 0.30) + (supply_score * 0.20) + (momentum_score * 0.20) + (upside_score * 0.20) + (news_score * 0.10)
-    final_score = round(min(100.0, max(0.0, base_score + disclosure_adjustment)), 2)
- 
-    sector = naver_data.get('industry_name', '기타')
-    reason = f"[{sector}] ROE {roe:.1f}% | 수급 외인{'유입' if f_net > 0 else '이탈'}/기관{'유입' if i_net > 0 else '이탈'} | 상승여력 {round(upside, 1)}% | 뉴스 {round(news_score, 1)}점 | 공시조정 {disclosure_adjustment:+.1f}점"
- 
+    
+    if eval_type == 'value':
+        # PBR Score (30%): PBR 1.0 or below gets 100, 5.0 or above gets 0.
+        pbr = naver_data.get('pbr', 0.0)
+        pbr_score = max(0.0, min(100.0, (5.0 - pbr) / 4.0 * 100.0))
+        
+        # ROE Score (30%): ROE 20% or above gets 100.
+        roe_score = min(100.0, max(0.0, roe)) * 5.0
+        
+        # Upside Score (20%): Upside 50% or above gets 100.
+        upside_score = (min(50.0, max(0.0, upside)) / 50.0) * 100.0
+        
+        # Dividend Yield Score (10%): Dividend yield 5% or above gets 100.
+        dividend_yield = naver_data.get('dividend_yield', 0.0)
+        div_score = min(100.0, dividend_yield * 20.0)
+        
+        # Oversold Score (10%): Lower price position in 52w is better.
+        price_position_52w = naver_data.get('price_position_52w', 50.0)
+        oversold_score = 100.0 - price_position_52w
+        
+        base_score = (pbr_score * 0.30) + (roe_score * 0.30) + (upside_score * 0.20) + (div_score * 0.10) + (oversold_score * 0.10)
+        final_score = round(min(100.0, max(0.0, base_score + disclosure_adjustment)), 2)
+        
+        sector = naver_data.get('industry_name', '기타')
+        reason = f"[{sector}] 대형 가치주 | ROE {roe:.1f}% | PBR {pbr:.2f} | 상승여력 {round(upside, 1)}% | 배당 {dividend_yield:.1f}% | 주가위치 {price_position_52w:.1f}% | 공시조정 {disclosure_adjustment:+.1f}점"
+    else:
+        # Momentum Scoring
+        roe_score = (min(100.0, max(0.0, roe)) / 50.0) * 100.0
+        
+        foreign_subscore = 100.0 if f_net > 0 else (0.0 if f_net == 0 else -10.0)
+        inst_subscore = 100.0 if i_net > 0 else 0.0
+        supply_score = (foreign_subscore * 0.6) + (inst_subscore * 0.4)
+            
+        momentum_score = naver_data.get('price_position_52w', 50.0)
+        upside_score = (min(100.0, max(0.0, upside)) / 100.0) * 100.0
+        
+        # 뉴스 헤드라인 수집 및 심리 점수 계산
+        news_list = naver_data.get('news', [])
+        news_headlines = [n for n in news_list]
+        
+        pos_keywords = ['수주', '계약', '상승', '호재', '최고', '급등', '돌파', '흑자', '성장', '개선', '대규모', '신기록', '호실적']
+        neg_keywords = ['소송', '피소', '하락', '악재', '급락', '적자', '감소', '횡령', '배임', '위기', '우려', '이탈', '손실']
+        
+        pos_count = 0
+        neg_count = 0
+        for n in news_headlines[:10]:
+            title = n.get('title', '')
+            for kw in pos_keywords:
+                if kw in title:
+                    pos_count += 1
+                    break
+            for kw in neg_keywords:
+                if kw in title:
+                    neg_count += 1
+                    break
+                    
+        news_score = 60.0
+        if pos_count > neg_count:
+            news_score = min(100.0, 80.0 + (pos_count - neg_count) * 10.0)
+        elif neg_count > pos_count:
+            news_score = max(0.0, 40.0 - (neg_count - pos_count) * 10.0)
+            
+        base_score = (roe_score * 0.30) + (supply_score * 0.20) + (momentum_score * 0.20) + (upside_score * 0.20) + (news_score * 0.10)
+        final_score = round(min(100.0, max(0.0, base_score + disclosure_adjustment)), 2)
+        
+        sector = naver_data.get('industry_name', '기타')
+        reason = f"[{sector}] ROE {roe:.1f}% | 수급 외인{'유입' if f_net > 0 else '이탈'}/기관{'유입' if i_net > 0 else '이탈'} | 상승여력 {round(upside, 1)}% | 뉴스 {round(news_score, 1)}점 | 공시조정 {disclosure_adjustment:+.1f}점"
+        
+    news_list = naver_data.get('news', [])
+    news_headlines = [n for n in news_list]
     news_summary = ""
     if news_headlines:
         news_summary = "\n".join([f"[{n.get('source', '네이버 금융')}] {n.get('title', '')} ({n.get('date', '')}) | {n.get('link', '')}" for n in news_headlines[:4]])
@@ -191,26 +225,46 @@ def run_selection():
 
     conn.close()
     
-    results = []
-    print(f"Total candidates to evaluate in parallel: {len(candidates)}")
-    
+    # 1. Evaluate Momentum Candidates
+    momentum_results = []
+    print(f"Total candidates to evaluate in parallel for Momentum: {len(candidates)}")
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(evaluate_single_candidate, cand, pool, dart_key): cand for cand in candidates}
-        
+        futures = {executor.submit(evaluate_single_candidate, cand, pool, dart_key, 'momentum'): cand for cand in candidates}
         completed_count = 0
         for future in as_completed(futures):
             completed_count += 1
             res = future.result()
             if res:
-                results.append(res)
-            if completed_count % 10 == 0 or completed_count == len(candidates):
-                print(f"Progress: {completed_count}/{len(candidates)} candidates evaluated...")
+                momentum_results.append(res)
+            if completed_count % 20 == 0 or completed_count == len(candidates):
+                print(f"Momentum Progress: {completed_count}/{len(candidates)} candidates evaluated...")
                 
-    results.sort(key=lambda x: x['score'], reverse=True)
-    top_10 = results[:10]
+    momentum_results.sort(key=lambda x: x['score'], reverse=True)
+    top_10_momentum = momentum_results[:10]
 
-    print(f"\nTop 10 선정 완료. DB 적재를 시작합니다.")
-    for idx, r in enumerate(top_10):
+    # 2. Evaluate Large-cap Value Candidates
+    value_results = []
+    print(f"Total candidates to evaluate in parallel for Large-cap Value: {len(candidates)}")
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(evaluate_single_candidate, cand, pool, dart_key, 'value'): cand for cand in candidates}
+        completed_count = 0
+        for future in as_completed(futures):
+            completed_count += 1
+            res = future.result()
+            if res:
+                value_results.append(res)
+            if completed_count % 20 == 0 or completed_count == len(candidates):
+                print(f"Value Progress: {completed_count}/{len(candidates)} candidates evaluated...")
+                
+    value_results.sort(key=lambda x: x['score'], reverse=True)
+    top_10_value = value_results[:10]
+
+    print(f"\n[⚡ 모멘텀 추천주 Top 10]")
+    for idx, r in enumerate(top_10_momentum):
+        print(f"{idx+1}. [{r['code']}] {r['name']} - Score: {r['score']} - Upside: {r['upside']}% - Reason: {r['reason']}")
+        
+    print(f"\n[💎 대형 가치 추천주 Top 10]")
+    for idx, r in enumerate(top_10_value):
         print(f"{idx+1}. [{r['code']}] {r['name']} - Score: {r['score']} - Upside: {r['upside']}% - Reason: {r['reason']}")
 
     # Neon DB audit_recommendations 저장
@@ -221,23 +275,37 @@ def run_selection():
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         data_date = datetime.now().strftime('%Y-%m-%d')
         
-        for idx, r in enumerate(top_10):
+        # Save Momentum Top 10
+        for idx, r in enumerate(top_10_momentum):
             cursor.execute("""
                 INSERT INTO audit_recommendations
-                    (code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'momentum')
             """, (
                 r['code'], r['name'], float(r['current_price']), float(r['target_price']),
                 float(r['upside']), '', data_date, now_str, float(r['score']),
                 float(r.get('roe', 0)), float(r.get('debt', 0)), r.get('reason', ''), r.get('news_summary', '')
             ))
+            
+        # Save Value Top 10
+        for idx, r in enumerate(top_10_value):
+            cursor.execute("""
+                INSERT INTO audit_recommendations
+                    (code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'value')
+            """, (
+                r['code'], r['name'], float(r['current_price']), float(r['target_price']),
+                float(r['upside']), '', data_date, now_str, float(r['score']),
+                float(r.get('roe', 0)), float(r.get('debt', 0)), r.get('reason', ''), r.get('news_summary', '')
+            ))
+            
         conn.commit()
         conn.close()
         print("[완료] Neon DB audit_recommendations 테이블 적재 성공!")
     except Exception as e:
         print(f"[오류] Neon DB audit_recommendations 적재 실패: {e}")
 
-    return results
+    return momentum_results + value_results
 
 if __name__ == '__main__':
     run_selection()
