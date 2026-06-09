@@ -461,8 +461,7 @@ def get_dart_financials(dart, ticker, target_year=None, report_types=None):
     # 상장주식수 먼저 파악 (비비율 계산용)
     total_shares = 0
     try:
-        # corp_code = dart.find_corp_code(ticker) # 이미 ticker가 corp_code 역할을 할 수 있음
-        stock_info = dart.stock_totqty(ticker, datetime.now().year-1, '11011') # 일단 작년 기준
+        stock_info = dart.stock_totqty(ticker, datetime.now().year-1, '11011')
         if stock_info is not None and not stock_info.empty:
             # 보통 첫번째 행의 상장주식수가 총수
             total_shares = int(str(stock_info.iloc[0].get('stock_totqty', '0')).replace(',', ''))

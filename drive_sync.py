@@ -318,7 +318,3 @@ def list_files_in_folder(folder_name="Stock_Analysis_Results", token_filename='t
         print(f"구글 드라이브 목록 조회 중 오류 발생: {e}")
         return []
 
-if __name__ == "__main__":
-    # 테스트 코드
-    # upload_to_drive("test.xlsx")
-    pass

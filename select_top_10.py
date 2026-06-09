@@ -18,7 +18,7 @@ if os.name == 'nt':
         pass
 
 # Add trade path to import get_all_naver_data
-sys.path.append('c:/Python/trade')
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from get_all_naver_data import get_all_naver_data
 
 def evaluate_single_candidate(cand, pool, dart_key, eval_type='momentum'):

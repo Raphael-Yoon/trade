@@ -2132,7 +2132,6 @@
 
         function updateRealtimePrices() {
             if (isRealtimeFetching) {
-                console.log("Realtime fetch is already in progress, skipping...");
                 return;
             }
             isRealtimeFetching = true;
@@ -3080,7 +3079,6 @@
                     const aiBtn = document.getElementById('aiPortfolioReportBtn');
                     if (aiBtn) {
                         aiBtn.addEventListener('click', function () {
-                            console.log('AI Button Clicked!');
                             generateAiPortfolioReport();
                         });
                     }
@@ -4149,7 +4147,6 @@
             fetch(`/api/alerts?sort=${currentAlertSort}`)
                 .then(res => res.json())
                 .then(data => {
-                    console.log('📡 [Alerts API Response]:', data);
                     const list = document.getElementById('alertsList');
                     if (!list) return;
                     if (!data || data.length === 0) {
