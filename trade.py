@@ -27,6 +27,12 @@ import time
 
 app = Flask(__name__)
 
+# Flask 앱의 모든 응답에 ngrok 경고창 패스 헤더를 강제로 심어주는 코드
+@app.after_request
+def bypass_ngrok_warning(response):
+    response.headers['ngrok-skip-browser-warning'] = 'true'
+    return response
+
 # 작업 상태 저장
 tasks = {}
 
