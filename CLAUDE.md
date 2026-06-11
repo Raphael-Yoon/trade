@@ -5,7 +5,8 @@
 
 ## 1. 빌드 및 실행 명령어 (Build & Run)
 
-- **메인 시스템 실행**: `python trade.py`
+- **메인 시스템 실행 (Gunicorn 재구동)**: `./coffee_house_run.sh`
+- **메인 시스템 종료 (Gunicorn 중지)**: `./coffee_house_stop.sh`
 - **데이터 수집 파이프라인**: `python data_collect.py`
 - **DART 공시 일괄 수집**: `python collect_disclosures.py --days 30` (최근 N일간 시장 전체 공시 수집)
 - **AI 종목 분석 실행**: `python ai_analysis.py`
