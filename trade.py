@@ -178,6 +178,9 @@ daily_prices_cache = {}
 # [김정음] KOSPI 일별 시세 캐시 — 30분 TTL
 kospi_daily_cache = {'data': [], 'ts': 0.0}
 
+# [김정음] 투자자별 순매수 캐시 — 60초 TTL
+investor_trend_cache = {}
+
 def load_financial_health(force=False):
     """[김선화] 감사팀의 재무 보고서(Excel)를 구글 드라이브 또는 로컬에서 로드하여 주요 지표를 캐싱합니다."""
     global financial_cache
@@ -1302,12 +1305,42 @@ def get_market_index(ticker):
         print(f"Error fetching index {ticker}: {e}")
     return {'name': ticker, 'code': ticker, 'price': 0, 'change': 0, 'rate': 0}
 
+def get_market_investor_trend(ticker):
+    """[김정음] 네이버 모바일 API에서 투자자별 순매수를 가져옵니다. (단위: 억원)"""
+    global investor_trend_cache
+    entry = investor_trend_cache.get(ticker)
+    if entry and time.time() - entry['ts'] < 60:
+        return entry['data']
+    empty = {'foreign': None, 'institution': None, 'individual': None}
+    try:
+        url = f"https://m.stock.naver.com/api/index/{ticker}/trend"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        d = res.json()
+        def _parse(s):
+            try:
+                return int(str(s).replace(',', '').replace('+', ''))
+            except Exception:
+                return None
+        result = {
+            'foreign':     _parse(d.get('foreignValue')),
+            'institution': _parse(d.get('institutionalValue')),
+            'individual':  _parse(d.get('personalValue')),
+        }
+        investor_trend_cache[ticker] = {'data': result, 'ts': time.time()}
+        return result
+    except Exception as e:
+        print(f"Error fetching investor trend {ticker}: {e}")
+    return empty
+
+
 @app.route('/api/market/indices', methods=['GET'])
 def get_market_indices_api():
     """[김정음] 주요 시장 지수를 반환합니다."""
     indices = []
     for ticker in ['KOSPI', 'KOSDAQ']:
-        indices.append(get_market_index(ticker))
+        data = get_market_index(ticker)
+        data['investor'] = get_market_investor_trend(ticker)
+        indices.append(data)
     return jsonify(indices)
 
 @app.route('/api/my_stocks', methods=['GET'])
