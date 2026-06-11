@@ -712,7 +712,6 @@ def get_extra_stock_data(ticker, name, headers, data):
         
     return extra
 
-# 테스트
 if __name__ == '__main__':
     import sys
     if os.name == 'nt':

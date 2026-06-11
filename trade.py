@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 import sys
 import os
 
@@ -23,6 +23,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ai_analysis import analyze_stock_data, analyze_portfolio
 from get_all_naver_data import get_all_naver_data
+from db_init import init_db
 import time
 
 app = Flask(__name__)
@@ -143,149 +144,6 @@ def close_db(e=None):
     if db is not None:
         db.close()
 
-def init_db():
-    """데이터베이스 초기화 및 테이블 생성 (PostgreSQL)"""
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-
-    # 종목 통합 테이블 (보유 종목 + 관심 종목)
-    # type = 'portfolio' (보유) / 'watchlist' (관심)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS my_stocks (
-            code TEXT PRIMARY KEY,
-            name TEXT,
-            added_at TEXT,
-            purchase_price REAL DEFAULT 0,
-            quantity INTEGER DEFAULT 0,
-            stop_loss_ratio REAL DEFAULT 0,
-            is_favorite INTEGER DEFAULT 0,
-            peak_price REAL DEFAULT 0,
-            owner TEXT DEFAULT '나',
-            type TEXT DEFAULT 'portfolio'
-        )
-    ''')
-    for col_name, col_def in [
-        ('purchase_price', 'REAL DEFAULT 0'),
-        ('quantity', 'INTEGER DEFAULT 0'),
-        ('stop_loss_ratio', 'REAL DEFAULT 0'),
-        ('is_favorite', 'INTEGER DEFAULT 0'),
-        ('peak_price', 'REAL DEFAULT 0'),
-        ("owner", "TEXT DEFAULT '나'"),
-        ("type", "TEXT DEFAULT 'portfolio'"),
-    ]:
-        cursor.execute(f"ALTER TABLE my_stocks ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
-
-    # 종목별 일자별 히스토리 테이블
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS stock_daily_history (
-            id SERIAL PRIMARY KEY,
-            date TEXT,
-            code TEXT,
-            name TEXT,
-            purchase_price REAL,
-            current_price REAL,
-            quantity INTEGER,
-            owner TEXT,
-            recorded_at TEXT,
-            day_profit REAL DEFAULT 0,
-            cumulative_profit REAL DEFAULT 0,
-            change_rate REAL DEFAULT 0
-        )
-    ''')
-    for col_name, col_def in [
-        ('day_profit', 'REAL DEFAULT 0'),
-        ('cumulative_profit', 'REAL DEFAULT 0'),
-        ('change_rate', 'REAL DEFAULT 0'),
-    ]:
-        cursor.execute(f"ALTER TABLE stock_daily_history ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
-
-    # 매도 거래 이력 테이블
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS sell_history (
-            id SERIAL PRIMARY KEY,
-            code TEXT,
-            name TEXT,
-            owner TEXT,
-            sell_price REAL,
-            sell_qty INTEGER,
-            purchase_price REAL,
-            profit REAL,
-            profit_rate REAL,
-            sell_date TEXT,
-            created_at TEXT
-        )
-    ''')
-
-    # 종목 마스터 테이블 (검색용)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS stocks_master (
-            code TEXT PRIMARY KEY,
-            name TEXT,
-            market TEXT
-        )
-    ''')
-
-    # 포트폴리오 AI 분석 캐시 테이블
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS portfolio_ai_cache (
-            cache_key TEXT PRIMARY KEY,
-            ai_result TEXT,
-            created_at TEXT
-        )
-    ''')
-
-    # 투자 풀 테이블 (감사팀 협업)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS stock_pool (
-            code TEXT PRIMARY KEY,
-            name TEXT,
-            sector TEXT,
-            roe REAL,
-            pbr REAL,
-            per REAL,
-            debt_ratio REAL,
-            operating_margin REAL,
-            target_price REAL,
-            foreign_net_buy REAL,
-            inst_net_buy REAL,
-            pool_score REAL,
-            data_date TEXT,
-            updated_at TEXT
-        )
-    ''')
-
-    # 감사팀 추천 종목 테이블 복원
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS audit_recommendations (
-            id SERIAL PRIMARY KEY,
-            code TEXT,
-            name TEXT,
-            current_price REAL,
-            target_price REAL,
-            upside REAL,
-            opinion TEXT,
-            data_date TEXT,
-            created_at TEXT,
-            score REAL DEFAULT 0.0,
-            roe REAL DEFAULT 0.0,
-            debt REAL DEFAULT 0.0,
-            reason TEXT,
-            news_summary TEXT,
-            rec_type TEXT DEFAULT 'momentum'
-        )
-    ''')
-    for col_name, col_def in [
-        ('rec_type', "TEXT DEFAULT 'momentum'"),
-        ('one_liner', "TEXT DEFAULT ''"),
-    ]:
-        cursor.execute(f"ALTER TABLE audit_recommendations ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
-
-    # 조회 성능 인덱스
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_daily_history_date ON stock_daily_history(date)")
-
-    conn.commit()
-    conn.close()
-
 # DB 초기화 실행
 init_db()
 
@@ -325,6 +183,9 @@ daily_prices_cache = {}
 
 # [김정음] KOSPI 일별 시세 캐시 — 30분 TTL
 kospi_daily_cache = {'data': [], 'ts': 0.0}
+
+# [김정음] 투자자별 순매수 캐시 — 60초 TTL
+investor_trend_cache = {}
 
 def load_financial_health(force=False):
     """[김선화] 감사팀의 재무 보고서(Excel)를 구글 드라이브 또는 로컬에서 로드하여 주요 지표를 캐싱합니다."""
@@ -1334,242 +1195,6 @@ def get_portfolio_details(ticker):
     return data
 
 
-# ===== 기존 get_portfolio_details 함수는 주석 처리 (백업용) =====
-def get_portfolio_details_old(ticker):
-    """[DEPRECATED] 기존 함수 - get_all_naver_data로 대체됨"""
-    # 1. 메인 페이지 데이터 (가격, 목표주가, 재무지표)
-    main_url = f"https://finance.naver.com/item/main.naver?code={ticker}"
-    # 2. 투자자별 매매동향 (수급)
-    investor_url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
-    data = {
-        'code': ticker,
-        'current_price': 0,
-        'market_cap': 'N/A',
-        'opinion': 'N/A',
-        'target_price': 0,
-        'high_52w': 0,
-        'low_52w': 0,
-        'per': 0,
-        'pbr': 0,
-        'dividend_yield': 0,
-        'revenue_growth': 'N/A',
-        'profit_growth': 'N/A',
-        'foreign_net_buy': 0,
-        'inst_net_buy': 0,
-        'rsi': 0
-    }
-    
-    try:
-        # --- 메인 페이지 파싱 ---
-        response = requests.get(main_url, headers=headers, timeout=5)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 현재가
-        new_totalinfo = soup.find('div', class_='new_totalinfo')
-        if new_totalinfo:
-            blind = new_totalinfo.find('dl', class_='blind')
-            if blind:
-                dd_list = blind.find_all('dd')
-                if len(dd_list) >= 4:
-                    price_text = dd_list[3].text.split()[1].replace(',', '')
-                    data['current_price'] = int(price_text)
-                
-        # 시가총액 (첫 번째 테이블에서 찾기)
-        first_tbody = soup.find('table', class_='tb_type1')
-        if first_tbody:
-            tbody = first_tbody.find('tbody')
-            if tbody:
-                for tr in tbody.find_all('tr'):
-                    th = tr.find('th')
-                    if th and '시가총액' in th.get_text():
-                        td = tr.find('td')
-                        if td:
-                            data['market_cap'] = td.get_text(strip=True)
-
-        # 투자의견/목표주가 (전체 페이지에서 검색 - HTML 구조 변경에 대응)
-        # 새로운 네이버 금융 구조: <th>투자의견l목표주가</th> <td><span>매수</span><em>166,385</em></td>
-        for tr in soup.find_all('tr'):
-            th = tr.find('th')
-            if th and '투자의견' in th.get_text() and '목표주가' in th.get_text():
-                td = tr.find('td')
-                if td:
-                    # 투자의견 (span 태그에서)
-                    opinion_span = td.find('span', class_='f_up') or td.find('span')
-                    if opinion_span:
-                        opinion_text = opinion_span.get_text(strip=True)
-                        # 숫자 제거 (예: "4.00매수" -> "매수")
-                        data['opinion'] = re.sub(r'^[\d.]+', '', opinion_text).strip()
-
-                    # 목표주가 (em 태그에서)
-                    ems = td.find_all('em')
-                    for em in ems:
-                        text = em.get_text(strip=True).replace(',', '')
-                        # 숫자만 있는 em 태그 찾기 (목표주가)
-                        if text.isdigit() and len(text) >= 4:  # 최소 4자리 (만원 이상)
-                            data['target_price'] = int(text)
-                            break
-                break
-
-        # 재무 지표 (성장성 포함)
-        section = soup.find('div', class_='section cop_analysis')
-        if section:
-            # 클래스가 tb_type1과 tb_num을 포함하는 테이블 찾기 (HTML 구조 변경 대응)
-            table = section.find('table', class_=lambda c: c and 'tb_type1' in c and 'tb_num' in c)
-            if table:
-                trs = table.find_all('tr')
-                
-                # 수집할 데이터 맵
-                finance_data = {
-                    '매출액': [],
-                    '영업이익': [],
-                    '매출액증가율': 'N/A',
-                    '영업이익증가율': 'N/A'
-                }
-                
-                for tr in trs:
-                    th = tr.find('th')
-                    if not th: continue
-                    th_text = th.get_text(strip=True)
-                    tds = tr.find_all('td')
-                    if not tds: continue
-                    
-                    # -2: 최근 확정 연도 실적, -1: 올해 전망치(보통)
-                    # 만약 전망치가 있으면 -2를 쓰고, 없으면 -1을 쓰는 유연함이 필요하지만 
-                    # 우선 -2를 기준으로 하되 N/A인 경우 앞쪽으로 탐색
-                    
-                    def get_last_valid_val(td_list):
-                        # 뒤에서부터 (전망치 제외하고) 유효한 값 찾기
-                        for i in range(len(td_list)-2, -1, -1):
-                            val = td_list[i].get_text(strip=True).replace(',', '')
-                            if val and val != '-' and val != 'N/A':
-                                return val
-                        return None
-
-                    if '매출액증가율' in th_text:
-                        val = get_last_valid_val(tds)
-                        if val: finance_data['매출액증가율'] = val
-                    elif '영업이익증가율' in th_text:
-                        val = get_last_valid_val(tds)
-                        if val: finance_data['영업이익증가율'] = val
-                    elif th_text == '매출액':
-                        finance_data['매출액'] = [t.get_text(strip=True).replace(',', '') for t in tds]
-                    elif th_text == '영업이익':
-                        finance_data['영업이익'] = [t.get_text(strip=True).replace(',', '') for t in tds]
-
-                # 직접 계산 (성장성 지표가 명시적으로 없는 경우)
-                if finance_data['매출액증가율'] == 'N/A' and len(finance_data['매출액']) >= 3:
-                    try:
-                        # 최근 2년 데이터 비교 (보통 인덱스 1, 2 또는 2, 3)
-                        # thead에서 확정 연도 위치를 파악하는 것이 정확하나 간이로 진행
-                        curr = float(finance_data['매출액'][-2]) # 최근 확정
-                        prev = float(finance_data['매출액'][-3]) # 전년
-                        if prev > 0:
-                            growth = round((curr - prev) / prev * 100, 1)
-                            finance_data['매출액증가율'] = str(growth)
-                    except: pass
-                
-                if finance_data['영업이익증가율'] == 'N/A' and len(finance_data['영업이익']) >= 3:
-                    try:
-                        curr = float(finance_data['영업이익'][-2])
-                        prev = float(finance_data['영업이익'][-3])
-                        if prev > 0:
-                            growth = round((curr - prev) / prev * 100, 1)
-                            finance_data['영업이익증가율'] = str(growth)
-                    except: pass
-                
-                data['revenue_growth'] = finance_data['매출액증가율']
-                data['profit_growth'] = finance_data['영업이익증가율']
-
-        # 52주 고점/저점 및 PER/PBR (전체 페이지에서 검색 - 구조 변경 대응)
-        all_trs = soup.find_all('tr')
-        for tr in all_trs:
-            tr_text = tr.get_text()
-            # 52주 고/저
-            if '52주' in tr_text and ('최고' in tr_text or '고가' in tr_text):
-                ems = tr.find_all('em')
-                if len(ems) >= 2:
-                    try:
-                        high_text = ems[0].get_text(strip=True).replace(',', '')
-                        low_text = ems[1].get_text(strip=True).replace(',', '')
-                        if high_text.isdigit():
-                            data['high_52w'] = int(high_text)
-                        if low_text.isdigit():
-                            data['low_52w'] = int(low_text)
-                    except:
-                        pass
-
-            # PER (ID 기반 검색이 더 안정적)
-            if 'PER' in tr_text and '배당' not in tr_text:
-                per_em = tr.find('em', id='_per')
-                if per_em:
-                    val = per_em.get_text(strip=True).replace(',', '')
-                    if val and val != '-' and val != 'N/A':
-                        try:
-                            data['per'] = float(val)
-                        except:
-                            pass
-
-            # PBR
-            if 'PBR' in tr_text:
-                pbr_em = tr.find('em', id='_pbr')
-                if pbr_em:
-                    val = pbr_em.get_text(strip=True).replace(',', '')
-                    if val and val != '-' and val != 'N/A':
-                        try:
-                            data['pbr'] = float(val)
-                        except:
-                            pass
-
-            # 배당수익률
-            if '배당수익률' in tr_text:
-                d_em = tr.find('em', id='_dvr')
-                if d_em:
-                    val = d_em.get_text(strip=True).replace(',', '').replace('%', '')
-                    if val and val != '-' and val != 'N/A':
-                        try:
-                            data['dividend_yield'] = float(val)
-                        except:
-                            pass
-
-        # --- 수급 현황 (일별 매매동향) 파싱 ---
-        frgn_response = requests.get(investor_url, headers=headers, timeout=5)
-        frgn_soup = BeautifulSoup(frgn_response.text, 'html.parser')
-        frgn_table = frgn_soup.find('table', class_='type2')
-        if frgn_table:
-            rows = frgn_table.find_all('tr')
-            f_total = 0
-            i_total = 0
-            count = 0
-            for r in rows:
-                if count >= 5: break # 최근 5일치 합산
-                tds = r.find_all('td')
-                # 날짜가 있는 데이터 행인지 확인 (클래스 tc 가 보통 날짜를 포함함)
-                if len(tds) >= 7 and '.' in tds[0].get_text():
-                    try:
-                        # 숫자와 부호만 추출
-                        i_text = re.sub(r'[^0-9\-]', '', tds[5].get_text(strip=True))
-                        f_text = re.sub(r'[^0-9\-]', '', tds[6].get_text(strip=True))
-                        if i_text: i_total += int(i_text)
-                        if f_text: f_total += int(f_text)
-                        count += 1
-                    except: continue
-            data['foreign_net_buy'] = f_total
-            data['inst_net_buy'] = i_total
-
-        # --- 기술적 지표 (RSI) 약식 계산 또는 외부 연동 ---
-        if data['high_52w'] > data['low_52w']:
-            data['rsi'] = round((data['current_price'] - data['low_52w']) / (data['high_52w'] - data['low_52w']) * 100, 1)
-
-        return data
-    except Exception as e:
-        print(f"Error collecting data for {ticker}: {e}")
-        return data
-
 def get_detailed_price(ticker):
     """[김정음] 네이버 금융에서 현재가, 전일종가, 등락 정보를 상세히 가져옵니다."""
     try:
@@ -1686,12 +1311,42 @@ def get_market_index(ticker):
         print(f"Error fetching index {ticker}: {e}")
     return {'name': ticker, 'code': ticker, 'price': 0, 'change': 0, 'rate': 0}
 
+def get_market_investor_trend(ticker):
+    """[김정음] 네이버 모바일 API에서 투자자별 순매수를 가져옵니다. (단위: 억원)"""
+    global investor_trend_cache
+    entry = investor_trend_cache.get(ticker)
+    if entry and time.time() - entry['ts'] < 60:
+        return entry['data']
+    empty = {'foreign': None, 'institution': None, 'individual': None}
+    try:
+        url = f"https://m.stock.naver.com/api/index/{ticker}/trend"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        d = res.json()
+        def _parse(s):
+            try:
+                return int(str(s).replace(',', '').replace('+', ''))
+            except Exception:
+                return None
+        result = {
+            'foreign':     _parse(d.get('foreignValue')),
+            'institution': _parse(d.get('institutionalValue')),
+            'individual':  _parse(d.get('personalValue')),
+        }
+        investor_trend_cache[ticker] = {'data': result, 'ts': time.time()}
+        return result
+    except Exception as e:
+        print(f"Error fetching investor trend {ticker}: {e}")
+    return empty
+
+
 @app.route('/api/market/indices', methods=['GET'])
 def get_market_indices_api():
     """[김정음] 주요 시장 지수를 반환합니다."""
     indices = []
     for ticker in ['KOSPI', 'KOSDAQ']:
-        indices.append(get_market_index(ticker))
+        data = get_market_index(ticker)
+        data['investor'] = get_market_investor_trend(ticker)
+        indices.append(data)
     return jsonify(indices)
 
 @app.route('/api/my_stocks', methods=['GET'])
