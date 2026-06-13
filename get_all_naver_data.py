@@ -494,7 +494,7 @@ def get_all_naver_data(ticker):
             )
             data['rsi'] = data['price_position_52w']
 
-        # 11. 추가 데이터 수집 (뉴스 검색, 수급 추세)
+        # 11. 추가 데이터 수집 (수급 추세 등, 뉴스 검색 생략)
         # ===================================================================
         extra_data = get_extra_stock_data(ticker, data.get('name', ''), headers, data)
         data.update(extra_data)
@@ -506,6 +506,7 @@ def get_all_naver_data(ticker):
         import traceback
         traceback.print_exc()
         return data
+
 
 def get_moving_averages(ticker, headers):
     """
@@ -531,9 +532,6 @@ def get_moving_averages(ticker, headers):
         # 전일 등락률 계산 (어제 종가 vs 그저께 종가)
         if len(prices) >= 2:
             yesterday_price = prices[0] # 가장 최근 종가 (오늘 장중이면 오늘 가격일 수 있으나 일별 시세 페이지 특성상 보통 어제 종가가 첫번째)
-            # 만약 장중이라면 prices[0]이 오늘 가격일 수 있음. 
-            # 네이버 일별 시세 페이지는 장중에도 오늘 가격을 첫번째 행에 보여줌.
-            # 전일 상승률을 구하려면 '어제 vs 그저께'가 필요함.
             
             # 장중(09:00~15:30) 여부 확인하여 인덱스 조정
             from datetime import datetime
@@ -571,9 +569,10 @@ def get_moving_averages(ticker, headers):
         print(f"MA calculation error for {ticker}: {e}")
     return ma_data
 
+
 def get_extra_stock_data(ticker, name, headers, data):
     """
-    수급, 뉴스, 이동평균선 등 추가 데이터를 수집합니다.
+    수급, 이동평균선 등 추가 데이터를 수집합니다. (뉴스 검색 제외)
     """
     extra = {
         'foreign_5d_net': 0,
@@ -655,53 +654,8 @@ def get_extra_stock_data(ticker, name, headers, data):
                 extra['inst_20d_net'] = i_20d
                 break
 
-        # 2. 뉴스 검색 (news_search.naver)
-        import urllib.parse
-        query = name if name else ticker
-        encoded_query = urllib.parse.quote(query.encode('euc-kr'))
-        news_url = f"https://finance.naver.com/news/news_search.naver?q={encoded_query}"
-        res = requests.get(news_url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
-
-        # newsList는 dl 요소 자체이며, 내부에 dt/dd 쌍으로 기사가 나열됨
-        news_dl = soup.select_one('dl.newsList')
-        if news_dl:
-            # articleSubject를 가진 모든 요소 찾기 (dt 또는 dd)
-            subject_elements = news_dl.select('dt.articleSubject, dd.articleSubject')
-            for subj_el in subject_elements:
-                if len(extra['news']) >= 4:
-                    break
-
-                link_el = subj_el.select_one('a')
-                if not link_el:
-                    continue
-
-                title = link_el.get_text(strip=True)
-                href = link_el.get('href', '')
-                link = "https://finance.naver.com" + href if href.startswith('/') else href
-
-                # 다음 형제 요소에서 press/date 찾기
-                source = ""
-                date = ""
-
-                # articleSummary는 보통 바로 다음 dd 형제에 있음
-                next_sibling = subj_el.find_next_sibling()
-                if next_sibling and 'articleSummary' in next_sibling.get('class', []):
-                    press_el = next_sibling.select_one('.press')
-                    date_el = next_sibling.select_one('.wdate')
-                    if press_el:
-                        source = press_el.get_text(strip=True)
-                    if date_el:
-                        # 날짜 텍스트 정리 (내부 공백/줄바꿈 제거)
-                        date = ' '.join(date_el.get_text(strip=True).split())
-
-                if title:  # 제목이 있는 경우만 추가
-                    extra['news'].append({
-                        'title': title,
-                        'link': link,
-                        'source': source,
-                        'date': date
-                    })
+        # 2. 뉴스 검색 생략 (trade 모듈에서는 사용하지 않음)
+        extra['news'] = []
 
         # 3. 이동평균선 계산
         ma_data = get_moving_averages(ticker, headers)
@@ -720,7 +674,7 @@ if __name__ == '__main__':
     result = get_all_naver_data('005930')
 
     print("\n" + "=" * 80)
-    print("네이버 금융 전체 데이터 수집 결과 - 삼성전자")
+    print("네이버 금융 전체 데이터 수집 결과 - 삼성전자 (Trade 전용 - 뉴스 제외)")
     print("=" * 80)
 
     # 카테고리별로 출력

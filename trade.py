@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import sys
 import os
 
@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ai_analysis import analyze_stock_data, analyze_portfolio
 from get_all_naver_data import get_all_naver_data
 from db_init import init_db
+
 import time
 
 app = Flask(__name__)
@@ -777,44 +778,20 @@ def get_alerts():
 
 @app.route('/api/stock/<code>/disclosures')
 def get_stock_disclosures(code):
-    """특정 종목의 최근 공시 목록 — DART API 직접 조회."""
+    """특정 종목의 공시 목록 — 스코어링 시점에 저장된 DB 데이터 반환."""
     try:
-        from dotenv import load_dotenv
-        import OpenDartReader
-        load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
-        dart = OpenDartReader(os.getenv('DART_API_KEY'))
-
-        end_dt = datetime.now()
-        start_dt = end_dt - timedelta(days=90)
-
-        # corp_code DataFrame에서 stock_code 매핑
-        corp_df = dart.corp_codes
-        matched = corp_df[corp_df['stock_code'] == code]
-        if matched.empty:
-            return jsonify([])
-
-        corp_code = matched.iloc[0]['corp_code']
-        df = dart.list(corp_code, start=start_dt.strftime('%Y%m%d'), end=end_dt.strftime('%Y%m%d'))
-        if df is None or len(df) == 0:
-            return jsonify([])
-
-        keywords = ['단일판매','공급계약','특허','증자','감소','소각','소송',
-                    '횡령','배임','영업정지','의견','인수','합병','양수','공개매수']
-        result = []
-        for _, row in df.iterrows():
-            report_nm = row.get('report_nm', '')
-            if any(kw in report_nm for kw in keywords):
-                raw_dt = str(row.get('rcept_dt', ''))
-                rcept_dt = f"{raw_dt[:4]}-{raw_dt[4:6]}-{raw_dt[6:]}" if len(raw_dt) == 8 else raw_dt
-                result.append({
-                    'code': code, 'name': row.get('corp_name', ''),
-                    'rcept_no': row.get('rcept_no', ''), 'rcept_dt': rcept_dt,
-                    'report_nm': report_nm, 'flr_nm': row.get('flr_nm', ''),
-                    'corp_cls': row.get('corp_cls', ''), 'rm': row.get('rm', ''),
-                })
-        return jsonify(result[:15])
+        import json as _json
+        conn = _new_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT disc_json FROM audit_recommendations WHERE code = %s LIMIT 1", (code,))
+        row = cursor.fetchone()
+        conn.close()
+        if row and row['disc_json']:
+            return jsonify(_json.loads(row['disc_json']))
+        return jsonify([])
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.warning(f"Disclosures DB fetch failed ({code}): {e}")
+        return jsonify([])
 
 @app.route('/api/targets/live-prices')
 def get_live_prices():
@@ -846,7 +823,7 @@ def get_stock_pool():
         
         # 1. audit_recommendations 테이블에서 추천 종목 조회
         cursor.execute("""
-            SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner
+            SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json
             FROM audit_recommendations
         """)
         rec_rows = [dict(r) for r in cursor.fetchall()]
@@ -889,7 +866,8 @@ def get_stock_pool():
                 "pool_score": pool_info.get('pool_score', 0.0),
                 "priority_score": rec.get('score', 0.0),
                 "ai_summary": rec.get('reason', ''),
-                "news_summary": rec.get('news_summary', ''),
+                "news_summary": rec.get('news_summary', '[]'),
+                "disc_json": rec.get('disc_json', '[]'),
                 "upside": rec.get('upside', 0.0),
                 "current_price": rec.get('current_price', 0.0),
                 "is_rec": is_rec_val,
