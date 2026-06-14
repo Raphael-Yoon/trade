@@ -894,6 +894,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     '내부통제의견': internal_op,
                     '최근공시': recent_disclosures,
                     '업종': naver_data.get('sector'),
+                    '시가총액': naver_data.get('market_cap'),
                     'PBR': naver_data.get('pbr'),
                     '업종평균PBR': naver_data.get('avg_pbr'),
                     'PER': naver_data.get('per'),
