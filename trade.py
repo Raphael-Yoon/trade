@@ -196,41 +196,35 @@ def load_financial_health(force=False):
     # [김선화] 강제 로드 시 기존 캐시 초기화
     if force: financial_cache = {}
     
-    # 1. 구글 드라이브에서 최신 데이터 시도 (개발2팀 연결 방식 적용)
+    # 1. 구글 드라이브에서 최신 데이터 시도 (gspread 직접 읽기)
     try:
-        from drive_sync import list_files_in_folder, download_from_drive
-        import io
-        import pandas as pd
-        
+        from drive_sync import list_files_in_folder, read_sheet_as_df
+        import re, pandas as pd
+
         print("🔍 구글 드라이브에서 최신 재무 데이터 검색 중...")
         files = list_files_in_folder("Stock_Analysis_Results")
-        if files:
-            # 구글 시트(spreadsheet) 타입의 최신 파일 검색
-            latest_file = None
-            for f in files:
-                if f['mimeType'] == 'application/vnd.google-apps.spreadsheet':
-                    latest_file = f
-                    break
-            
-            if latest_file:
-                print(f"📥 구글 드라이브 최신 파일 발견: {latest_file['name']}")
-                file_content = download_from_drive(latest_file['id'])
-                if file_content:
-                    df = pd.read_excel(io.BytesIO(file_content))
-                    # 종목코드를 6자리 문자열로 변환 (0 채우기)
-                    df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
-                    
-                    for _, row in df.iterrows():
-                        code = row['종목코드']
-                        financial_cache[code] = {
-                            'audit': str(row.get('회계감사의견', 'N/A')),
-                            'internal': str(row.get('내부통제의견', 'N/A')),
-                            'roe': float(row.get('ROE', 0)),
-                            'debt_ratio': float(row.get('부채비율', 0))
-                        }
-                    
-                    print(f"✅ 구글 드라이브 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
-                    return financial_cache
+        sheets = [f for f in files if f['mimeType'] == 'application/vnd.google-apps.spreadsheet']
+        if sheets:
+            def _ts(f):
+                m = re.search(r'(\d{8}_\d{6})', f['name'])
+                if m: return m.group(1)
+                m = re.search(r'(\d{8})', f['name'])
+                if m: return m.group(1) + '_000000'
+                return '00000000_000000'
+            latest_file = max(sheets, key=_ts)
+            print(f"📥 구글 드라이브 최신 파일 발견: {latest_file['name']}")
+            df = read_sheet_as_df(latest_file['id'])
+            df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
+            for _, row in df.iterrows():
+                code = row['종목코드']
+                financial_cache[code] = {
+                    'audit': str(row.get('회계감사의견', 'N/A')),
+                    'internal': str(row.get('내부통제의견', 'N/A')),
+                    'roe': float(row.get('ROE', 0)),
+                    'debt_ratio': float(row.get('부채비율', 0))
+                }
+            print(f"✅ 구글 드라이브 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
+            return financial_cache
     except Exception as e:
         print(f"⚠️ 구글 드라이브 데이터 로드 실패: {e}. 로컬 데이터로 전환합니다.")
 
@@ -2045,7 +2039,7 @@ def save_report_to_drive():
 @app.route('/api/ai_analyze/<filename>', methods=['POST'])
 def ai_analyze(filename):
     try:
-        from drive_sync import find_ai_report, get_doc_content, create_google_doc, download_from_drive
+        from drive_sync import find_ai_report, get_doc_content, create_google_doc, list_files_in_folder, read_sheet_as_df
 
         # 파일명에서 확장자 제거 (AI 리포트 검색용)
         base_name = os.path.splitext(filename)[0]
@@ -2057,10 +2051,9 @@ def ai_analyze(filename):
             if cached_content and len(cached_content.strip()) > 100:
                 return jsonify({'success': True, 'result': cached_content, 'cached': True})
 
-        # 2. 원본 데이터 파일 확인 (Drive-Native: Drive에서 직접 ID 조회)
+        # 2. 원본 데이터 파일 확인 (Drive-Native: gspread 직접 읽기 후 로컬 저장)
         file_path = os.path.join(RESULTS_DIR, filename)
         if not os.path.exists(file_path):
-            from drive_sync import list_files_in_folder
             drive_files = list_files_in_folder()
             target_name = filename.replace('.xlsx', '')
             spreadsheet_id = None
@@ -2069,12 +2062,8 @@ def ai_analyze(filename):
                     spreadsheet_id = df['id']
                     break
             if spreadsheet_id:
-                content = download_from_drive(spreadsheet_id)
-                if content:
-                    with open(file_path, 'wb') as f:
-                        f.write(content)
-                else:
-                    return jsonify({'success': False, 'message': '드라이브에서 파일을 다운로드할 수 없습니다.'}), 404
+                df_data = read_sheet_as_df(spreadsheet_id)
+                df_data.to_excel(file_path, index=False)
             else:
                 return jsonify({'success': False, 'message': '드라이브에서 파일을 찾을 수 없습니다.'}), 404
 

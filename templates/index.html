@@ -139,12 +139,12 @@
                 </div>
             </div>
             <div class="modal-footer"
-                style="padding: 24px 32px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 16px; background: #0f172a;">
-                <button id="aiSaveDriveBtn" class="btn" style="display: none; gap: 8px; align-items: center;"
+                style="padding: 16px 28px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 12px; background: #0f172a;">
+                <button id="aiSaveDriveBtn" class="btn" style="display: none; gap: 8px; align-items: center; height: auto; padding: 12px 24px; font-size: 15px;"
                     onclick="savePortfolioReportToDrive()">
                     <span id="saveDriveBtnText">📁 구글 드라이브에 저장</span>
                 </button>
-                <button class="btn" style="background: rgba(255,255,255,0.1); border: none;"
+                <button class="btn" style="height: auto; padding: 12px 28px; font-size: 15px; background: rgba(255,255,255,0.1); border: none;"
                     onclick="closeAiModal()">닫기</button>
             </div>
         </div>
@@ -165,8 +165,8 @@
                     <p>뉴스를 수집 및 요약하는 중입니다...</p>
                 </div>
             </div>
-            <div class="modal-footer" style="padding: 24px 32px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; background: #0f172a;">
-                <button class="btn" style="background: rgba(255,255,255,0.1); border: none;" onclick="closeNewsModal()">닫기</button>
+            <div class="modal-footer" style="padding: 16px 28px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; background: #0f172a;">
+                <button class="btn" style="height: auto; padding: 12px 28px; font-size: 15px; background: rgba(255,255,255,0.1); border: none;" onclick="closeNewsModal()">닫기</button>
             </div>
         </div>
     </div>
@@ -210,9 +210,9 @@
                     <div id="sellPreviewRate" style="font-size:13px; color:var(--text-muted); margin-top:2px;">-</div>
                 </div>
             </div>
-            <div class="modal-footer" style="padding:20px 28px; border-top:1px solid rgba(255,255,255,0.07); display:flex; justify-content:flex-end; gap:12px; background:#0f172a;">
-                <button class="btn" style="background:rgba(255,255,255,0.08); border:none;" onclick="closeSellModal()">취소</button>
-                <button id="sellConfirmBtn" class="btn" style="background:linear-gradient(135deg,#ef4444,#dc2626); border:none; font-weight:800;" onclick="confirmSell()">📤 매도 확인</button>
+            <div class="modal-footer" style="padding: 16px 28px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; justify-content: flex-end; gap: 12px; background: #0f172a;">
+                <button class="btn" style="height: auto; padding: 12px 24px; font-size: 15px; background: rgba(255,255,255,0.08); border: none;" onclick="closeSellModal()">취소</button>
+                <button id="sellConfirmBtn" class="btn" style="height: auto; padding: 12px 24px; font-size: 15px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; font-weight: 800;" onclick="confirmSell()">📤 매도 확인</button>
             </div>
         </div>
     </div>
@@ -304,8 +304,8 @@
                     </div>
                 </div>
             </div>
-            <div class="modal-footer" style="padding: 24px 32px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; background: #0f172a;">
-                <button class="btn" style="background: rgba(255,255,255,0.1); border: none;" onclick="closeMonitorModal()">닫기</button>
+            <div class="modal-footer" style="padding: 16px 28px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; background: #0f172a;">
+                <button class="btn" style="height: auto; padding: 12px 28px; font-size: 15px; background: rgba(255,255,255,0.1); border: none;" onclick="closeMonitorModal()">닫기</button>
             </div>
         </div>
     </div>
@@ -851,11 +851,11 @@
                 <div style="display: flex; gap: 10px; margin-bottom: 24px; background: rgba(255,255,255,0.02); padding: 6px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); width: fit-content;">
                     <button id="recTypeTabValue" onclick="switchRecTypeTab('value')"
                         style="padding: 10px 24px; border-radius: 12px; border: none; background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
-                        💎 대형 가치 추천주
+                        💎 Value
                     </button>
                     <button id="recTypeTabMomentum" onclick="switchRecTypeTab('momentum')"
                         style="padding: 10px 24px; border-radius: 12px; border: none; background: transparent; color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
-                        ⚡ 모멘텀 추천주
+                        ⚡ Momentum
                     </button>
                 </div>
                 <div id="targetsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
@@ -3748,9 +3748,22 @@
                 const titleHtml = n.link
                     ? `<a href="${n.link}" target="_blank" style="font-size:14px;font-weight:700;color:white;text-decoration:none;line-height:1.4;display:flex;align-items:center;gap:6px;" class="disclosure-item-hover">🔗 ${n.title}</a>`
                     : `<div style="font-size:14px;font-weight:700;color:white;line-height:1.4;">${n.title}</div>`;
+                
+                let badgeHtml = '';
+                if (n.sentiment === 'positive') {
+                    const tooltip = n.reason ? n.reason.replace(/"/g, '&quot;') : '평가 근거 정보가 없습니다.';
+                    badgeHtml = `<span title="${tooltip}" style="font-size:10px;padding:2px 7px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;font-weight:700;cursor:help;margin-left:auto;white-space:nowrap;">▲ 호재</span>`;
+                } else if (n.sentiment === 'negative') {
+                    const tooltip = n.reason ? n.reason.replace(/"/g, '&quot;') : '평가 근거 정보가 없습니다.';
+                    badgeHtml = `<span title="${tooltip}" style="font-size:10px;padding:2px 7px;background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-weight:700;cursor:help;margin-left:auto;white-space:nowrap;">▼ 악재</span>`;
+                }
+
                 return `
                     <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:6px;">
-                        ${titleHtml}
+                        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+                            <div style="flex:1;">${titleHtml}</div>
+                            ${badgeHtml}
+                        </div>
                         <div style="display:flex;gap:12px;font-size:11px;color:#64748b;font-weight:600;margin-top:4px;">
                             <span>📰 ${n.source || '네이버 금융'}</span>
                             ${n.date ? `<span>📅 ${n.date}</span>` : ''}
@@ -3767,8 +3780,9 @@
                 const accentColor = isPos ? '#ef4444' : '#3b82f6';
                 const borderColor = isPos ? 'rgba(239,68,68,0.25)' : 'rgba(59,130,246,0.25)';
                 const bgColor = isPos ? 'rgba(239,68,68,0.05)' : 'rgba(59,130,246,0.05)';
-                const badge = isPos ? `<span style="font-size:10px;padding:2px 7px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;font-weight:700;">▲ 호재 +5</span>`
-                                    : `<span style="font-size:10px;padding:2px 7px;background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-weight:700;">▼ 악재 -5</span>`;
+                const tooltip = d.reason ? d.reason.replace(/"/g, '&quot;') : '평가 근거 정보가 없습니다.';
+                const badge = isPos ? `<span title="${tooltip}" style="font-size:10px;padding:2px 7px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;font-weight:700;cursor:help;">▲ 호재</span>`
+                                    : `<span title="${tooltip}" style="font-size:10px;padding:2px 7px;background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-weight:700;cursor:help;">▼ 악재</span>`;
                 const dartLink = d.rcept_no ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${d.rcept_no}` : '';
                 const titleHtml = dartLink
                     ? `<a href="${dartLink}" target="_blank" style="font-size:14px;font-weight:700;color:${accentColor};text-decoration:none;line-height:1.4;display:flex;align-items:center;gap:6px;" class="disclosure-item-hover">🔗 ${d.report_nm}</a>`

@@ -18,11 +18,12 @@ psycopg2-binary==2.9.12
 # DART 공시 API
 OpenDartReader==0.2.2
 
-# Google APIs (Drive, Gemini)
+# Google APIs (Drive, Sheets, Gemini)
 google-genai==2.6.0
 google-api-python-client==2.196.0
 google-auth-httplib2==0.4.0
 google-auth-oauthlib==1.4.0
+gspread==6.1.4
 
 # Process management
 psutil==7.2.2
@@ -30,3 +31,7 @@ psutil==7.2.2
 # Utilities
 urllib3==2.7.0
 Markdown==3.10.2
+
+# MySQL (Local Docker)
+pymysql
+cryptography

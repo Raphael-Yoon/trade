@@ -14,16 +14,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TOKEN_PATH = os.path.join(BASE_DIR, 'token.pickle')
 CREDENTIALS_PATH = os.path.join(BASE_DIR, 'credentials.json')
 
-def get_drive_service(token_filename='token.pickle'):
-    """구글 드라이브 서비스 객체 생성 및 인증"""
+def get_credentials(token_filename='token.pickle'):
+    """OAuth2 인증 정보 반환 — Drive/Sheets 등 Google API 공통 사용"""
     creds = None
     token_path = os.path.join(BASE_DIR, token_filename)
-    # token.pickle 파일에 사용자 인증 정보 저장
     if os.path.exists(token_path):
         with open(token_path, 'rb') as token:
             creds = pickle.load(token)
-            
-    # 인증 정보가 없거나 유효하지 않으면 새로 인증
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -32,11 +29,23 @@ def get_drive_service(token_filename='token.pickle'):
                 raise FileNotFoundError(f"credentials.json 파일이 없습니다. 현재 경로({BASE_DIR}) 또는 프로젝트 루트에 저장해주세요.")
             flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
             creds = flow.run_local_server(port=0)
-        # 인증 정보 저장
         with open(token_path, 'wb') as token:
             pickle.dump(creds, token)
+    return creds
 
-    return build('drive', 'v3', credentials=creds)
+def get_drive_service(token_filename='token.pickle'):
+    """구글 드라이브 서비스 객체 생성 및 인증"""
+    return build('drive', 'v3', credentials=get_credentials(token_filename))
+
+def read_sheet_as_df(file_id, worksheet_index=0, token_filename='token.pickle'):
+    """Google Sheets 파일을 DataFrame으로 직접 읽기 — xlsx 변환/다운로드 없음"""
+    import gspread
+    import pandas as pd
+    creds = get_credentials(token_filename)
+    gc = gspread.authorize(creds)
+    ws = gc.open_by_key(file_id).get_worksheet(worksheet_index)
+    records = ws.get_all_records()
+    return pd.DataFrame(records)
 
 def get_or_create_folder(service, folder_name):
     """구글 드라이브에서 특정 이름의 폴더를 찾거나 생성"""
@@ -309,9 +318,8 @@ def list_files_in_folder(folder_name="Stock_Analysis_Results", token_filename='t
         
         query = f"'{folder_id}' in parents and trashed = false"
         results = service.files().list(
-            q=query, 
-            fields="files(id, name, mimeType, createdTime, webViewLink, size)",
-            orderBy="createdTime desc"
+            q=query,
+            fields="files(id, name, mimeType, createdTime, webViewLink, size)"
         ).execute()
         return results.get('files', [])
     except Exception as e:
