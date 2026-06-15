@@ -8,7 +8,7 @@ if os.name == 'nt':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
-from flask import Flask, render_template, jsonify, send_file, request, g
+from flask import Flask, render_template, jsonify, send_file, request, g, session, redirect, url_for
 import threading
 import uuid
 from datetime import datetime, timedelta
@@ -35,6 +35,31 @@ def bypass_ngrok_warning(response):
     response.headers['ngrok-skip-browser-warning'] = 'true'
     return response
 
+@app.before_request
+def check_auth():
+    if request.endpoint in ('login', 'logout', 'static'):
+        return
+    if not session.get('authenticated'):
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Unauthorized'}), 401
+        return redirect(url_for('login'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        if request.form.get('password') == APP_PASSWORD:
+            session.permanent = True
+            session['authenticated'] = True
+            return redirect(url_for('index'))
+        error = '비밀번호가 올바르지 않습니다.'
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+def logout():
+    session.pop('authenticated', None)
+    return redirect(url_for('login'))
+
 # 작업 상태 저장
 tasks = {}
 
@@ -47,6 +72,9 @@ if not os.path.exists(RESULTS_DIR):
 from dotenv import load_dotenv as _load_dotenv
 _load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 DATABASE_URL = os.getenv('DATABASE_URL')
+app.secret_key = os.getenv('SECRET_KEY', 'fallback-secret-key')
+app.permanent_session_lifetime = timedelta(days=30)
+APP_PASSWORD = os.getenv('APP_PASSWORD', '')
 
 
 class _AdaptedCursor:

@@ -740,9 +740,8 @@
                         <button class="btn" onclick="manualRealtimeRefresh()" style="padding: 8px 16px; font-size: 13px; height: auto; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); color: white; display: flex; align-items: center; gap: 6px;">
                             <span>🔄</span> 수동 갱신
                         </button>
-                        <button id="btnToggleInvested" class="btn" onclick="toggleField('invested')" style="padding: 8px 16px; font-size: 13px; height: auto; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: white;"></button>
-                        <button id="btnToggleCumul"    class="btn" onclick="toggleField('cumul')"    style="padding: 8px 16px; font-size: 13px; height: auto; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: white;"></button>
-                        <button id="btnToggleToday"    class="btn" onclick="toggleField('today')"    style="padding: 8px 16px; font-size: 13px; height: auto; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: white;"></button>
+                        <button id="btnToggleAmount" class="btn" onclick="toggleField('amount')" style="padding: 8px 16px; font-size: 13px; height: auto; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: white;"></button>
+                        <button id="btnToggleRate"   class="btn" onclick="toggleField('rate')"   style="padding: 8px 16px; font-size: 13px; height: auto; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: white;"></button>
                         <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
                             <span id="updateTimer"
                                 style="font-size: 11px; color: var(--text-muted); font-family: 'Consolas', monospace;">다음 업데이트: 5s</span>
@@ -1100,26 +1099,20 @@
         let lastPrices = {};
         let lastRealtimeData = [];
         let isRealtimeFetching = false;
-        let investedHidden    = localStorage.getItem('investedHidden')    !== 'false';
-        let cumulProfitHidden = localStorage.getItem('cumulProfitHidden') !== 'false';
-        let todayProfitHidden = localStorage.getItem('todayProfitHidden') !== 'false';
+        let amountHidden = localStorage.getItem('amountHidden') !== 'false';
+        let rateHidden   = localStorage.getItem('rateHidden')   !== 'false';
 
         function toggleField(key) {
-            const map = { invested: 'investedHidden', cumul: 'cumulProfitHidden', today: 'todayProfitHidden' };
-            const varName = map[key];
-            if (key === 'invested')    investedHidden    = !investedHidden;
-            if (key === 'cumul')       cumulProfitHidden = !cumulProfitHidden;
-            if (key === 'today')       todayProfitHidden = !todayProfitHidden;
-            localStorage.setItem(varName, key === 'invested' ? investedHidden : key === 'cumul' ? cumulProfitHidden : todayProfitHidden);
+            if (key === 'amount') { amountHidden = !amountHidden; localStorage.setItem('amountHidden', amountHidden); }
+            if (key === 'rate')   { rateHidden   = !rateHidden;   localStorage.setItem('rateHidden',   rateHidden); }
             syncToggleBtns();
             updateRealtimePrices();
         }
 
         function syncToggleBtns() {
             const cfg = [
-                { id: 'btnToggleInvested',    hidden: investedHidden,    label: '투자액' },
-                { id: 'btnToggleCumul',        hidden: cumulProfitHidden, label: '누적손익' },
-                { id: 'btnToggleToday',        hidden: todayProfitHidden, label: '당일손익' },
+                { id: 'btnToggleAmount', hidden: amountHidden, label: '금액' },
+                { id: 'btnToggleRate',   hidden: rateHidden,   label: '비율' },
             ];
             cfg.forEach(({ id, hidden, label }) => {
                 const btn = document.getElementById(id);
@@ -1132,14 +1125,15 @@
         function isMobile() { return window.innerWidth <= 768; }
 
         function fmtAmount(val) {
-            if (investedHidden && !isMobile()) return 'xxx,xxx원';
+            if (amountHidden && !isMobile()) return 'xxx,xxx원';
             return val.toLocaleString() + '원';
         }
 
-        function fmtProfit(val, rateStr, hidden) {
-            if (hidden && !isMobile()) return 'xxx,xxx원 (x.xx%)';
+        function fmtProfit(val, rateStr) {
             const sign = val > 0 ? '+' : '';
-            return `${sign}${val.toLocaleString()}원 (${rateStr}%)`;
+            const amtPart  = (amountHidden && !isMobile()) ? 'xxx,xxx원' : `${sign}${val.toLocaleString()}원`;
+            const ratePart = (rateHidden   && !isMobile()) ? '(x.xx%)'   : `(${rateStr}%)`;
+            return `${amtPart} ${ratePart}`;
         }
         let searchDebounceTimer = null;
         let searchAbortController = null;
@@ -2318,13 +2312,13 @@
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">누적 수익</div>
                                     <div style="font-size: 14px; font-weight: 900; color: ${profitColor}; font-family: 'Outfit', sans-serif;">
-                                        ${fmtProfit(profit, `${profitSign}${profitRate}`, cumulProfitHidden)}
+                                        ${fmtProfit(profit, `${profitSign}${profitRate}`)}
                                     </div>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
                                     <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">당일 수익</div>
                                     <div style="font-size: 14px; font-weight: 900; color: ${todayProfitColor}; font-family: 'Outfit', sans-serif;">
-                                        ${fmtProfit(todayProfit, `${stock.change_rate > 0 ? '+' : ''}${stock.change_rate}`, todayProfitHidden)}
+                                        ${fmtProfit(todayProfit, `${stock.change_rate > 0 ? '+' : ''}${stock.change_rate}`)}
                                     </div>
                                 </div>
                             </div>` : ''}
@@ -2361,12 +2355,12 @@
                         const totalProfit = totalValue - totalInvested;
                         const totalProfitRate = totalInvested > 0 ? (totalProfit / totalInvested * 100).toFixed(2) : '0.00';
                         const profitEl = document.getElementById('rtTotalProfit');
-                        profitEl.innerText = fmtProfit(totalProfit, totalProfitRate, cumulProfitHidden);
+                        profitEl.innerText = fmtProfit(totalProfit, totalProfitRate);
                         profitEl.style.color = totalProfit > 0 ? '#ef4444' : (totalProfit < 0 ? '#3b82f6' : 'white');
 
                         const todayProfitRate = (totalValue - totalTodayProfit) > 0 ? (totalTodayProfit / (totalValue - totalTodayProfit) * 100).toFixed(2) : '0.00';
                         const todayProfitEl = document.getElementById('rtTodayProfit');
-                        todayProfitEl.innerText = fmtProfit(totalTodayProfit, `${todayProfitRate > 0 ? '+' : ''}${todayProfitRate}`, todayProfitHidden);
+                        todayProfitEl.innerText = fmtProfit(totalTodayProfit, `${todayProfitRate > 0 ? '+' : ''}${todayProfitRate}`);
                         todayProfitEl.style.color = totalTodayProfit > 0 ? '#ef4444' : (totalTodayProfit < 0 ? '#3b82f6' : 'white');
 
                         // 2. 그룹별 행 업데이트
@@ -2381,12 +2375,12 @@
                                 const profit = stats.value - stats.invested;
                                 const pRate = stats.invested > 0 ? (profit / stats.invested * 100).toFixed(2) : '0.00';
                                 const profitVal = row.querySelector('.val-profit');
-                                profitVal.innerText = fmtProfit(profit, pRate, cumulProfitHidden);
+                                profitVal.innerText = fmtProfit(profit, pRate);
                                 profitVal.style.color = profit > 0 ? '#ef4444' : (profit < 0 ? '#3b82f6' : 'white');
 
                                 const tRate = (stats.value - stats.today) > 0 ? (stats.today / (stats.value - stats.today) * 100).toFixed(2) : '0.00';
                                 const todayVal = row.querySelector('.val-today');
-                                todayVal.innerText = fmtProfit(stats.today, `${tRate > 0 ? '+' : ''}${tRate}`, todayProfitHidden);
+                                todayVal.innerText = fmtProfit(stats.today, `${tRate > 0 ? '+' : ''}${tRate}`);
                                 todayVal.style.color = stats.today > 0 ? '#ef4444' : (stats.today < 0 ? '#3b82f6' : 'white');
                                 
                                 row.style.display = 'grid';
