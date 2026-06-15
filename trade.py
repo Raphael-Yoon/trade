@@ -43,14 +43,21 @@ def check_auth():
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Unauthorized'}), 401
         return redirect(url_for('login'))
+    login_time = session.get('login_time')
+    if login_time and datetime.fromisoformat(login_time) + timedelta(days=1) < datetime.utcnow():
+        session.clear()
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Unauthorized'}), 401
+        return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
     if request.method == 'POST':
         if request.form.get('password') == APP_PASSWORD:
-            session.permanent = True
+            session.permanent = False
             session['authenticated'] = True
+            session['login_time'] = datetime.utcnow().isoformat()
             return redirect(url_for('index'))
         error = '비밀번호가 올바르지 않습니다.'
     return render_template('login.html', error=error)
@@ -73,7 +80,7 @@ from dotenv import load_dotenv as _load_dotenv
 _load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 DATABASE_URL = os.getenv('DATABASE_URL')
 app.secret_key = os.getenv('SECRET_KEY', 'fallback-secret-key')
-app.permanent_session_lifetime = timedelta(days=30)
+app.permanent_session_lifetime = timedelta(hours=12)
 APP_PASSWORD = os.getenv('APP_PASSWORD', '')
 
 
