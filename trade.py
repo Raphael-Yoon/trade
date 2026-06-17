@@ -15,8 +15,8 @@ from datetime import datetime, timedelta
 import subprocess
 import json
 import psutil
-import psycopg2
-import psycopg2.extras
+import pymysql
+import pymysql.cursors
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -75,8 +75,9 @@ RESULTS_DIR = os.path.join(os.path.dirname(__file__), 'results')
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
 
-# PostgreSQL(Neon) 연결 문자열
+# MySQL(Local Docker) 연결 문자열
 from dotenv import load_dotenv as _load_dotenv
+from urllib.parse import urlparse
 _load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 DATABASE_URL = os.getenv('DATABASE_URL')
 app.secret_key = os.getenv('SECRET_KEY', 'fallback-secret-key')
@@ -84,8 +85,16 @@ app.permanent_session_lifetime = timedelta(hours=12)
 APP_PASSWORD = os.getenv('APP_PASSWORD', '')
 
 
+class _DictRow(dict):
+    """딕셔너리를 SQLite Row처럼 사용 가능하게 하는 래퍼"""
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
 class _AdaptedCursor:
-    """sqlite3 ? 플레이스홀더를 psycopg2 %s로 변환하는 커서 래퍼."""
+    """sqlite3 ? 플레이스홀더를 pymysql %s로 변환하는 커서 래퍼."""
 
     def __init__(self, cursor):
         self._cur = cursor
@@ -101,6 +110,8 @@ class _AdaptedCursor:
             return self
         adapted = self._adapt(query, params is not None)
         if params is not None:
+            if not isinstance(params, (tuple, list, dict)):
+                params = (params,)
             self._cur.execute(adapted, params)
         else:
             self._cur.execute(adapted)
@@ -112,10 +123,12 @@ class _AdaptedCursor:
         return self
 
     def fetchone(self):
-        return self._cur.fetchone()
+        row = self._cur.fetchone()
+        return _DictRow(row) if row else None
 
     def fetchall(self):
-        return self._cur.fetchall()
+        rows = self._cur.fetchall()
+        return [_DictRow(r) for r in rows] if rows else []
 
     @property
     def rowcount(self):
@@ -126,11 +139,20 @@ class _AdaptedCursor:
         return self._cur.description
 
 
-class _PsycopgAdapter:
-    """sqlite3 Connection 인터페이스를 흉내내는 psycopg2 연결 래퍼."""
+class _PyMySQLAdapter:
+    """sqlite3 Connection 인터페이스를 흉내내는 pymysql 연결 래퍼."""
 
     def __init__(self, dsn):
-        self._conn = psycopg2.connect(dsn, cursor_factory=psycopg2.extras.DictCursor)
+        parsed = urlparse(dsn)
+        db_opts = {
+            'host': parsed.hostname or '127.0.0.1',
+            'port': parsed.port or 3306,
+            'user': parsed.username or 'root',
+            'password': parsed.password or '150606',
+            'database': parsed.path.lstrip('/') if parsed.path else 'trade',
+            'charset': 'utf8mb4',
+        }
+        self._conn = pymysql.connect(**db_opts, cursorclass=pymysql.cursors.DictCursor)
 
     @property
     def row_factory(self):
@@ -164,13 +186,13 @@ class _PsycopgAdapter:
 
 def _new_db_conn():
     """백그라운드 스레드용 새 DB 연결 생성."""
-    return _PsycopgAdapter(DATABASE_URL)
+    return _PyMySQLAdapter(DATABASE_URL)
 
 
 def get_db():
     """Flask 요청별 DB 연결 관리."""
     if 'db' not in g:
-        g.db = _PsycopgAdapter(DATABASE_URL)
+        g.db = _PyMySQLAdapter(DATABASE_URL)
     return g.db
 
 @app.teardown_appcontext
@@ -812,7 +834,7 @@ def get_stock_disclosures(code):
         import json as _json
         conn = _new_db_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT disc_json FROM audit_recommendations WHERE code = %s LIMIT 1", (code,))
+        cursor.execute("SELECT disc_json FROM tr_audit_recommendations WHERE code = %s LIMIT 1", (code,))
         row = cursor.fetchone()
         conn.close()
         if row and row['disc_json']:
@@ -845,22 +867,22 @@ def get_live_prices():
 
 @app.route('/api/pool')
 def get_stock_pool():
-    """투자적격 종목 풀 조회 (Neon DB audit_recommendations Top 10 우선, 그 외 pool_score 순)"""
+    """투자적격 종목 풀 조회 (Neon DB tr_audit_recommendations Top 10 우선, 그 외 pool_score 순)"""
     try:
         conn = _new_db_conn()
         cursor = conn.cursor()
         
-        # 1. audit_recommendations 테이블에서 추천 종목 조회
+        # 1. tr_audit_recommendations 테이블에서 추천 종목 조회
         cursor.execute("""
             SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json
-            FROM audit_recommendations
+            FROM tr_audit_recommendations
         """)
         rec_rows = [dict(r) for r in cursor.fetchall()]
         
-        # 2. stock_pool 전체 조회
+        # 2. tr_stock_pool 전체 조회
         cursor.execute("""
             SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score
-            FROM stock_pool
+            FROM tr_stock_pool
         """)
         pool_rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
@@ -1361,7 +1383,7 @@ def get_my_stocks():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner FROM my_stocks WHERE type = 'portfolio' ORDER BY added_at DESC")
+        cursor.execute("SELECT code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner FROM tr_my_stocks WHERE type = 'portfolio' ORDER BY added_at DESC")
         stocks = [dict(row) for row in cursor.fetchall()]
         return jsonify(stocks)
     except Exception as e:
@@ -1624,7 +1646,7 @@ def get_my_stocks_status():
         audit_data = load_financial_health()
         
         # 보유 종목 + 관심 종목 통합 조회
-        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, added_at, type FROM my_stocks")
+        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, added_at, type FROM tr_my_stocks")
         all_rows = [dict(row) for row in cursor.fetchall()]
         portfolio_stocks = [s for s in all_rows if s.get('type') == 'portfolio']
         watchlist_stocks = [s for s in all_rows if s.get('type') == 'watchlist']
@@ -1744,7 +1766,7 @@ def add_my_stock():
         db = get_db()
         cursor = db.cursor()
         cursor.execute("""
-            INSERT INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
+            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
             ON CONFLICT (code) DO UPDATE SET
                 name=EXCLUDED.name, added_at=EXCLUDED.added_at,
@@ -1762,7 +1784,7 @@ def delete_my_stock(code_val):
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("DELETE FROM my_stocks WHERE code = ?", (code_val,))
+        cursor.execute("DELETE FROM tr_my_stocks WHERE code = ?", (code_val,))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -1770,7 +1792,7 @@ def delete_my_stock(code_val):
 
 @app.route('/api/my_stocks/<code_val>/sell', methods=['POST'])
 def sell_my_stock(code_val):
-    """[김선화] 보유 종목 매도 처리 - 수량 차감, 전량 시 포트폴리오 제거, sell_history 기록"""
+    """[김선화] 보유 종목 매도 처리 - 수량 차감, 전량 시 포트폴리오 제거, tr_sell_history 기록"""
     try:
         data = request.get_json() or {}
         sell_price = float(data.get('sell_price', 0))
@@ -1780,7 +1802,7 @@ def sell_my_stock(code_val):
 
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT code, name, purchase_price, quantity, owner FROM my_stocks WHERE code = ?", (code_val,))
+        cursor.execute("SELECT code, name, purchase_price, quantity, owner FROM tr_my_stocks WHERE code = ?", (code_val,))
         row = cursor.fetchone()
         if not row:
             return jsonify({'success': False, 'message': '보유 종목을 찾을 수 없습니다.'}), 404
@@ -1798,16 +1820,16 @@ def sell_my_stock(code_val):
         sell_date = datetime.now().strftime('%Y-%m-%d')
 
         cursor.execute("""
-            INSERT INTO sell_history (code, name, owner, sell_price, sell_qty, purchase_price, profit, profit_rate, sell_date, created_at)
+            INSERT INTO tr_sell_history (code, name, owner, sell_price, sell_qty, purchase_price, profit, profit_rate, sell_date, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (code_val, stock['name'], stock.get('owner', '나'), sell_price, sell_qty, purchase_price, profit, profit_rate, sell_date, now))
 
         new_qty = current_qty - sell_qty
         if new_qty <= 0:
-            cursor.execute("DELETE FROM my_stocks WHERE code = ?", (code_val,))
+            cursor.execute("DELETE FROM tr_my_stocks WHERE code = ?", (code_val,))
             fully_sold = True
         else:
-            cursor.execute("UPDATE my_stocks SET quantity = ? WHERE code = ?", (new_qty, code_val))
+            cursor.execute("UPDATE tr_my_stocks SET quantity = ? WHERE code = ?", (new_qty, code_val))
             fully_sold = False
 
         db.commit()
@@ -1850,7 +1872,7 @@ def update_my_stock(code_val):
             return jsonify({'success': False, 'message': '수정할 데이터가 없습니다.'}), 400
 
         params.append(code_val)
-        query = f"UPDATE my_stocks SET {', '.join(updates)} WHERE code = ?"
+        query = f"UPDATE tr_my_stocks SET {', '.join(updates)} WHERE code = ?"
         cursor.execute(query, params)
         
         db.commit()
@@ -1868,7 +1890,7 @@ def search_stock():
         db = get_db()
         cursor = db.cursor()
         # 이름으로 검색 (부분 일치)
-        cursor.execute("SELECT code, name FROM stocks_master WHERE name LIKE ? LIMIT 10", (f'%{query}%',))
+        cursor.execute("SELECT code, name FROM tr_stocks_master WHERE name LIKE ? LIMIT 10", (f'%{query}%',))
         results = [dict(row) for row in cursor.fetchall()]
         return jsonify(results)
     except Exception as e:
@@ -1922,7 +1944,7 @@ def update_master():
                 conn = _new_db_conn()
                 cursor = conn.cursor()
                 cursor.executemany("""
-                    INSERT INTO stocks_master (code, name, market) VALUES (?, ?, ?)
+                    INSERT INTO tr_stocks_master (code, name, market) VALUES (?, ?, ?)
                     ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name, market=EXCLUDED.market
                 """, all_stocks)
                 conn.commit()
@@ -2141,12 +2163,12 @@ def ai_analyze_portfolio():
         cursor = db.cursor()
         
         # 2. 오래된 캐시 삭제 (오늘 이전 데이터)
-        cursor.execute("DELETE FROM portfolio_ai_cache WHERE created_at < ?", (today,))
+        cursor.execute("DELETE FROM tr_portfolio_ai_cache WHERE created_at < ?", (today,))
         db.commit()
         
         # 3. 캐시 확인 (강제 새로고침이 아닌 경우)
         if not force_refresh:
-            cursor.execute("SELECT ai_result FROM portfolio_ai_cache WHERE cache_key = ?", (cache_key,))
+            cursor.execute("SELECT ai_result FROM tr_portfolio_ai_cache WHERE cache_key = ?", (cache_key,))
             row = cursor.fetchone()
             if row and row['ai_result']:
                 return jsonify({'success': True, 'result': row['ai_result'], 'cached': True})
@@ -2157,7 +2179,7 @@ def ai_analyze_portfolio():
         # 5. 결과 저장 (유효한 경우만)
         if "오류" not in result_text and "제한" not in result_text:
             cursor.execute("""
-                INSERT INTO portfolio_ai_cache (cache_key, ai_result, created_at) VALUES (?, ?, ?)
+                INSERT INTO tr_portfolio_ai_cache (cache_key, ai_result, created_at) VALUES (?, ?, ?)
                 ON CONFLICT (cache_key) DO UPDATE SET ai_result=EXCLUDED.ai_result, created_at=EXCLUDED.created_at
             """, (cache_key, result_text, datetime.now().isoformat()))
             db.commit()
@@ -2236,7 +2258,7 @@ def get_watchlist():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT code, name, added_at, owner FROM my_stocks WHERE type = 'watchlist' ORDER BY added_at DESC")
+        cursor.execute("SELECT code, name, added_at, owner FROM tr_my_stocks WHERE type = 'watchlist' ORDER BY added_at DESC")
         stocks = [dict(row) for row in cursor.fetchall()]
         return jsonify(stocks)
     except Exception as e:
@@ -2256,7 +2278,7 @@ def add_to_watchlist():
         db = get_db()
         cursor = db.cursor()
         cursor.execute("""
-            INSERT INTO my_stocks (code, name, added_at, type, owner, purchase_price, quantity, stop_loss_ratio)
+            INSERT INTO tr_my_stocks (code, name, added_at, type, owner, purchase_price, quantity, stop_loss_ratio)
             VALUES (?, ?, ?, 'watchlist', ?, 0, 0, 0)
             ON CONFLICT (code) DO NOTHING
         """, (code, name, datetime.now().isoformat(), owner))
@@ -2271,7 +2293,7 @@ def delete_from_watchlist(code):
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("DELETE FROM my_stocks WHERE code = ? AND type = 'watchlist'", (code,))
+        cursor.execute("DELETE FROM tr_my_stocks WHERE code = ? AND type = 'watchlist'", (code,))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -2292,7 +2314,7 @@ def promote_to_portfolio():
         db = get_db()
         cursor = db.cursor()
         cursor.execute("""
-            INSERT INTO my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
+            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
             ON CONFLICT (code) DO UPDATE SET
                 type='portfolio', added_at=EXCLUDED.added_at,
@@ -2315,7 +2337,7 @@ def update_stock_owner():
         db = get_db()
         cursor = db.cursor()
         
-        cursor.execute("UPDATE my_stocks SET owner = ? WHERE code = ?", (owner, code))
+        cursor.execute("UPDATE tr_my_stocks SET owner = ? WHERE code = ?", (owner, code))
         
         db.commit()
         return jsonify({'success': True})
@@ -2336,7 +2358,7 @@ def get_realtime_prices():
         cursor = db.cursor()
 
         # [김선화] 효율적 실시간 모니터링을 위해 손절 설정치, 소유주, 추가일자 조회
-        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, owner, added_at, type FROM my_stocks")
+        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, owner, added_at, type FROM tr_my_stocks")
         all_stocks = [dict(s) for s in cursor.fetchall()]
         if not all_stocks:
             return jsonify([])
@@ -2493,7 +2515,7 @@ def record_daily_snapshot():
         today = datetime.now().strftime('%Y-%m-%d')
 
         # 오늘 데이터 이미 존재 여부 확인
-        cursor.execute("SELECT COUNT(*) AS cnt FROM stock_daily_history WHERE date = ?", (today,))
+        cursor.execute("SELECT COUNT(*) AS cnt FROM tr_stock_daily_history WHERE date = ?", (today,))
         existing_count = cursor.fetchone()['cnt']
         if existing_count > 0 and not force:
             return jsonify({'success': False, 'exists': True,
@@ -2503,14 +2525,14 @@ def record_daily_snapshot():
 
         # 덮어쓰기: 기존 날짜 데이터 전체 삭제 후 재삽입
         if existing_count > 0:
-            cursor.execute("DELETE FROM stock_daily_history WHERE date = ?", (today,))
+            cursor.execute("DELETE FROM tr_stock_daily_history WHERE date = ?", (today,))
 
         for s in portfolio:
             day_profit = s.get('change', 0) * s.get('quantity', 0)
             change_rate = s.get('change_rate', 0)
             cumulative_profit = s.get('profit', 0)
             cursor.execute('''
-                INSERT INTO stock_daily_history
+                INSERT INTO tr_stock_daily_history
                 (date, code, name, purchase_price, current_price, quantity, owner, recorded_at, day_profit, change_rate, cumulative_profit)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (today, s['code'], s['name'], s['purchase_price'], s['price'],
@@ -2532,7 +2554,7 @@ def delete_history():
             return jsonify({'success': False, 'message': '날짜를 지정해주세요.'}), 400
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("DELETE FROM stock_daily_history WHERE date = ?", (date,))
+        cursor.execute("DELETE FROM tr_stock_daily_history WHERE date = ?", (date,))
         db.commit()
         deleted = cursor.rowcount
         if deleted == 0:
@@ -2549,7 +2571,7 @@ def get_history_dates():
         cursor = db.cursor()
         cursor.execute("""
             SELECT DISTINCT date
-            FROM stock_daily_history
+            FROM tr_stock_daily_history
             WHERE date IS NOT NULL
             ORDER BY date DESC
         """)
@@ -2567,7 +2589,7 @@ def get_history_data():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT * FROM stock_daily_history WHERE date = ? ORDER BY owner, name", (date,))
+        cursor.execute("SELECT * FROM tr_stock_daily_history WHERE date = ? ORDER BY owner, name", (date,))
         history = [dict(row) for row in cursor.fetchall()]
         return jsonify({'success': True, 'data': history})
     except Exception as e:
@@ -2584,7 +2606,7 @@ def backfill_history():
         db = get_db()
         cursor = db.cursor()
 
-        cursor.execute("SELECT code, name, purchase_price, quantity, owner, added_at FROM my_stocks WHERE type = 'portfolio'")
+        cursor.execute("SELECT code, name, purchase_price, quantity, owner, added_at FROM tr_my_stocks WHERE type = 'portfolio'")
         stocks = [dict(row) for row in cursor.fetchall()]
         if not stocks:
             return jsonify({'success': False, 'message': '등록된 종목이 없습니다.'})
@@ -2627,12 +2649,12 @@ def backfill_history():
 
             if target_date_obj:
                 cursor.execute(
-                    "SELECT DISTINCT date FROM stock_daily_history WHERE code = ? AND date = ?",
+                    "SELECT DISTINCT date FROM tr_stock_daily_history WHERE code = ? AND date = ?",
                     (code, req_date)
                 )
             else:
                 cursor.execute(
-                    "SELECT DISTINCT date FROM stock_daily_history WHERE code = ? AND date >= ?",
+                    "SELECT DISTINCT date FROM tr_stock_daily_history WHERE code = ? AND date >= ?",
                     (code, since.strftime('%Y-%m-%d'))
                 )
             existing_dates = {row['date'] for row in cursor.fetchall()}
@@ -2653,7 +2675,7 @@ def backfill_history():
 
                 if date_str in existing_dates:
                     if force:
-                        cursor.execute("DELETE FROM stock_daily_history WHERE code = ? AND date = ?", (code, date_str))
+                        cursor.execute("DELETE FROM tr_stock_daily_history WHERE code = ? AND date = ?", (code, date_str))
                     else:
                         skipped_total += 1
                         continue
@@ -2681,7 +2703,7 @@ def backfill_history():
                 cumulative_profit = (close - purchase_price) * quantity
 
                 cursor.execute('''
-                    INSERT INTO stock_daily_history
+                    INSERT INTO tr_stock_daily_history
                     (date, code, name, purchase_price, current_price, quantity, owner,
                      recorded_at, day_profit, change_rate, cumulative_profit)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2718,7 +2740,7 @@ def get_history_report():
                 SELECT {period_expr} AS period_key, date, day_profit,
                        cumulative_profit, current_price * quantity AS portfolio_value,
                        MAX(date) OVER (PARTITION BY {period_expr}) AS last_date
-                FROM stock_daily_history
+                FROM tr_stock_daily_history
             )
             SELECT period_key,
                    MIN(date) AS period_start, MAX(date) AS period_end,
@@ -2734,7 +2756,7 @@ def get_history_report():
                 SELECT {period_expr} AS period_key, owner, date, day_profit,
                        cumulative_profit, current_price * quantity AS portfolio_value,
                        MAX(date) OVER (PARTITION BY {period_expr}) AS last_date
-                FROM stock_daily_history
+                FROM tr_stock_daily_history
             )
             SELECT period_key, owner,
                    ROUND(SUM(day_profit)::numeric, 0)::double precision AS day_profit_sum,
@@ -2763,7 +2785,7 @@ def get_daily_chart():
                    ROUND(SUM(day_profit)::numeric, 0)::double precision AS day_profit_sum,
                    ROUND(SUM(cumulative_profit)::numeric, 0)::double precision AS cum_profit,
                    ROUND(SUM(current_price * quantity)::numeric, 0)::double precision AS portfolio_value
-            FROM stock_daily_history
+            FROM tr_stock_daily_history
             WHERE LEFT(date, 7) = ?
             GROUP BY date, owner
             ORDER BY date, owner
@@ -2800,7 +2822,7 @@ def auto_snapshot_scheduler():
                     try:
                         conn = _new_db_conn()
                         cursor = conn.cursor()
-                        cursor.execute("SELECT code, name, purchase_price, quantity, owner, added_at FROM my_stocks WHERE type = 'portfolio'")
+                        cursor.execute("SELECT code, name, purchase_price, quantity, owner, added_at FROM tr_my_stocks WHERE type = 'portfolio'")
                         stocks = [dict(row) for row in cursor.fetchall()]
                         
                         if stocks:
@@ -2838,16 +2860,16 @@ def auto_snapshot_scheduler():
                                     
                                 cumulative_profit = (current_price - purchase_price) * quantity if purchase_price > 0 else 0
 
-                                cursor.execute("SELECT id FROM stock_daily_history WHERE date = ? AND code = ?", (today, stock['code']))
+                                cursor.execute("SELECT id FROM tr_stock_daily_history WHERE date = ? AND code = ?", (today, stock['code']))
                                 existing = cursor.fetchone()
                                 if existing:
                                     cursor.execute(
-                                        "UPDATE stock_daily_history SET purchase_price=?, current_price=?, quantity=?, owner=?, recorded_at=?, day_profit=?, change_rate=?, cumulative_profit=? WHERE id=?",
+                                        "UPDATE tr_stock_daily_history SET purchase_price=?, current_price=?, quantity=?, owner=?, recorded_at=?, day_profit=?, change_rate=?, cumulative_profit=? WHERE id=?",
                                         (purchase_price, current_price, quantity, stock['owner'], recorded_at, day_profit, change_rate, cumulative_profit, existing['id'])
                                     )
                                 else:
                                     cursor.execute(
-                                        "INSERT INTO stock_daily_history (date, code, name, purchase_price, current_price, quantity, owner, recorded_at, day_profit, change_rate, cumulative_profit) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                                        "INSERT INTO tr_stock_daily_history (date, code, name, purchase_price, current_price, quantity, owner, recorded_at, day_profit, change_rate, cumulative_profit) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                                         (today, stock['code'], stock['name'], purchase_price, current_price, quantity, stock['owner'], recorded_at, day_profit, change_rate, cumulative_profit)
                                     )
                             conn.commit()
