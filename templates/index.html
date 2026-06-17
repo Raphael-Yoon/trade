@@ -543,8 +543,7 @@
                 <div class="tabs-sub-nav" style="display: flex; gap: 12px; margin-bottom: 24px;">
                     <button class="sub-tab-btn active" data-subtab="portfolio" onclick="switchSubTab('portfolio')">👛 보유
                         포트폴리오</button>
-                    <button class="sub-tab-btn" data-subtab="watchlist" onclick="switchSubTab('watchlist')">★ 관심
-                        위시리스트</button>
+                    <button class="sub-tab-btn" data-subtab="watchlist" onclick="switchSubTab('watchlist')">★ 관심종목</button>
                 </div>
 
                 <div class="my-stock-input-group"
@@ -567,7 +566,7 @@
                         style="flex: 1; min-width: 100px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px; text-align: right;">
                     <input type="number" id="myStockStopLoss" placeholder="손절비율(%)" step="0.1"
                         style="flex: 1; min-width: 110px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #f87171; font-size: 16px; text-align: right; font-weight: 700;">
-                    <div style="flex: 1; min-width: 100px;">
+                    <div id="myStockOwnerContainer" style="flex: 1; min-width: 100px;">
                         <select id="myStockOwner" style="width: 100%; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fbbf24; font-size: 16px; font-weight: 700; cursor: pointer;">
                             <option value="나">👤 나</option>
                             <option value="경미">👤 경미</option>
@@ -1200,6 +1199,7 @@
             document.getElementById('myStockPrice').style.display = isPortfolio ? 'block' : 'none';
             document.getElementById('myStockQty').style.display = isPortfolio ? 'block' : 'none';
             document.getElementById('myStockStopLoss').style.display = isPortfolio ? 'block' : 'none';
+            document.getElementById('myStockOwnerContainer').style.display = isPortfolio ? 'block' : 'none';
         }
 
         function loadAllStockContexts() {
@@ -2251,9 +2251,9 @@
                             <!-- 상단: 종목명 및 즐겨찾기 -->
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
-                                    <div style="font-size: 12px; font-weight: 800; background: rgba(251, 191, 36, 0.1); color: #fbbf24; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(251, 191, 36, 0.2); flex-shrink: 0;">
+                                    ${stock.type === 'portfolio' ? `<div style="font-size: 12px; font-weight: 800; background: rgba(251, 191, 36, 0.1); color: #fbbf24; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(251, 191, 36, 0.2); flex-shrink: 0;">
                                         👤 ${stock.owner || '나'}
-                                    </div>
+                                    </div>` : ''}
                                     <div style="min-width: 0; flex: 1;">
                                         <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 1px; font-weight: 500;">
                                             ${stock.code} ${stock.is_stop_loss ? '<span style="color:#ef4444; font-weight:800; font-size:10px; background:rgba(239,68,68,0.1); padding:1px 4px; border-radius:4px;">STOP-LOSS</span>' : ''}
@@ -2326,7 +2326,7 @@
 
                             <div style="display: flex; gap: 8px;">
                                 <button onclick="selectStockForAnalysis('${stock.code}')" style="flex: 1; padding: 10px; font-size: 11px; border-radius: 10px; background: rgba(255,255,255,0.1); border: none; color: white; cursor: pointer; font-weight: 600;">분석실 이동</button>
-                                ${stock.type === 'watchlist' ? `<button onclick="promoteStockUI('${stock.code}', '${stock.name}')" style="flex: 1; padding: 10px; font-size: 11px; border-radius: 10px; background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.4); color: #10b981; cursor: pointer; font-weight: 600;">내꺼로 전환</button>` : ''}
+                                ${stock.type === 'watchlist' ? `<button onclick="promoteStockUI('${stock.code}', '${stock.name}')" style="flex: 1; padding: 10px; font-size: 11px; border-radius: 10px; background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.4); color: #10b981; cursor: pointer; font-weight: 600;">포트폴리오로 전환</button>` : ''}
                             </div>
                         `;
 
@@ -3050,7 +3050,7 @@
                         ` : ''}
 
                         ${buildTableHtml(portfolioData, '💰 보유 종목 포트폴리오', '🔥')}
-                        ${buildTableHtml(watchlistData, '🎯 핵심 관심 위시리스트', '⭐')}
+                        ${buildTableHtml(watchlistData, '🎯 관심종목', '⭐')}
 
                         ${(() => {
                             const totalProfitColor = totalProfit > 0 ? '#ef4444' : (totalProfit < 0 ? '#3b82f6' : 'white');
