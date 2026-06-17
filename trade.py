@@ -17,6 +17,8 @@ import json
 import psutil
 import pymysql
 import pymysql.cursors
+import psycopg2
+import psycopg2.extras
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -184,15 +186,58 @@ class _PyMySQLAdapter:
         self._conn.close()
 
 
+class _PsycopgAdapter:
+    """sqlite3 Connection 인터페이스를 흉내내는 psycopg2 연결 래퍼."""
+
+    def __init__(self, dsn):
+        self._conn = psycopg2.connect(dsn, cursor_factory=psycopg2.extras.DictCursor)
+
+    @property
+    def row_factory(self):
+        return None
+
+    @row_factory.setter
+    def row_factory(self, value):
+        pass
+
+    def cursor(self):
+        return _AdaptedCursor(self._conn.cursor())
+
+    def execute(self, query, params=None):
+        if query.strip().upper().startswith('PRAGMA'):
+            return _AdaptedCursor(self._conn.cursor())
+        cur = self.cursor()
+        cur.execute(query, params)
+        return cur
+
+    def executemany(self, query, seq_of_params):
+        cur = self.cursor()
+        cur.executemany(query, seq_of_params)
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
+def _make_db_conn():
+    """DATABASE_URL 스킴에 따라 적절한 DB 어댑터 반환."""
+    if DATABASE_URL and DATABASE_URL.startswith('postgresql'):
+        return _PsycopgAdapter(DATABASE_URL)
+    return _PyMySQLAdapter(DATABASE_URL)
+
+
 def _new_db_conn():
     """백그라운드 스레드용 새 DB 연결 생성."""
-    return _PyMySQLAdapter(DATABASE_URL)
+    return _make_db_conn()
 
 
 def get_db():
     """Flask 요청별 DB 연결 관리."""
     if 'db' not in g:
-        g.db = _PyMySQLAdapter(DATABASE_URL)
+        g.db = _make_db_conn()
     return g.db
 
 @app.teardown_appcontext
