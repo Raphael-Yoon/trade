@@ -124,13 +124,18 @@ class _AdaptedCursor:
         self._cur.executemany(adapted, seq_of_params)
         return self
 
+    @staticmethod
+    def _conv_row(row):
+        from decimal import Decimal
+        return _DictRow({k: float(v) if isinstance(v, Decimal) else v for k, v in row.items()})
+
     def fetchone(self):
         row = self._cur.fetchone()
-        return _DictRow(row) if row else None
+        return self._conv_row(row) if row else None
 
     def fetchall(self):
         rows = self._cur.fetchall()
-        return [_DictRow(r) for r in rows] if rows else []
+        return [self._conv_row(r) for r in rows] if rows else []
 
     @property
     def rowcount(self):
