@@ -2872,7 +2872,7 @@ def get_history_report():
     if period == 'month':
         period_expr = "LEFT(date, 7)"
     elif period == 'quarter':
-        period_expr = "LEFT(date, 4) || '-Q' || ((CAST(SUBSTRING(date, 6, 2) AS INTEGER) - 1) / 3 + 1)"
+        period_expr = "CONCAT(LEFT(date, 4), '-Q', FLOOR((CAST(SUBSTRING(date, 6, 2) AS DECIMAL) - 1) / 3) + 1)"
     else:
         period_expr = "LEFT(date, 4)"
     try:
@@ -2888,9 +2888,9 @@ def get_history_report():
             SELECT period_key,
                    MIN(date) AS period_start, MAX(date) AS period_end,
                    COUNT(DISTINCT date) AS trading_days,
-                   ROUND(SUM(day_profit)::numeric, 0)::double precision AS day_profit_sum,
-                   ROUND(SUM(CASE WHEN date = last_date THEN cumulative_profit ELSE 0 END)::numeric, 0)::double precision AS end_cumulative_profit,
-                   ROUND(SUM(CASE WHEN date = last_date THEN portfolio_value ELSE 0 END)::numeric, 0)::double precision AS end_portfolio_value
+                   ROUND(CAST(SUM(day_profit) AS DECIMAL(20,4)), 0) AS day_profit_sum,
+                   ROUND(CAST(SUM(CASE WHEN date = last_date THEN cumulative_profit ELSE 0 END) AS DECIMAL(20,4)), 0) AS end_cumulative_profit,
+                   ROUND(CAST(SUM(CASE WHEN date = last_date THEN portfolio_value ELSE 0 END) AS DECIMAL(20,4)), 0) AS end_portfolio_value
             FROM period_data GROUP BY period_key ORDER BY period_key DESC
         """)
         periods = [dict(row) for row in cursor.fetchall()]
@@ -2902,9 +2902,9 @@ def get_history_report():
                 FROM tr_stock_daily_history
             )
             SELECT period_key, owner,
-                   ROUND(SUM(day_profit)::numeric, 0)::double precision AS day_profit_sum,
-                   ROUND(SUM(CASE WHEN date = last_date THEN cumulative_profit ELSE 0 END)::numeric, 0)::double precision AS end_cumulative_profit,
-                   ROUND(SUM(CASE WHEN date = last_date THEN portfolio_value ELSE 0 END)::numeric, 0)::double precision AS end_portfolio_value,
+                   ROUND(CAST(SUM(day_profit) AS DECIMAL(20,4)), 0) AS day_profit_sum,
+                   ROUND(CAST(SUM(CASE WHEN date = last_date THEN cumulative_profit ELSE 0 END) AS DECIMAL(20,4)), 0) AS end_cumulative_profit,
+                   ROUND(CAST(SUM(CASE WHEN date = last_date THEN portfolio_value ELSE 0 END) AS DECIMAL(20,4)), 0) AS end_portfolio_value,
                    COUNT(DISTINCT date) AS trading_days
             FROM period_data GROUP BY period_key, owner ORDER BY period_key DESC, owner
         """)
@@ -2925,9 +2925,9 @@ def get_daily_chart():
         cursor = db.cursor()
         cursor.execute("""
             SELECT date, owner,
-                   ROUND(SUM(day_profit)::numeric, 0)::double precision AS day_profit_sum,
-                   ROUND(SUM(cumulative_profit)::numeric, 0)::double precision AS cum_profit,
-                   ROUND(SUM(current_price * quantity)::numeric, 0)::double precision AS portfolio_value
+                   ROUND(CAST(SUM(day_profit) AS DECIMAL(20,4)), 0) AS day_profit_sum,
+                   ROUND(CAST(SUM(cumulative_profit) AS DECIMAL(20,4)), 0) AS cum_profit,
+                   ROUND(CAST(SUM(current_price * quantity) AS DECIMAL(20,4)), 0) AS portfolio_value
             FROM tr_stock_daily_history
             WHERE LEFT(date, 7) = ?
             GROUP BY date, owner
