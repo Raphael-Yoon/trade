@@ -971,7 +971,7 @@ def migrate_dev_data():
             dest_conn.execute("""
                 INSERT INTO tr_audit_recommendations
                 (code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 r['code'], r['name'], float(r['current_price']), float(r['target_price']),
                 float(r['upside']), r['opinion'], r['data_date'], r['created_at'], float(r['score']),
@@ -985,7 +985,7 @@ def migrate_dev_data():
             dest_conn.execute("""
                 INSERT INTO tr_stock_pool
                 (code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, is_sector_leader, market_cap)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 p['code'], p['name'], p['sector'], float(p['roe'] or 0), float(p['pbr'] or 0), float(p['per'] or 0),
                 float(p['debt_ratio'] or 0), float(p['operating_margin'] or 0), float(p['target_price'] or 0),
