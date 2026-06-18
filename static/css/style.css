@@ -1121,18 +1121,51 @@ h1 {
     }
 
     .tabs-nav {
-        width: 100%;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 4px;
-        margin-bottom: 30px;
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        background: rgba(15, 23, 42, 0.96) !important;
+        backdrop-filter: blur(12px) !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+        margin: 0 !important;
+        padding: 8px 10px !important;
+        z-index: 9999 !important;
+        display: flex !important;
+        justify-content: space-around !important;
+        border-radius: 0 !important;
+        gap: 5px !important;
+        box-shadow: 0 -10px 30px rgba(0,0,0,0.5) !important;
+        width: 100% !important;
+    }
+
+    .tabs-nav button[data-tab="analysis"],
+    .tabs-nav button[data-tab="myStocks"],
+    .tabs-nav button[data-tab="monitor"] {
+        display: none !important;
     }
 
     .tab-btn {
-        padding: 12px 10px;
-        font-size: 14px;
-        justify-content: center;
-        border-radius: 14px;
+        flex: 1 !important;
+        padding: 10px 4px !important;
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 4px !important;
+        background: transparent !important;
+        border: none !important;
+        color: var(--text-muted) !important;
+        border-radius: 12px !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .tab-btn.active {
+        color: #6366f1 !important;
+        background: rgba(99, 102, 241, 0.1) !important;
+        box-shadow: none !important;
     }
 
     .field-checkboxes {
@@ -1164,7 +1197,9 @@ h1 {
     .my-stock-input-group+div,
     .stock-tag span[onclick^="deleteMyStock"],
     .download-section,
-    .btn-download {
+    .btn-download,
+    #historyBackfillSection,
+    #btnTakeSnapshot {
         display: none !important;
     }
 

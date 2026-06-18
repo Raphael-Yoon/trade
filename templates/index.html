@@ -14,6 +14,170 @@
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
     <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        /* Mobile Web Responsive Optimization */
+        @media (max-width: 768px) {
+            /* Hide analysis and myStocks tabs */
+            .tabs-nav button[data-tab="analysis"],
+            .tabs-nav button[data-tab="myStocks"] {
+                display: none !important;
+            }
+
+            /* Main Navigation -> Sticky Bottom Nav Bar */
+            .tabs-nav {
+                position: fixed !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                background: rgba(15, 23, 42, 0.96) !important;
+                backdrop-filter: blur(12px) !important;
+                border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+                margin: 0 !important;
+                padding: 8px 10px !important;
+                z-index: 9999 !important;
+                display: flex !important;
+                justify-content: space-around !important;
+                border-radius: 0 !important;
+                gap: 5px !important;
+                box-shadow: 0 -10px 30px rgba(0,0,0,0.5) !important;
+            }
+
+            .tabs-nav .tab-btn {
+                flex: 1 !important;
+                padding: 10px 4px !important;
+                font-size: 11px !important;
+                font-weight: 700 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 4px !important;
+                background: transparent !important;
+                border: none !important;
+                color: var(--text-muted) !important;
+                border-radius: 12px !important;
+                transition: all 0.2s ease !important;
+            }
+
+            .tabs-nav .tab-btn.active {
+                color: #6366f1 !important;
+                background: rgba(99, 102, 241, 0.1) !important;
+                box-shadow: none !important;
+            }
+
+            body {
+                padding-bottom: 80px !important;
+            }
+
+            /* Container padding reduction */
+            .container {
+                padding: 12px !important;
+                margin: 0 auto !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Hide admin/collect functions */
+            #historyBackfillSection,
+            #btnTakeSnapshot,
+            #historyReportControls select + span,
+            .realtime-header-controls button:first-child {
+                display: none !important;
+            }
+
+            /* Controls alignment on mobile */
+            .realtime-header-controls, 
+            #historyDailyControls,
+            #historyReportControls {
+                flex-wrap: wrap !important;
+                gap: 8px !important;
+                justify-content: flex-start !important;
+                width: 100% !important;
+            }
+
+            .realtime-header-controls {
+                margin-top: 10px !important;
+            }
+
+            /* Grid display columns modification */
+            .realtime-stock-grid, 
+            .results-grid {
+                grid-template-columns: 1fr !important;
+                gap: 16px !important;
+            }
+
+            /* Logo sizing */
+            div > img[alt="Jonathan's Coffee House"] {
+                height: 100px !important;
+            }
+
+            /* Section headers padding */
+            .realtime-section,
+            .my-stocks-section,
+            #targetsTab > div,
+            #historyTab > div {
+                padding: 16px !important;
+                border-radius: 20px !important;
+            }
+
+            .section-header h3 {
+                font-size: 20px !important;
+            }
+
+            /* Market indices responsive sizing */
+            .market-indices-sticky {
+                position: relative !important;
+                top: 0 !important;
+                margin-bottom: 20px !important;
+            }
+            #marketIndices {
+                padding: 0 !important;
+                display: grid !important;
+                grid-template-columns: 1fr 1fr !important;
+                gap: 10px !important;
+            }
+            #marketIndices .result-card {
+                padding: 12px !important;
+                border-radius: 12px !important;
+                min-width: 0 !important;
+                flex: none !important;
+            }
+            #marketIndices .result-card img {
+                display: none !important;
+            }
+
+            /* Adjust summary table grid for small screens */
+            #realtimePortfolioSummary {
+                padding: 12px !important;
+                font-size: 11px !important;
+                border-radius: 16px !important;
+            }
+            #realtimePortfolioSummary > div {
+                grid-template-columns: 60px 1fr 1fr 1fr !important;
+                gap: 6px !important;
+                padding: 8px 4px !important;
+            }
+            #summaryRowTotal,
+            #groupRowsContainer > div {
+                grid-template-columns: 60px 1fr 1fr 1fr !important;
+                gap: 6px !important;
+                padding: 10px 8px !important;
+                font-size: 11px !important;
+            }
+            #summaryRowTotal div:first-child {
+                font-size: 12px !important;
+            }
+
+            /* Horizontal scrolling for wide tables */
+            .portfolio-table,
+            table {
+                display: block !important;
+                width: 100% !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+            }
+        }
+    </style>
 </head>
 
 <body>
@@ -700,7 +864,7 @@
                     <span id="historyDateCount" style="font-size: 12px; color: var(--text-muted); margin-left: 4px;"></span>
 
                     <!-- [김선화] 특정 일자 소급 적재 UI -->
-                    <div style="margin-left: auto; display: flex; align-items: center; gap: 12px;">
+                    <div id="historyBackfillSection" style="margin-left: auto; display: flex; align-items: center; gap: 12px;">
                         <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">소급 날짜:</span>
                         <input type="date" id="backfillDateInput"
                             style="padding: 10px 16px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none;">
@@ -733,7 +897,7 @@
                     <h3 style="margin: 0; font-size: 28px; color: var(--text-main); font-family: 'Outfit', sans-serif;">
                         ⚡ 실시간 시세 현황</h3>
                     <div class="realtime-header-controls" style="display: flex; align-items: center; gap: 16px;">
-                        <button class="btn" onclick="takeSnapshot()" style="padding: 8px 16px; font-size: 13px; height: auto; background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);">
+                        <button id="btnTakeSnapshot" class="btn" onclick="takeSnapshot()" style="padding: 8px 16px; font-size: 13px; height: auto; background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);">
                             <span>📸</span> 오늘 데이터 기록
                         </button>
                         <button class="btn" onclick="manualRealtimeRefresh()" style="padding: 8px 16px; font-size: 13px; height: auto; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); color: white; display: flex; align-items: center; gap: 6px;">
@@ -4710,9 +4874,16 @@
 
         // [김정음] 페이지 로드 시 초기 데이터 로딩
         document.addEventListener('DOMContentLoaded', function () {
-            loadAllStockContexts();
+            if (window.innerWidth <= 768) {
+                switchTab('realtime');
+            } else {
+                loadAllStockContexts();
+            }
             // 기본 탭이 실시간이라면 폴링 시작
             const activeTab = document.querySelector('.tab-content.active');
+            if (activeTab && activeTab.id === 'realtimeTab') {
+                startRealtimePolling();
+            }
             
             loadMonitorThreshold();
             loadMonitorMinVolume();
