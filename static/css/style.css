@@ -1237,7 +1237,6 @@ h1 {
         line-height: 1.3 !important;
     }
     #historyDailyControls {
-        display: flex !important;
         flex-direction: row !important;
         flex-wrap: nowrap !important;
         align-items: center !important;
