@@ -910,6 +910,103 @@ def get_live_prices():
                 result[code] = {'price': d['current_price'], 'change_rate': d['change_rate'], 'change': d['change']}
     return jsonify(result)
 
+@app.route('/api/targets/migrate', methods=['POST'])
+def migrate_dev_data():
+    """[김정음] Neon DB(개발 환경)의 추천 종목 및 종목 풀 데이터를 운영 DB로 이관합니다."""
+    is_prod = (os.getenv('RUN_MODE') == 'prod') or (os.getenv('FLASK_ENV') == 'production') or (os.getenv('IS_PROD') == 'true')
+    if not is_prod:
+        return jsonify({
+            'success': False,
+            'message': '이 기능은 운영서버(IS_PROD=true 또는 RUN_MODE=prod)에서만 실행 가능합니다.'
+        }), 403
+
+    neon_url = os.getenv('NEON_DATABASE_URL')
+    
+    # NEON_DATABASE_URL이 명시적으로 주어지지 않았다면 에러 처리 (단, 개발 환경과 운영 환경 분리 시 필수)
+    if not neon_url:
+        return jsonify({
+            'success': False,
+            'message': 'NEON_DATABASE_URL 환경 변수가 구성되지 않았습니다. 운영서버의 환경설정을 확인해 주세요.'
+        }), 400
+        
+    prod_url = DATABASE_URL
+    if not prod_url:
+        return jsonify({
+            'success': False,
+            'message': '운영 DB 연결 설정(DATABASE_URL)이 유효하지 않습니다.'
+        }), 400
+
+    if neon_url == prod_url:
+        return jsonify({
+            'success': True,
+            'message': '현재 개발 환경(Neon DB와 운영 DB가 동일)이므로 데이터 이관 단계를 건너뛰었습니다.'
+        })
+
+    try:
+        # 1. Neon DB (Source) 연결 및 데이터 조회
+        src_conn = psycopg2.connect(neon_url, cursor_factory=psycopg2.extras.DictCursor)
+        src_cursor = src_conn.cursor()
+        
+        # tr_audit_recommendations 데이터 조회
+        src_cursor.execute("""
+            SELECT code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json
+            FROM tr_audit_recommendations
+        """)
+        rec_rows = [dict(r) for r in src_cursor.fetchall()]
+        
+        # tr_stock_pool 데이터 조회
+        src_cursor.execute("""
+            SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, is_sector_leader, market_cap
+            FROM tr_stock_pool
+        """)
+        pool_rows = [dict(r) for r in src_cursor.fetchall()]
+        src_conn.close()
+        
+        # 2. 운영 DB (Target) 연결 및 데이터 적재
+        dest_conn = _make_db_conn()
+        
+        # a. tr_audit_recommendations 이관 (기존 데이터 비운 후 신규 적재)
+        dest_conn.execute("DELETE FROM tr_audit_recommendations")
+        for r in rec_rows:
+            dest_conn.execute("""
+                INSERT INTO tr_audit_recommendations
+                (code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                r['code'], r['name'], float(r['current_price']), float(r['target_price']),
+                float(r['upside']), r['opinion'], r['data_date'], r['created_at'], float(r['score']),
+                float(r['roe'] or 0), float(r['debt'] or 0), r['reason'], r['news_summary'],
+                r['rec_type'], r['one_liner'], r['disc_json']
+            ))
+            
+        # b. tr_stock_pool 이관 (기존 데이터 비운 후 신규 적재)
+        dest_conn.execute("DELETE FROM tr_stock_pool")
+        for p in pool_rows:
+            dest_conn.execute("""
+                INSERT INTO tr_stock_pool
+                (code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, is_sector_leader, market_cap)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                p['code'], p['name'], p['sector'], float(p['roe'] or 0), float(p['pbr'] or 0), float(p['per'] or 0),
+                float(p['debt_ratio'] or 0), float(p['operating_margin'] or 0), float(p['target_price'] or 0),
+                float(p['pool_score'] or 0), bool(p['is_sector_leader']), float(p['market_cap'] or 0)
+            ))
+            
+        dest_conn.commit()
+        dest_conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Neon DB -> 운영 DB 이관이 성공적으로 완료되었습니다. (추천: {len(rec_rows)}건, 풀: {len(pool_rows)}건)'
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Migration error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'이관 중 오류 발생: {str(e)}'
+        }), 500
+
 @app.route('/api/pool')
 def get_stock_pool():
     """투자적격 종목 풀 조회 (Neon DB tr_audit_recommendations Top 10 우선, 그 외 pool_score 순)"""
@@ -1122,7 +1219,8 @@ def check_is_local():
 
 @app.route('/')
 def index():
-    return render_template('index.html', is_local=check_is_local())
+    is_prod = (os.getenv('RUN_MODE') == 'prod') or (os.getenv('FLASK_ENV') == 'production') or (os.getenv('IS_PROD') == 'true')
+    return render_template('index.html', is_local=check_is_local(), is_prod=is_prod)
 
 @app.route('/api/collect', methods=['POST'])
 def start_collection():

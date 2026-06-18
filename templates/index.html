@@ -838,6 +838,12 @@
                             style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(239,68,68,0.5); background: rgba(239,68,68,0.15); color: #f87171; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 6px; font-family: 'Inter', 'Outfit', sans-serif;">
                             🚨 실시간 급등주 탐지
                         </button>
+                        {% if is_prod %}
+                        <button id="migrateDevDataBtn" onclick="migrateDevData()"
+                            style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(99,102,241,0.5); background: rgba(99,102,241,0.15); color: #a5b4fc; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 6px; font-family: 'Inter', 'Outfit', sans-serif; transition: all 0.2s;">
+                            🔄 개발 데이터 이관
+                        </button>
+                        {% endif %}
                         <span id="poolRankedBy" style="margin-left: auto; align-self: center; font-size: 12px; color: #64748b;"></span>
                     </div>
                 </div>
@@ -3810,6 +3816,37 @@
             document.body.style.overflow = 'auto';
         }
 
+        function migrateDevData() {
+            const btn = document.getElementById('migrateDevDataBtn');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.style.opacity = '0.7';
+            btn.innerHTML = '🔄 이관 중...';
+
+            fetch('/api/targets/migrate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.innerHTML = originalHtml;
+                if (data.success) {
+                    showToast(data.message);
+                    loadPoolData();
+                } else {
+                    showToast('이관 실패: ' + data.message, 'error');
+                }
+            })
+            .catch(err => {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.innerHTML = originalHtml;
+                showToast('네트워크 오류가 발생했습니다.', 'error');
+            });
+        }
+
         function openMonitorModal() {
             const modal = document.getElementById('monitorModal');
             if (modal) {
@@ -4343,7 +4380,7 @@
                 const isAdded = watchlistCodes.has(s.code);
                 const isValue = s.rec_type === 'value' || s.is_rec === 2;
                 const rawOneLiner = s.one_liner || '';
-                const oneLiner = (rawOneLiner && !rawOneLiner.includes(s.name)) ? rawOneLiner : (oneLineSummaries[s.code] || '');
+                const oneLiner = rawOneLiner || (oneLineSummaries[s.code] || '');
 
                 const topBarBg = isValue 
                     ? 'linear-gradient(to right, #3b82f6, #06b6d4)'
