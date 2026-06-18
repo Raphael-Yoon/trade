@@ -1542,6 +1542,122 @@
                 });
         }
 
+        function toggleOwnerDetail(owner, date) {
+            const detailRow = document.getElementById(`owner-detail-row-${owner}`);
+            const detailContent = document.getElementById(`owner-detail-content-${owner}`);
+            if (!detailRow || !detailContent) return;
+
+            if (detailRow.style.display !== 'none') {
+                detailRow.style.display = 'none';
+                return;
+            }
+
+            // Show and fetch
+            detailRow.style.display = '';
+            if (!date) {
+                detailContent.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:10px;">기록된 날짜가 없습니다.</p>';
+                return;
+            }
+
+            detailContent.innerHTML = '<div style="display:flex;justify-content:center;padding:20px;"><div class="ai-spinner" style="width:24px;height:24px;border-width:3px;"></div><span style="margin-left:10px;color:var(--text-muted);">상세 데이터를 불러오는 중...</span></div>';
+
+            fetch(`/api/history/data?date=${date}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.success || !data.data.length) {
+                        detailContent.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:10px;">데이터가 없습니다.</p>';
+                        return;
+                    }
+
+                    // Filter only items belonging to the selected owner
+                    const items = data.data.filter(item => item.owner === owner);
+                    if (!items.length) {
+                        detailContent.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:10px;">해당 소유자의 데이터가 없습니다.</p>';
+                        return;
+                    }
+
+                    const subInvested = items.reduce((s, i) => s + i.purchase_price * i.quantity, 0);
+                    const subDayProfit = items.reduce((s, i) => s + (i.day_profit || 0), 0);
+                    const subCumProfit = items.reduce((s, i) => s + (i.cumulative_profit || 0), 0);
+                    const subCumRate = subInvested > 0 ? (subCumProfit / subInvested * 100).toFixed(2) : 0;
+                    const subDayColor = subDayProfit >= 0 ? '#ef4444' : '#3b82f6';
+                    const subCumColor = subCumProfit >= 0 ? '#ef4444' : '#3b82f6';
+
+                    let tableHtml = `
+                        <div style="margin-top: 10px; margin-bottom: 10px;">
+                            <h5 style="font-size: 14px; color: #fbbf24; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                                👤 ${owner}의 종목별 상세 실적 (${date} 기준)
+                            </h5>
+                            <table class="portfolio-table" style="width: 100%; border-collapse: collapse; font-size:12px;">
+                                <thead>
+                                    <tr style="border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                        <th style="padding: 10px; text-align: left; color: var(--text-muted);">종목명</th>
+                                        <th style="padding: 10px; text-align: right; color: var(--text-muted);">평단가</th>
+                                        <th style="padding: 10px; text-align: right; color: var(--text-muted);">기록가</th>
+                                        <th style="padding: 10px; text-align: right; color: var(--text-muted);">보유수량</th>
+                                        <th style="padding: 10px; text-align: right; color: var(--text-muted);">투자액</th>
+                                        <th style="padding: 10px; text-align: right; color: var(--text-muted);">평가액</th>
+                                        <th style="padding: 10px; text-align: right; color: var(--text-muted);">당일 수익</th>
+                                        <th style="padding: 10px; text-align: right; color: var(--text-muted);">평가손익</th>
+                                        <th style="padding: 10px; text-align: right; color: var(--text-muted);">수익률</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${items.map(item => {
+                                        const dayProfit = item.day_profit || 0;
+                                        const cumProfit = item.cumulative_profit || 0;
+                                        const cumRate = item.purchase_price > 0 ? (cumProfit / (item.purchase_price * item.quantity) * 100).toFixed(2) : 0;
+                                        const dailyColor = dayProfit >= 0 ? '#ef4444' : '#3b82f6';
+                                        const cumColor = cumProfit >= 0 ? '#ef4444' : '#3b82f6';
+                                        const investAmt = Math.floor(item.purchase_price * item.quantity);
+                                        const evalAmt = Math.floor(item.current_price * item.quantity);
+                                        return `
+                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <td style="padding: 10px; font-weight: 700; color:white;">${item.name}</td>
+                                                <td style="padding: 10px; text-align: right; color:#e2e8f0;">${item.purchase_price.toLocaleString()}</td>
+                                                <td style="padding: 10px; text-align: right; font-weight: 700; color:#e2e8f0;">${item.current_price.toLocaleString()}</td>
+                                                <td style="padding: 10px; text-align: right; color:#e2e8f0;">${item.quantity.toLocaleString()}</td>
+                                                <td style="padding: 10px; text-align: right; color:#e2e8f0;">${investAmt.toLocaleString()}원</td>
+                                                <td style="padding: 10px; text-align: right; color:#e2e8f0;">${evalAmt.toLocaleString()}원</td>
+                                                <td style="padding: 10px; text-align: right; color: ${dailyColor}; font-weight: 700;">
+                                                    ${dayProfit > 0 ? '+' : ''}${Math.floor(dayProfit).toLocaleString()}원
+                                                </td>
+                                                <td style="padding: 10px; text-align: right; color: ${cumColor}; font-weight: 700;">
+                                                    ${cumProfit > 0 ? '+' : ''}${Math.floor(cumProfit).toLocaleString()}원
+                                                </td>
+                                                <td style="padding: 10px; text-align: right; color: ${cumColor}; font-weight: 800;">
+                                                    ${cumRate}%
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                                <tfoot>
+                                    <tr style="border-top: 2px solid rgba(255,255,255,0.15); background: rgba(251,191,36,0.06);">
+                                        <td colspan="6" style="padding: 10px; font-weight: 900; color: #fbbf24; font-size: 12px; letter-spacing: 0.5px;">
+                                            📊 ${owner} 소계 (${items.length}종목)
+                                        </td>
+                                        <td style="padding: 10px; text-align: right; color: ${subDayColor}; font-weight: 900; font-size: 13px;">
+                                            ${subDayProfit > 0 ? '+' : ''}${Math.floor(subDayProfit).toLocaleString()}원
+                                        </td>
+                                        <td style="padding: 10px; text-align: right; color: ${subCumColor}; font-weight: 900; font-size: 13px;">
+                                            ${subCumProfit > 0 ? '+' : ''}${Math.floor(subCumProfit).toLocaleString()}원
+                                        </td>
+                                        <td style="padding: 10px; text-align: right; color: ${subCumColor}; font-weight: 900; font-size: 13px;">
+                                            ${subCumRate}%
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    `;
+                    detailContent.innerHTML = tableHtml;
+                })
+                .catch(err => {
+                    detailContent.innerHTML = `<p style="text-align: center; padding: 10px; color: #ef4444;">데이터 로드 오류: ${err}</p>`;
+                });
+        }
+
         // [유병욱] 히스토리 뷰 모드 전환 (일별 / 월별 / 분기별 / 연도별)
         let currentHistoryView = 'daily';
         let reportCache = null; // { period, periods, by_owner }
@@ -1903,12 +2019,20 @@
                                     const profitSum = ownerRows.reduce((s, r) => s + r.day_profit_sum, 0);
                                     const cumProfit = latestRow ? latestRow.cum_profit : 0;
                                     const portValue = latestRow ? latestRow.portfolio_value : 0;
+                                    const latestDate = latestRow ? latestRow.date : '';
                                     return `
-                                        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
-                                            <td style="padding:12px 16px;font-weight:800;color:white;">${owner}</td>
+                                        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.2s;cursor:pointer;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''" onclick="toggleOwnerDetail('${owner}', '${latestDate}')">
+                                            <td style="padding:12px 16px;font-weight:800;color:white;">${owner} ▾</td>
                                             <td style="padding:12px 16px;text-align:right;font-weight:700;${pStyle(profitSum)}">${fmt(profitSum)}</td>
                                             <td style="padding:12px 16px;text-align:right;font-weight:700;${pStyle(cumProfit)}">${fmt(cumProfit)}</td>
                                             <td style="padding:12px 16px;text-align:right;color:white;">${fmt(portValue)}</td>
+                                        </tr>
+                                        <tr id="owner-detail-row-${owner}" style="display:none; background: rgba(0,0,0,0.15);">
+                                            <td colspan="4" style="padding: 16px;">
+                                                <div id="owner-detail-content-${owner}">
+                                                    <div style="text-align:center; padding:10px; color:var(--text-muted);">불러오는 중...</div>
+                                                </div>
+                                            </td>
                                         </tr>
                                     `;
                                 }).join('')}
