@@ -82,6 +82,7 @@ from dotenv import load_dotenv as _load_dotenv
 from urllib.parse import urlparse
 _load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 DATABASE_URL = os.getenv('DATABASE_URL')
+_IS_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith('postgresql'))
 app.secret_key = os.getenv('SECRET_KEY', 'fallback-secret-key')
 app.permanent_session_lifetime = timedelta(hours=12)
 APP_PASSWORD = os.getenv('APP_PASSWORD', '')
@@ -1913,7 +1914,7 @@ def add_my_stock():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("""
+        _sql = ("""
             INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
             ON CONFLICT (code) DO UPDATE SET
@@ -1921,7 +1922,16 @@ def add_my_stock():
                 purchase_price=EXCLUDED.purchase_price, quantity=EXCLUDED.quantity,
                 stop_loss_ratio=EXCLUDED.stop_loss_ratio, owner=EXCLUDED.owner,
                 type='portfolio'
-        """, (code, name, datetime.now().isoformat(), purchase_price, quantity, stop_loss_ratio, owner))
+        """ if _IS_POSTGRES else """
+            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
+            ON DUPLICATE KEY UPDATE
+                name=VALUES(name), added_at=VALUES(added_at),
+                purchase_price=VALUES(purchase_price), quantity=VALUES(quantity),
+                stop_loss_ratio=VALUES(stop_loss_ratio), owner=VALUES(owner),
+                type='portfolio'
+        """)
+        cursor.execute(_sql, (code, name, datetime.now().isoformat(), purchase_price, quantity, stop_loss_ratio, owner))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -2091,10 +2101,14 @@ def update_master():
             if all_stocks:
                 conn = _new_db_conn()
                 cursor = conn.cursor()
-                cursor.executemany("""
-                    INSERT INTO tr_stocks_master (code, name, market) VALUES (?, ?, ?)
-                    ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name, market=EXCLUDED.market
-                """, all_stocks)
+                _master_sql = (
+                    "INSERT INTO tr_stocks_master (code, name, market) VALUES (?, ?, ?) "
+                    "ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name, market=EXCLUDED.market"
+                    if _IS_POSTGRES else
+                    "INSERT INTO tr_stocks_master (code, name, market) VALUES (?, ?, ?) "
+                    "ON DUPLICATE KEY UPDATE name=VALUES(name), market=VALUES(market)"
+                )
+                cursor.executemany(_master_sql, all_stocks)
                 conn.commit()
                 conn.close()
                 print(f"종목 마스터 업데이트 완료: {len(all_stocks)}개 종목")
@@ -2326,10 +2340,14 @@ def ai_analyze_portfolio():
         
         # 5. 결과 저장 (유효한 경우만)
         if "오류" not in result_text and "제한" not in result_text:
-            cursor.execute("""
-                INSERT INTO tr_portfolio_ai_cache (cache_key, ai_result, created_at) VALUES (?, ?, ?)
-                ON CONFLICT (cache_key) DO UPDATE SET ai_result=EXCLUDED.ai_result, created_at=EXCLUDED.created_at
-            """, (cache_key, result_text, datetime.now().isoformat()))
+            _cache_sql = (
+                "INSERT INTO tr_portfolio_ai_cache (cache_key, ai_result, created_at) VALUES (?, ?, ?) "
+                "ON CONFLICT (cache_key) DO UPDATE SET ai_result=EXCLUDED.ai_result, created_at=EXCLUDED.created_at"
+                if _IS_POSTGRES else
+                "INSERT INTO tr_portfolio_ai_cache (cache_key, ai_result, created_at) VALUES (?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE ai_result=VALUES(ai_result), created_at=VALUES(created_at)"
+            )
+            cursor.execute(_cache_sql, (cache_key, result_text, datetime.now().isoformat()))
             db.commit()
             
         return jsonify({'success': True, 'result': result_text, 'cached': False})
@@ -2425,11 +2443,14 @@ def add_to_watchlist():
 
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("""
-            INSERT INTO tr_my_stocks (code, name, added_at, type, owner, purchase_price, quantity, stop_loss_ratio)
-            VALUES (?, ?, ?, 'watchlist', ?, 0, 0, 0)
-            ON CONFLICT (code) DO NOTHING
-        """, (code, name, datetime.now().isoformat(), owner))
+        _watch_sql = (
+            "INSERT INTO tr_my_stocks (code, name, added_at, type, owner, purchase_price, quantity, stop_loss_ratio) "
+            "VALUES (?, ?, ?, 'watchlist', ?, 0, 0, 0) ON CONFLICT (code) DO NOTHING"
+            if _IS_POSTGRES else
+            "INSERT IGNORE INTO tr_my_stocks (code, name, added_at, type, owner, purchase_price, quantity, stop_loss_ratio) "
+            "VALUES (?, ?, ?, 'watchlist', ?, 0, 0, 0)"
+        )
+        cursor.execute(_watch_sql, (code, name, datetime.now().isoformat(), owner))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -2461,14 +2482,22 @@ def promote_to_portfolio():
 
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("""
+        _move_sql = ("""
             INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
             ON CONFLICT (code) DO UPDATE SET
                 type='portfolio', added_at=EXCLUDED.added_at,
                 purchase_price=EXCLUDED.purchase_price, quantity=EXCLUDED.quantity,
                 stop_loss_ratio=EXCLUDED.stop_loss_ratio, owner=EXCLUDED.owner
-        """, (code, name, datetime.now().isoformat(), price, qty, stop_loss, owner))
+        """ if _IS_POSTGRES else """
+            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
+            ON DUPLICATE KEY UPDATE
+                type='portfolio', added_at=VALUES(added_at),
+                purchase_price=VALUES(purchase_price), quantity=VALUES(quantity),
+                stop_loss_ratio=VALUES(stop_loss_ratio), owner=VALUES(owner)
+        """)
+        cursor.execute(_move_sql, (code, name, datetime.now().isoformat(), price, qty, stop_loss, owner))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
