@@ -151,6 +151,7 @@ class _PyMySQLAdapter:
     """sqlite3 Connection 인터페이스를 흉내내는 pymysql 연결 래퍼."""
 
     def __init__(self, dsn):
+        self._dsn = dsn
         parsed = urlparse(dsn)
         db_opts = {
             'host': parsed.hostname or '127.0.0.1',
@@ -188,15 +189,51 @@ class _PyMySQLAdapter:
     def commit(self):
         self._conn.commit()
 
+    def ping(self):
+        try:
+            self._conn.ping(reconnect=True)
+            return True
+        except Exception as e:
+            print(f"[DB Pool] MySQL ping failed: {e}")
+            return False
+
     def close(self):
-        self._conn.close()
+        if hasattr(self, '_pool') and self._pool is not None:
+            self._pool.release(self)
+        else:
+            self.real_close()
+
+    def real_close(self):
+        try:
+            self._conn.close()
+        except:
+            pass
 
 
 class _PsycopgAdapter:
     """sqlite3 Connection 인터페이스를 흉내내는 psycopg2 연결 래퍼."""
 
+    # Neon DB 서버리스 특성상 idle 연결을 SSL 수준에서 강제 종료함.
+    # TCP keepalive로 주기적 패킷을 보내 연결을 유지.
+    _CONNECT_KWARGS = dict(
+        cursor_factory=psycopg2.extras.DictCursor,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
+        connect_timeout=10,
+    )
+
     def __init__(self, dsn):
-        self._conn = psycopg2.connect(dsn, cursor_factory=psycopg2.extras.DictCursor)
+        self._dsn = dsn
+        self._conn = psycopg2.connect(dsn, **self._CONNECT_KWARGS)
+
+    def _reconnect(self):
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+        self._conn = psycopg2.connect(self._dsn, **self._CONNECT_KWARGS)
 
     @property
     def row_factory(self):
@@ -224,9 +261,116 @@ class _PsycopgAdapter:
     def commit(self):
         self._conn.commit()
 
-    def close(self):
-        self._conn.close()
+    def ping(self):
+        # self._conn.closed: 0=open, 1=closed, 2=broken(fatal error)
+        if self._conn.closed:
+            try:
+                self._reconnect()
+                return True
+            except Exception as e:
+                print(f"[DB Pool] PostgreSQL reconnect failed: {e}")
+                return False
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            return True
+        except Exception as e:
+            try:
+                self._reconnect()
+                return True
+            except Exception as e2:
+                print(f"[DB Pool] PostgreSQL ping failed ({e}). Reconnect failed: {e2}")
+                return False
 
+    def close(self):
+        if hasattr(self, '_pool') and self._pool is not None:
+            self._pool.release(self)
+        else:
+            self.real_close()
+
+    def real_close(self):
+        try:
+            self._conn.close()
+        except:
+            pass
+
+
+from queue import Queue, Empty
+
+class _DbConnectionPool:
+    """스레드 안전한 데이터베이스 커넥션 풀 (MySQL / PostgreSQL 겸용)"""
+    def __init__(self, creator_fn, minconn=3, maxconn=15):
+        self._creator = creator_fn
+        self._pool = Queue(maxsize=maxconn)
+        self._lock = threading.Lock()
+        self._active_connections = 0
+        
+        # 최소 커넥션 수만큼 미리 생성하여 적재
+        for _ in range(minconn):
+            try:
+                conn = self._create_connection()
+                self._pool.put(conn)
+            except Exception as e:
+                print(f"[DB Pool] 초기 커넥션 생성 실패: {e}")
+
+    def _create_connection(self):
+        conn = self._creator()
+        conn._pool = self  # 커넥션 객체에 풀 참조 주입
+        with self._lock:
+            self._active_connections += 1
+        return conn
+
+    def acquire(self):
+        """커넥션 대여 및 헬스 체크"""
+        conn = None
+        # 1. 풀에서 우선 획득 시도
+        try:
+            conn = self._pool.get_nowait()
+        except Empty:
+            # 2. 풀이 비어있고 최대 커넥션에 도달하지 않은 경우 새로 생성
+            with self._lock:
+                can_create = self._active_connections < self._pool.maxsize
+            if can_create:
+                try:
+                    conn = self._create_connection()
+                except Exception as e:
+                    print(f"[DB Pool] 신규 커넥션 생성 실패: {e}")
+            # 3. 새로 생성하지 못했다면 대기 (최대 5초)
+            if conn is None:
+                try:
+                    conn = self._pool.get(timeout=5)
+                except Empty:
+                    raise Exception("[DB Pool] 커넥션 풀 대여 시간 초과 (Timeout)")
+
+        # 헬스 체크: 실패 시 풀 카운트 차감 후 신규 커넥션으로 교체
+        if conn and not conn.ping():
+            with self._lock:
+                self._active_connections -= 1
+            try:
+                conn = self._create_connection()
+            except Exception as e:
+                print(f"[DB Pool] 커넥션 교체 실패: {e}")
+                raise
+
+        return conn
+
+    def release(self, conn):
+        """커넥션을 풀로 반환"""
+        if conn is None:
+            return
+        try:
+            self._pool.put_nowait(conn)
+        except Exception:
+            # 풀이 가득 차 반환 불가능한 경우 소켓을 완전히 닫음
+            try:
+                conn.real_close()
+            except:
+                pass
+            with self._lock:
+                self._active_connections -= 1
+
+
+_DB_POOL = None
 
 def _make_db_conn():
     """DATABASE_URL 스킴에 따라 적절한 DB 어댑터 반환."""
@@ -235,26 +379,35 @@ def _make_db_conn():
     return _PyMySQLAdapter(DATABASE_URL)
 
 
+def init_db_pool():
+    global _DB_POOL
+    if _DB_POOL is None:
+        _DB_POOL = _DbConnectionPool(_make_db_conn, minconn=3, maxconn=15)
+
+
 def _new_db_conn():
-    """백그라운드 스레드용 새 DB 연결 생성."""
-    return _make_db_conn()
+    """백그라운드 스레드용 DB 연결 (커넥션 풀에서 대여)"""
+    return _DB_POOL.acquire()
 
 
 def get_db():
-    """Flask 요청별 DB 연결 관리."""
+    """Flask 요청별 DB 연결 관리 (커넥션 풀 적용)"""
     if 'db' not in g:
-        g.db = _make_db_conn()
+        g.db = _DB_POOL.acquire()
     return g.db
 
 @app.teardown_appcontext
 def close_db(e=None):
-    """요청 종료 시 DB 연결 닫기."""
+    """요청 종료 시 DB 연결을 풀로 반환"""
     db = g.pop('db', None)
     if db is not None:
-        db.close()
+        db.close()  # 커넥션 객체의 close()는 자동으로 풀에 반환합니다.
 
 # DB 초기화 실행
 init_db()
+
+# 커넥션 풀 초기화
+init_db_pool()
 
 # 실시간 모니터링 관리 (정규장/시간외 분리)
 monitor_active_market = False

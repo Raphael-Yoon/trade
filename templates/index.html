@@ -436,77 +436,69 @@
 
 
     <!-- Promote (Portfolio Conversion) Modal -->
-    <div id="promoteModal" class="modal" style="z-index: 2000;">
-        <div class="modal-content"
-            style="max-width: 480px; width: 90%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); border-radius: 28px; overflow: hidden;">
-            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 20px 24px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <h2 id="promoteModalTitle" style="margin: 0; font-size: 20px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">포트폴리오 편입</h2>
-                    <span id="promoteModalCode" style="font-size: 12px; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 6px;">000000</span>
+    <div id="promoteModal" class="modal">
+        <div class="modal-content" style="max-width: 480px; width: 90%;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <h2 id="promoteModalTitle" style="font-size: 20px;">포트폴리오 편입</h2>
+                    <span id="promoteModalCode" class="modal-badge-code" style="font-size: 12px; padding: 2px 8px;">000000</span>
                 </div>
-                <span class="close-modal" onclick="closePromoteModal()" style="font-size: 28px; cursor: pointer;">&times;</span>
+                <span class="close-modal" onclick="closePromoteModal()" style="font-size: 28px;">&times;</span>
             </div>
-            <div class="modal-body" style="padding: 24px; background: #020617; display: flex; flex-direction: column; gap: 20px;">
+            <div class="modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
                 <!-- Owner Selection -->
-                <div>
-                    <label style="display: block; font-size: 13px; color: #a5b4fc; font-weight: 700; margin-bottom: 8px;">소유주</label>
-                    <div style="display: flex; gap: 10px;">
-                        <label style="flex: 1; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); color: white; text-align: center; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; font-size: 14px;">
-                            <input type="radio" name="promoteOwner" value="나" checked style="accent-color: #fbbf24;"> 나
+                <div class="modal-form-group" style="margin-bottom: 0;">
+                    <label class="modal-label">소유주</label>
+                    <div class="modal-radio-group">
+                        <label class="modal-radio-label">
+                            <input type="radio" name="promoteOwner" value="나" checked> 나
                         </label>
-                        <label style="flex: 1; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); color: white; text-align: center; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; font-size: 14px;">
-                            <input type="radio" name="promoteOwner" value="경미" style="accent-color: #fbbf24;"> 경미
+                        <label class="modal-radio-label">
+                            <input type="radio" name="promoteOwner" value="경미"> 경미
                         </label>
-                        <label style="flex: 1; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); color: white; text-align: center; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; font-size: 14px;">
-                            <input type="radio" name="promoteOwner" value="유주" style="accent-color: #fbbf24;"> 유주
+                        <label class="modal-radio-label">
+                            <input type="radio" name="promoteOwner" value="유주"> 유주
                         </label>
                     </div>
                 </div>
                 <!-- Purchase Price -->
-                <div>
-                    <label for="promotePrice" style="display: block; font-size: 13px; color: #a5b4fc; font-weight: 700; margin-bottom: 8px;">매입단가 (원)</label>
-                    <input type="text" id="promotePrice" placeholder="0" oninput="formatPriceInput(this)"
-                        style="width: 100%; box-sizing: border-box; padding: 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; color: white; font-size: 16px; font-weight: 800; font-family: 'Outfit', sans-serif; text-align: right;">
+                <div class="modal-form-group" style="margin-bottom: 0;">
+                    <label for="promotePrice" class="modal-label">매입단가 (원)</label>
+                    <input type="text" id="promotePrice" class="modal-input" placeholder="0" oninput="formatPriceInput(this)">
                 </div>
                 <!-- Quantity -->
-                <div>
-                    <label for="promoteQty" style="display: block; font-size: 13px; color: #a5b4fc; font-weight: 700; margin-bottom: 8px;">보유수량 (주)</label>
-                    <input type="number" id="promoteQty" placeholder="0" min="1"
-                        style="width: 100%; box-sizing: border-box; padding: 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; color: white; font-size: 16px; font-weight: 800; text-align: right;">
+                <div class="modal-form-group" style="margin-bottom: 0;">
+                    <label for="promoteQty" class="modal-label">보유수량 (주)</label>
+                    <input type="number" id="promoteQty" class="modal-input" placeholder="0" min="1">
                 </div>
                 <!-- Stop Loss Ratio -->
-                <div>
-                    <label for="promoteStopLoss" style="display: block; font-size: 13px; color: #a5b4fc; font-weight: 700; margin-bottom: 8px;">손절 비율 (%)</label>
+                <div class="modal-form-group" style="margin-bottom: 0;">
+                    <label for="promoteStopLoss" class="modal-label">손절 비율 (%)</label>
                     <div style="position: relative; display: flex; align-items: center;">
-                        <input type="number" id="promoteStopLoss" placeholder="0.0" step="0.1" min="0" max="100"
-                            style="width: 100%; box-sizing: border-box; padding: 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; color: white; font-size: 16px; font-weight: 800; text-align: right; padding-right: 40px;">
+                        <input type="number" id="promoteStopLoss" class="modal-input" placeholder="0.0" step="0.1" min="0" max="100" style="padding-right: 40px;">
                         <span style="position: absolute; right: 16px; color: var(--text-muted); font-weight: 700; font-size: 16px;">%</span>
                     </div>
                 </div>
                 <!-- Action Buttons -->
-                <div style="display: flex; gap: 10px; margin-top: 10px;">
-                    <button class="btn" style="flex: 1; height: 48px; border-radius: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; cursor: pointer; padding: 0; box-sizing: border-box; line-height: 1;" onclick="closePromoteModal()">취소</button>
-                    <button class="btn" style="flex: 2; height: 48px; border-radius: 14px; background: #fbbf24; color: #020617; border: none; font-weight: 900; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; padding: 0; box-sizing: border-box; line-height: 1;" onclick="submitPromoteForm()">👛 포트폴리오 편입</button>
+                <div class="modal-button-row">
+                    <button class="modal-btn-cancel" onclick="closePromoteModal()">취소</button>
+                    <button class="modal-btn-confirm" onclick="submitPromoteForm()">👛 포트폴리오 편입</button>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Chart Expansion Modal -->
-    <div id="chartModal" class="modal" style="z-index: 2000;">
-        <div class="modal-content"
-            style="max-width: 900px; width: 90%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
-            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 24px 32px;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <h2 id="chartModalTitle"
-                        style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">
-                        종목 차트</h2>
-                    <span id="chartModalCode"
-                        style="font-size: 14px; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 6px;">000000</span>
+    <div id="chartModal" class="modal">
+        <div class="modal-content" style="max-width: 900px; width: 90%;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <h2 id="chartModalTitle">종목 차트</h2>
+                    <span id="chartModalCode" class="modal-badge-code">000000</span>
                 </div>
-                <span class="close-modal" onclick="closeChartModal()" style="font-size: 32px;">&times;</span>
+                <span class="close-modal" onclick="closeChartModal()">&times;</span>
             </div>
-            <div class="modal-body" style="padding: 32px; background: #020617;">
+            <div class="modal-body">
                 <!-- Chart Type Tabs -->
                 <div style="display: flex; gap: 10px; margin-bottom: 24px;">
                     <button class="sub-tab-btn active" onclick="updateExpandedChart('day')">일봉</button>
@@ -515,17 +507,14 @@
                 </div>
 
                 <div id="expandedChartContainer"
-                    style="width: 100%; height: 450px; background: rgba(0,0,0,0.3); border-radius: 20px; overflow: hidden; position: relative; border: 1px solid rgba(255,255,255,0.05);">
+                    style="width: 100%; height: 450px; background: var(--input-bg); border-radius: 20px; overflow: hidden; position: relative; border: 1px solid var(--modal-border-subtle);">
                     <img id="expandedChartImg" src=""
                         style="width: 100%; height: 100%; object-fit: contain; filter: invert(0.92) hue-rotate(180deg) brightness(1.4) contrast(1.4); mix-blend-mode: lighten;">
                 </div>
 
                 <div style="margin-top: 24px; display: flex; justify-content: space-between; align-items: center;">
-                    <p style="margin: 0; font-size: 13px; color: var(--text-muted);">※ 네이버 금융 실시간 데이터를 기반으로 제공되는 차트입니다.
-                    </p>
-                    <button class="btn"
-                        style="height: auto; padding: 12px 24px; font-size: 14px; background: rgba(255,255,255,0.1); border: none;"
-                        onclick="closeChartModal()">닫기</button>
+                    <p style="margin: 0; font-size: 13px; color: var(--text-muted);">※ 네이버 금융 실시간 데이터를 기반으로 제공되는 차트입니다.</p>
+                    <button class="modal-btn-cancel" style="height: auto; padding: 12px 24px; font-size: 14px; flex: none; width: auto;" onclick="closeChartModal()">닫기</button>
                 </div>
             </div>
         </div>
@@ -534,33 +523,29 @@
     <!-- AI Analysis Modal -->
     <div id="aiModal" class="modal">
         <div class="modal-content" style="max-width: 1000px; width: 95%;">
-            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 24px 32px;">
-                <h2
-                    style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">
-                    🤖 AI 포트폴리오 정밀 분석</h2>
-                <div style="display: flex; gap: 12px; align-items: center;">
+            <div class="modal-header">
+                <h2>🤖 AI 포트폴리오 정밀 분석</h2>
+                <div class="modal-header-left">
                     <button id="aiRefreshBtn" class="btn"
                         style="display: none; height: auto; padding: 8px 16px; font-size: 13px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3);"
                         onclick="refreshAiAnalysis()">
                         <span id="refreshBtnText">🔄 다시 분석하기</span>
                     </button>
-                    <span class="close-modal" onclick="closeAiModal()" style="font-size: 32px;">&times;</span>
+                    <span class="close-modal" onclick="closeAiModal()">&times;</span>
                 </div>
             </div>
-            <div id="aiResultContent" class="modal-body"
-                style="padding: 32px; background: #020617; min-height: 400px; overflow-y: auto;">
+            <div id="aiResultContent" class="modal-body" style="min-height: 400px;">
                 <div class="loading-ai">
                     <div class="ai-spinner"></div>
                     <p>AI가 분석 준비 중입니다...</p>
                 </div>
             </div>
-            <div class="modal-footer"
-                style="padding: 16px 28px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 12px; background: #0f172a;">
+            <div class="modal-footer">
                 <button id="aiSaveDriveBtn" class="btn" style="display: none; gap: 8px; align-items: center; height: auto; padding: 12px 24px; font-size: 15px;"
                     onclick="savePortfolioReportToDrive()">
                     <span id="saveDriveBtnText">📁 구글 드라이브에 저장</span>
                 </button>
-                <button class="btn" style="height: auto; padding: 12px 28px; font-size: 15px; background: rgba(255,255,255,0.1); border: none;"
+                <button class="modal-btn-cancel" style="height: auto; padding: 12px 28px; font-size: 15px; flex: none; width: auto;"
                     onclick="closeAiModal()">닫기</button>
             </div>
         </div>
@@ -569,43 +554,41 @@
     <!-- Real-time News Modal -->
     <div id="newsModal" class="modal">
         <div class="modal-content" style="max-width: 800px; width: 95%;">
-            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 24px 32px; display:flex; justify-content:space-between; align-items:center; background:#0f172a;">
-                <h2 id="newsModalTitle" style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">
-                    📰 실시간 뉴스 및 심리 요약
-                </h2>
-                <span class="close-modal" onclick="closeNewsModal()" style="font-size: 32px; cursor:pointer;">&times;</span>
+            <div class="modal-header">
+                <h2 id="newsModalTitle">📰 실시간 뉴스 및 심리 요약</h2>
+                <span class="close-modal" onclick="closeNewsModal()">&times;</span>
             </div>
-            <div id="newsResultContent" class="modal-body" style="padding: 32px; background: #020617; max-height: 550px; overflow-y: auto;">
+            <div id="newsResultContent" class="modal-body" style="max-height: 550px;">
                 <div class="loading-ai">
                     <div class="ai-spinner"></div>
                     <p>뉴스를 수집 및 요약하는 중입니다...</p>
                 </div>
             </div>
-            <div class="modal-footer" style="padding: 16px 28px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; background: #0f172a;">
-                <button class="btn" style="height: auto; padding: 12px 28px; font-size: 15px; background: rgba(255,255,255,0.1); border: none;" onclick="closeNewsModal()">닫기</button>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel" style="height: auto; padding: 12px 28px; font-size: 15px; flex: none; width: auto;" onclick="closeNewsModal()">닫기</button>
             </div>
         </div>
     </div>
 
     <!-- Pool View Modal -->
-    <div id="poolViewModal" class="modal" style="z-index: 2100;">
-        <div class="modal-content" style="max-width: 900px; width: 95%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden;">
-            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 20px 28px; background: #0f172a; display: flex; justify-content: space-between; align-items: center;">
-                <h2 id="poolViewModalTitle" style="margin: 0; font-size: 20px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">📊 Pool 구성 내역</h2>
-                <span class="close-modal" onclick="closePoolViewModal()" style="font-size: 28px; cursor: pointer; color: rgba(255, 255, 255, 0.8); line-height: 1;">&times;</span>
+    <div id="poolViewModal" class="modal">
+        <div class="modal-content" style="max-width: 900px; width: 95%;">
+            <div class="modal-header">
+                <h2 id="poolViewModalTitle" style="font-size: 20px;">📊 Pool 구성 내역</h2>
+                <span class="close-modal" onclick="closePoolViewModal()">&times;</span>
             </div>
-            <div class="modal-body" style="padding: 24px; background: #020617; max-height: 60vh; overflow-y: auto;">
+            <div class="modal-body" style="padding: 24px; max-height: 60vh;">
                 <div style="overflow-x: auto;">
                     <table class="portfolio-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
                         <thead>
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); color: #a5b4fc;">
+                            <tr style="border-bottom: 1px solid var(--modal-border); color: var(--modal-label-color);">
                                 <th style="padding: 10px;">코드</th>
                                 <th style="padding: 10px;">종목명</th>
                                 <th style="padding: 10px;">업종</th>
                                 <th style="padding: 10px; text-align: right;">ROE (%)</th>
                                 <th style="padding: 10px; text-align: right;">부채비율 (%)</th>
                                 <th style="padding: 10px; text-align: right;">목표가 (원)</th>
-                                <th style="padding: 10px; text-align: right; color: #fbbf24;">Pool 스코어</th>
+                                <th style="padding: 10px; text-align: right; color: var(--accent-gold);">Pool 스코어</th>
                             </tr>
                         </thead>
                         <tbody id="poolViewTableBody">
@@ -614,72 +597,70 @@
                     </table>
                 </div>
             </div>
-            <div class="modal-footer" style="padding: 16px 28px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; background: #0f172a;">
+            <div class="modal-footer" style="justify-content: space-between; align-items: center;">
                 <span id="poolViewModalMeta" style="font-size: 12px; color: var(--text-muted); font-weight: 600;">기준일: - | 총 -개 종목</span>
                 <div style="display: flex; gap: 12px;">
-                    <button id="poolViewRecomposeBtn" class="btn" style="height: auto; padding: 10px 20px; font-size: 13px; background: rgba(251, 191, 36, 0.15) !important; background-image: none !important; color: #fbbf24 !important; border: 1px solid rgba(251, 191, 36, 0.3) !important; font-weight: 700; box-shadow: none !important;">🔄 다시 구성하기</button>
-                    <button class="btn" style="height: auto; padding: 10px 20px; font-size: 13px; background: rgba(255,255,255,0.08) !important; background-image: none !important; border: none; color: white !important; font-weight: 700; box-shadow: none !important;" onclick="closePoolViewModal()">닫기</button>
+                    <button id="poolViewRecomposeBtn" class="btn" style="height: auto; padding: 10px 20px; font-size: 13px; background: rgba(251, 191, 36, 0.15) !important; background-image: none !important; color: var(--accent-gold) !important; border: 1px solid rgba(251, 191, 36, 0.3) !important; font-weight: 700; box-shadow: none !important;">🔄 다시 구성하기</button>
+                    <button class="modal-btn-cancel" style="height: auto; padding: 10px 20px; font-size: 13px; flex: none; width: auto;" onclick="closePoolViewModal()">닫기</button>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- [김선화] 매도 처리 모달 -->
-    <div id="sellModal" class="modal" style="z-index: 3000;">
-        <div class="modal-content" style="max-width: 460px; width: 95%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1);">
-            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.07); padding: 24px 28px; display:flex; justify-content:space-between; align-items:center;">
-                <h2 style="margin:0; font-size:20px; font-weight:800; font-family:'Outfit',sans-serif; color:white;">📤 매도 처리</h2>
-                <span class="close-modal" onclick="closeSellModal()" style="font-size:28px; cursor:pointer;">&times;</span>
+    <div id="sellModal" class="modal">
+        <div class="modal-content" style="max-width: 460px; width: 95%;">
+            <div class="modal-header">
+                <h2 style="font-size: 20px;">📤 매도 처리</h2>
+                <span class="close-modal" onclick="closeSellModal()">&times;</span>
             </div>
-            <div class="modal-body" style="padding: 28px; background: #020617;">
-                <div style="margin-bottom: 20px; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 14px; border: 1px solid rgba(255,255,255,0.07);">
-                    <div style="font-size:18px; font-weight:800; color:white;" id="sellModalStockName">-</div>
-                    <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">보유: <span id="sellModalCurrentQty" style="color:#fbbf24; font-weight:700;">0</span>주 &nbsp;|&nbsp; 평단: <span id="sellModalPurchasePrice" style="color:#94a3b8;">0</span>원</div>
+            <div class="modal-body" style="padding: 28px;">
+                <div style="margin-bottom: 20px; padding: 16px; background: var(--radio-bg); border-radius: 14px; border: 1px solid var(--radio-border);">
+                    <div style="font-size: 18px; font-weight: 800; color: white;" id="sellModalStockName">-</div>
+                    <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">보유: <span id="sellModalCurrentQty" style="color: var(--accent-gold); font-weight: 700;">0</span>주 &nbsp;|&nbsp; 평단: <span id="sellModalPurchasePrice" style="color: var(--text-muted);">0</span>원</div>
                 </div>
 
-                <div style="display:flex; flex-direction:column; gap:16px;">
+                <div class="modal-form-group" style="gap: 16px; margin-bottom: 0;">
                     <div>
-                        <label style="font-size:12px; color:var(--text-muted); font-weight:600; display:block; margin-bottom:6px;">매도가 (원)</label>
-                        <input type="text" id="sellPriceInput" placeholder="매도 가격 입력"
+                        <label class="modal-label" style="margin-bottom: 6px;">매도가 (원)</label>
+                        <input type="text" id="sellPriceInput" class="modal-input" placeholder="매도 가격 입력"
                             oninput="this.value=formatNumber(this.value); updateSellPreview()"
-                            style="width:100%; padding:12px 16px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); color:white; font-size:16px; font-weight:700; box-sizing:border-box; outline:none;">
+                            style="text-align: left;">
                     </div>
                     <div>
-                        <label style="font-size:12px; color:var(--text-muted); font-weight:600; display:block; margin-bottom:6px;">매도 수량 (주)</label>
-                        <div style="display:flex; gap:8px; align-items:center;">
-                            <input type="number" id="sellQtyInput" placeholder="0" min="1"
+                        <label class="modal-label" style="margin-bottom: 6px;">매도 수량 (주)</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="number" id="sellQtyInput" class="modal-input" placeholder="0" min="1"
                                 oninput="updateSellPreview()"
-                                style="flex:1; padding:12px 16px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); color:white; font-size:16px; font-weight:700; outline:none;">
+                                style="flex: 1; text-align: left;">
                             <button onclick="document.getElementById('sellQtyInput').value=document.getElementById('sellModalCurrentQty').textContent; updateSellPreview()"
-                                style="padding:10px 14px; border-radius:10px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.3); color:#fbbf24; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap;">전량</button>
+                                style="padding: 10px 14px; border-radius: 10px; background: rgba(251,191,36,0.15); border: 1px solid rgba(251,191,36,0.3); color: var(--accent-gold); font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;">전량</button>
                         </div>
                     </div>
                 </div>
 
                 <!-- 수익 미리보기 -->
-                <div id="sellPreviewArea" style="margin-top:20px; padding:16px; border-radius:14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); display:none;">
-                    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px; font-weight:600;">예상 수익/손실</div>
-                    <div id="sellPreviewProfit" style="font-size:22px; font-weight:900; font-family:'Outfit',sans-serif;">-</div>
-                    <div id="sellPreviewRate" style="font-size:13px; color:var(--text-muted); margin-top:2px;">-</div>
+                <div id="sellPreviewArea" style="margin-top: 20px; padding: 16px; border-radius: 14px; background: var(--radio-bg); border: 1px solid var(--radio-border); display: none;">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">예상 수익/손실</div>
+                    <div id="sellPreviewProfit" style="font-size: 22px; font-weight: 900; font-family: 'Outfit', sans-serif;">-</div>
+                    <div id="sellPreviewRate" style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">-</div>
                 </div>
             </div>
-            <div class="modal-footer" style="padding: 16px 28px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; justify-content: flex-end; gap: 12px; background: #0f172a;">
-                <button class="btn" style="height: auto; padding: 12px 24px; font-size: 15px; background: rgba(255,255,255,0.08); border: none;" onclick="closeSellModal()">취소</button>
-                <button id="sellConfirmBtn" class="btn" style="height: auto; padding: 12px 24px; font-size: 15px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; font-weight: 800;" onclick="confirmSell()">📤 매도 확인</button>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel" style="height: auto; padding: 12px 24px; font-size: 15px; flex: none; width: auto;" onclick="closeSellModal()">취소</button>
+                <button id="sellConfirmBtn" class="btn" style="height: auto; padding: 12px 24px; font-size: 15px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; font-weight: 800; box-shadow: none;" onclick="confirmSell()">📤 매도 확인</button>
             </div>
         </div>
     </div>
 
     <!-- Real-time Surge Detection Modal -->
-    <div id="monitorModal" class="modal" style="z-index: 2500;">
-        <div class="modal-content" style="max-width: 1000px; width: 95%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 28px; overflow: hidden;">
-            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 24px 32px; display:flex; justify-content:space-between; align-items:center; background:#0f172a;">
-                <h2 style="margin: 0; font-size: 24px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">
-                    🚨 실시간 급등주 탐지 현황
-                </h2>
-                <span class="close-modal" onclick="closeMonitorModal()" style="font-size: 32px; cursor:pointer;">&times;</span>
+    <div id="monitorModal" class="modal">
+        <div class="modal-content" style="max-width: 1000px; width: 95%;">
+            <div class="modal-header">
+                <h2>🚨 실시간 급등주 탐지 현황</h2>
+                <span class="close-modal" onclick="closeMonitorModal()">&times;</span>
             </div>
-            <div class="modal-body" style="padding: 32px; background: #020617; max-height: 75vh; overflow-y: auto;">
+            <div class="modal-body" style="max-height: 75vh;">
                 <div class="monitor-section" style="padding: 0;">
                     <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
                         <div>
@@ -693,7 +674,7 @@
                         </div>
                     </div>
 
-                    <div id="monitorStatusArea" style="margin-bottom: 32px; padding: 20px; border-radius: 20px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+                    <div id="monitorStatusArea" style="margin-bottom: 32px; padding: 20px; border-radius: 20px; background: rgba(0,0,0,0.2); border: 1px solid var(--modal-border-subtle); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
                         <div style="display: flex; align-items: center; gap: 20px;">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <div id="monitorStatusIndicator" style="width: 12px; height: 12px; border-radius: 50%; background: #64748b;"></div>
@@ -715,17 +696,17 @@
                             <div style="display: flex; gap: 12px; align-items: center;">
                                 <span style="font-size: 12px; color: var(--text-muted);">상승률</span>
                                 <input type="number" id="monitorThreshold" value="7.0" step="0.1"
-                                    style="width: 45px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
+                                    style="width: 45px; background: #0f172a; border: 1px solid var(--modal-border); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
                                 <span style="font-size: 12px; color: var(--text-muted);">% ↑</span>
                             </div>
                             <div style="display: flex; gap: 12px; align-items: center;">
                                 <span style="font-size: 12px; color: var(--text-muted);">최소거래량</span>
                                 <input type="number" id="monitorMinVolume" value="50000" step="10000"
-                                    style="width: 70px; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
+                                    style="width: 70px; background: #0f172a; border: 1px solid var(--modal-border); border-radius: 6px; color: white; padding: 4px; font-size: 12px; text-align: center;">
                                 <span style="font-size: 12px; color: var(--text-muted);">주 ↑</span>
                             </div>
                             <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-                            <button class="btn" style="padding: 6px 20px; font-size: 12px; background: var(--primary); border: none; color: white; height: 32px;"
+                            <button class="btn" style="padding: 6px 20px; font-size: 12px; background: var(--primary); border: none; color: white; height: 32px; box-shadow: none;"
                                 onclick="applyMonitorSettings()">설정 저장</button>
                         </div>
                     </div>
@@ -733,7 +714,7 @@
                     <div class="results-section">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                             <h4 style="margin: 0; font-size: 18px; color: var(--primary);">📡 실시간 이상 징후 포착 내역</h4>
-                            <div style="display: flex; gap: 8px; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                            <div style="display: flex; gap: 8px; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 12px; border: 1px solid var(--modal-border);">
                                 <button id="sortRecommendBtn" class="sub-tab-btn active" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('recommend')">⭐ 추천순</button>
                                 <button id="sortForeignBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('foreign_net_buy')">🏢 외인수급순</button>
                                 <button id="sortMomentumBtn" class="sub-tab-btn" style="padding: 6px 12px; font-size: 12px;" onclick="setAlertSort('change_rate')">📈 수익률순</button>
@@ -742,7 +723,7 @@
                         </div>
                         
                         <!-- [김선화] 섹터 모멘텀 분석 영역 -->
-                        <div style="margin-bottom: 24px; background: rgba(255,255,255,0.03); border-radius: 20px; padding: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                        <div style="margin-bottom: 24px; background: var(--radio-bg); border-radius: 20px; padding: 20px; border: 1px solid var(--radio-border);">
                             <h5 style="margin: 0 0 12px 0; font-size: 14px; color: var(--text-muted);">🔥 섹터별 급등 포착 모멘텀</h5>
                             <div id="sectorMomentumArea" style="display: flex; gap: 10px; flex-wrap: wrap;">
                                 <!-- 섹터 요약 배지가 여기에 생성됩니다 -->
@@ -757,8 +738,8 @@
                     </div>
                 </div>
             </div>
-            <div class="modal-footer" style="padding: 16px 28px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; background: #0f172a;">
-                <button class="btn" style="height: auto; padding: 12px 28px; font-size: 15px; background: rgba(255,255,255,0.1); border: none;" onclick="closeMonitorModal()">닫기</button>
+            <div class="modal-footer">
+                <button class="modal-btn-cancel" style="height: auto; padding: 12px 28px; font-size: 15px; flex: none; width: auto;" onclick="closeMonitorModal()">닫기</button>
             </div>
         </div>
     </div>
@@ -781,7 +762,7 @@
                 🎯 내일의 공략주
                 <span id="targetBadge" style="display: none; position: absolute; top: -5px; right: -5px; width: 10px; height: 10px; background: #ef4444; border-radius: 50%; border: 2px solid #0f172a;"></span>
             </button>
-            <button class="tab-btn" data-tab="history" onclick="switchTab('history')">📜 투자 히스토리</button>
+            <button class="tab-btn" data-tab="history" onclick="switchTab('history')">📜 투자 성과</button>
         </div>
 
         <!-- Tab 1: Stock Analysis -->
@@ -1072,7 +1053,7 @@
             </div>
         </div>
 
-        <!-- [김선화] Tab 6: 투자 히스토리 (History Viewer) -->
+        <!-- [김선화] Tab 6: 투자 성과 (Performance Viewer) -->
         <div id="historyTab" class="tab-content">
             <div class="history-section"
                 style="padding: 40px; background: rgba(255,255,255,0.03); border-radius: 32px; border: 1px solid rgba(255,255,255,0.1);">
@@ -1080,7 +1061,7 @@
                 <div class="history-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
                     <div style="text-align: left;">
                         <h3 style="margin: 0; font-size: 28px; color: var(--text-main); font-family: 'Outfit', sans-serif;">
-                            📜 투자 히스토리 리포트</h3>
+                            📜 투자 성과 리포트</h3>
                         <p style="margin-top: 8px; color: var(--text-muted); font-size: 14px;">저장된 일자별 스냅샷 데이터를 조회합니다.</p>
                     </div>
                     <div style="display: flex; gap: 6px; background: rgba(255,255,255,0.05); border-radius: 12px; padding: 4px;">
