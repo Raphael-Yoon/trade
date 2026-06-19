@@ -18,6 +18,16 @@ def _init_postgres():
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
 
+    # source_file 컬럼 존재 여부 체크 후 없는 경우 테이블 드롭 (복합키 스키마 마이그레이션)
+    cursor.execute("""
+        SELECT COUNT(*) FROM information_schema.columns 
+        WHERE table_name='tr_stock_pool' AND column_name='source_file'
+    """)
+    if cursor.fetchone()[0] == 0:
+        print("[DB 마이그레이션] tr_stock_pool 테이블에 source_file 컬럼이 없어 기존 테이블을 드롭하고 재생성합니다.")
+        cursor.execute("DROP TABLE IF EXISTS tr_stock_pool CASCADE")
+        conn.commit()
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_my_stocks (
             code TEXT PRIMARY KEY,
@@ -100,7 +110,7 @@ def _init_postgres():
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_stock_pool (
-            code TEXT PRIMARY KEY,
+            code TEXT,
             name TEXT,
             sector TEXT,
             roe REAL,
@@ -115,12 +125,15 @@ def _init_postgres():
             data_date TEXT,
             updated_at TEXT,
             market_cap REAL,
-            is_sector_leader BOOLEAN
+            is_sector_leader BOOLEAN,
+            source_file TEXT,
+            PRIMARY KEY (code, source_file)
         )
     ''')
     for col_name, col_def in [
         ('market_cap', 'REAL'),
         ('is_sector_leader', 'BOOLEAN'),
+        ('source_file', 'TEXT'),
     ]:
         cursor.execute(f"ALTER TABLE tr_stock_pool ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
 
@@ -172,7 +185,17 @@ def _init_mysql():
         'charset': 'utf8mb4',
     }
     conn = pymysql.connect(**db_opts)
+    conn.autocommit(True)
     cursor = conn.cursor()
+
+    # source_file 컬럼 존재 여부 체크 후 없는 경우 테이블 드롭 (복합키 스키마 마이그레이션)
+    cursor.execute("""
+        SELECT COUNT(*) FROM information_schema.columns 
+        WHERE table_schema = DATABASE() AND table_name = 'tr_stock_pool' AND column_name = 'source_file'
+    """)
+    if cursor.fetchone()[0] == 0:
+        print("[DB 마이그레이션] MySQL tr_stock_pool 테이블에 source_file 컬럼이 없어 기존 테이블을 드롭하고 재생성합니다.")
+        cursor.execute("DROP TABLE IF EXISTS tr_stock_pool")
 
     def add_column_if_not_exists(table, col, definition):
         cursor.execute(f"""
@@ -274,7 +297,7 @@ def _init_mysql():
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_stock_pool (
-            code VARCHAR(50) PRIMARY KEY,
+            code VARCHAR(50),
             name VARCHAR(255),
             sector VARCHAR(255),
             roe DOUBLE,
@@ -289,12 +312,15 @@ def _init_mysql():
             data_date VARCHAR(50),
             updated_at VARCHAR(50),
             market_cap DOUBLE,
-            is_sector_leader BOOLEAN
+            is_sector_leader BOOLEAN,
+            source_file VARCHAR(255),
+            PRIMARY KEY (code, source_file)
         )
     ''')
     for col_name, col_def in [
         ('market_cap', 'DOUBLE'),
         ('is_sector_leader', 'BOOLEAN'),
+        ('source_file', 'VARCHAR(255)'),
     ]:
         add_column_if_not_exists("tr_stock_pool", col_name, col_def)
 

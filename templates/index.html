@@ -418,6 +418,17 @@
                 flex-shrink: 0 !important;
             }
         }
+        
+        /* Style for already composed pool button */
+        .btn-pool.composed {
+            background: rgba(16, 185, 129, 0.15) !important;
+            color: #10b981 !important;
+            border: 1px solid rgba(16, 185, 129, 0.3) !important;
+        }
+        .btn-pool.composed:hover {
+            background: #10b981 !important;
+            color: #0f172a !important;
+        }
     </style>
 </head>
 
@@ -576,6 +587,43 @@
         </div>
     </div>
 
+    <!-- Pool View Modal -->
+    <div id="poolViewModal" class="modal" style="z-index: 2100;">
+        <div class="modal-content" style="max-width: 900px; width: 95%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden;">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: 20px 28px; background: #0f172a; display: flex; justify-content: space-between; align-items: center;">
+                <h2 id="poolViewModalTitle" style="margin: 0; font-size: 20px; font-weight: 800; font-family: 'Outfit', sans-serif; color: white;">📊 Pool 구성 내역</h2>
+                <span class="close-modal" onclick="closePoolViewModal()" style="font-size: 28px; cursor: pointer; color: rgba(255, 255, 255, 0.8); line-height: 1;">&times;</span>
+            </div>
+            <div class="modal-body" style="padding: 24px; background: #020617; max-height: 60vh; overflow-y: auto;">
+                <div style="overflow-x: auto;">
+                    <table class="portfolio-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); color: #a5b4fc;">
+                                <th style="padding: 10px;">코드</th>
+                                <th style="padding: 10px;">종목명</th>
+                                <th style="padding: 10px;">업종</th>
+                                <th style="padding: 10px; text-align: right;">ROE (%)</th>
+                                <th style="padding: 10px; text-align: right;">부채비율 (%)</th>
+                                <th style="padding: 10px; text-align: right;">목표가 (원)</th>
+                                <th style="padding: 10px; text-align: right; color: #fbbf24;">Pool 스코어</th>
+                            </tr>
+                        </thead>
+                        <tbody id="poolViewTableBody">
+                            <!-- 종목 리스트가 동적으로 생성됩니다 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 16px 28px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; background: #0f172a;">
+                <span id="poolViewModalMeta" style="font-size: 12px; color: var(--text-muted); font-weight: 600;">기준일: - | 총 -개 종목</span>
+                <div style="display: flex; gap: 12px;">
+                    <button id="poolViewRecomposeBtn" class="btn" style="height: auto; padding: 10px 20px; font-size: 13px; background: rgba(251, 191, 36, 0.15) !important; background-image: none !important; color: #fbbf24 !important; border: 1px solid rgba(251, 191, 36, 0.3) !important; font-weight: 700; box-shadow: none !important;">🔄 다시 구성하기</button>
+                    <button class="btn" style="height: auto; padding: 10px 20px; font-size: 13px; background: rgba(255,255,255,0.08) !important; background-image: none !important; border: none; color: white !important; font-weight: 700; box-shadow: none !important;" onclick="closePoolViewModal()">닫기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- [김선화] 매도 처리 모달 -->
     <div id="sellModal" class="modal" style="z-index: 3000;">
         <div class="modal-content" style="max-width: 460px; width: 95%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1);">
@@ -725,9 +773,9 @@
         </div>
 
         <div class="tabs-nav">
-            <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">📈 종목 수집</button>
-            <button class="tab-btn" data-tab="myStocks" onclick="switchTab('myStocks')">⭐ 내 종목 관리</button>
-            <button class="tab-btn" data-tab="realtime" onclick="switchTab('realtime')">⚡ 실시간 시세</button>
+            <button class="tab-btn active" data-tab="realtime" onclick="switchTab('realtime')">⚡ 실시간 시세</button>
+            <button class="tab-btn" data-tab="myStocks" onclick="switchTab('myStocks')">⭐ 포트폴리오</button>
+            <button class="tab-btn" data-tab="analysis" onclick="switchTab('analysis')">📈 데이터 수집</button>
             <button class="tab-btn" data-tab="monitor" onclick="switchTab('monitor')" style="display: none;">🚨 급등주 탐지</button>
             <button class="tab-btn" data-tab="targets" onclick="switchTab('targets')" style="position: relative;">
                 🎯 내일의 공략주
@@ -737,7 +785,7 @@
         </div>
 
         <!-- Tab 1: Stock Analysis -->
-        <div id="analysisTab" class="tab-content active">
+        <div id="analysisTab" class="tab-content">
             <div class="field-selector">
                 <div class="select-all-container" style="display: flex; align-items: center; gap: 40px;">
                     <label class="checkbox-label" style="margin-bottom: 0;">
@@ -752,7 +800,7 @@
                             <span>KOSPI</span>
                         </label>
                         <label class="checkbox-label" style="margin-bottom: 0;">
-                            <input type="checkbox" id="marketKosdaq" value="KOSDAQ">
+                            <input type="checkbox" id="marketKosdaq" value="KOSDAQ" checked>
                             <span>KOSDAQ</span>
                         </label>
 
@@ -939,7 +987,7 @@
                 <div class="section-header"
                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
                     <h3 style="margin: 0; font-size: 28px; color: var(--text-main); font-family: 'Outfit', sans-serif;">
-                        ⭐ 내 종목 및 관심 리스트</h3>
+                        ⭐ 포트폴리오 및 관심 리스트</h3>
                     <button class="btn-sync" onclick="loadAllStockContexts()"
                         style="padding: 10px 20px; font-size: 14px; background: rgba(255,255,255,0.1); border: none; border-radius: 12px; color: var(--text-main); cursor: pointer; font-weight: 600;">🔄
                         전체 새로고침</button>
@@ -1129,8 +1177,8 @@
             </div>
         </div>
 
-        <!-- Tab 3: Real-time Prices -->
-        <div id="realtimeTab" class="tab-content">
+        <!-- Tab 3: Real-time Prices & Trading -->
+        <div id="realtimeTab" class="tab-content active">
             <div class="realtime-section"
                 style="padding: 40px; background: rgba(255,255,255,0.03); border-radius: 32px; border: 1px solid rgba(255,255,255,0.1);">
                 <div class="section-header"
@@ -2742,6 +2790,7 @@
                     isRealtimeFetching = false;
                     if (data.error) return;
                     lastRealtimeData = data;
+                    try { renderMyStocksList(); } catch(e) {}
                     const portfolioGrid = document.getElementById('realtimeGridPortfolio');
                     const watchlistGrid = document.getElementById('realtimeGridWatchlist');
                     const summaryArea = document.getElementById('realtimePortfolioSummary');
@@ -3328,7 +3377,30 @@
                     }
                     document.getElementById('analyzeMyStocksBtn').disabled = false;
                     document.getElementById('analyzeMyStocksBtn').style.opacity = '1';
+                    
                     list.innerHTML = data.map(stock => {
+                        const rt = lastRealtimeData ? lastRealtimeData.find(r => r.code === stock.code) : null;
+                        let realtimeHtml = '';
+                        if (rt && rt.price > 0) {
+                            realtimeHtml = `
+                                <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); padding: 12px 16px; border-radius: 16px; margin: 6px 0; display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="font-size: 11px; color: var(--text-muted);">실시간 현재가</span>
+                                        <span style="font-size: 14px; font-weight: 700; color: white;">
+                                            ${rt.price.toLocaleString()}원 
+                                        </span>
+                                    </div>
+
+                                </div>
+                            `;
+                        } else {
+                            realtimeHtml = `
+                                <div style="background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.03); padding: 8px 16px; border-radius: 16px; margin: 6px 0; text-align: center;">
+                                    <span style="font-size: 11px; color: var(--text-muted);">⏳ 실시간 시세 반영 중...</span>
+                                </div>
+                            `;
+                        }
+
                         return `
                         <div class="stock-tag" style="display: flex; flex-direction: column; gap: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); padding: 16px 24px; border-radius: 24px; color: #e2e8f0; min-width: 0; position: relative;">
                             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 4px;">
@@ -3347,7 +3419,9 @@
                                 </div>
                                 <span onclick="deleteMyStock('${stock.code}')" style="cursor: pointer; color: #ef4444; font-weight: bold; font-size: 20px; line-height: 1; margin-left: 10px;">&times;</span>
                             </div>
-                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">${stock.code}</div>
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">${stock.code}</div>
+                            
+                            ${realtimeHtml}
                             
                             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 14px; margin-top: 4px;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -3379,6 +3453,19 @@
                         </div>
                         `;
                     }).join('');
+
+                    // 실시간 시세 결합을 위해 시세 데이터가 없으면 비동기 패치 후 전체 카드 갱신
+                    if (!lastRealtimeData || lastRealtimeData.length === 0) {
+                        fetch('/api/realtime/prices')
+                            .then(res => res.json())
+                            .then(rtData => {
+                                if (rtData && !rtData.error) {
+                                    lastRealtimeData = rtData;
+                                    loadMyStocks(); // 재귀적으로 한번 더 호출해 시세 데이터 포함 렌더링
+                                }
+                            })
+                            .catch(() => {});
+                    }
                 });
         }
 
@@ -4162,7 +4249,8 @@
                             <div class="result-actions">
                                 <a href="/api/download/${file.filename}" class="result-btn btn-download">다운로드</a>
                                 <button onclick="deleteResult('${file.filename}')" class="result-btn btn-delete">삭제</button>
-                                <button onclick="runAiAnalysis('${file.filename}')" class="result-btn btn-ai" style="grid-column: span 2;">🤖 AI 분석 리포트</button>
+                                <button onclick="runAiAnalysis('${file.filename}')" class="result-btn btn-ai">🤖 AI 분석 리포트</button>
+                                <button onclick="runPoolCollection(this, '${file.filename}', '${file.spreadsheet_id}', '${displayTitle}')" class="result-btn btn-pool${file.has_pool ? ' composed' : ''}">${file.has_pool ? '📊 Pool 구성 완료' : '📊 Pool 구성'}</button>
                             </div>
                         </div>
                         `;
@@ -4172,6 +4260,130 @@
                     console.error('Error loading results:', err);
                     document.getElementById('resultsList').innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 40px;">결과를 불러오는 중 오류가 발생했습니다.</p>';
                 });
+        }
+
+        function runPoolCollection(btn, filename, spreadsheetId, displayTitle) {
+            const isComposed = btn.classList.contains('composed');
+            if (isComposed) {
+                viewPoolDetails(filename, spreadsheetId, displayTitle, btn);
+            } else {
+                executePoolCollection(btn, filename, spreadsheetId, displayTitle);
+            }
+        }
+
+        function executePoolCollection(btn, filename, spreadsheetId, displayTitle) {
+            const message = `'${displayTitle || '선택한 분석'}' 데이터를 기준으로 투자 후보군(Pool)을 구성하시겠습니까?\n이 작업은 시스템의 투자 후보군 목록에 해당 데이터를 추가/최신화합니다.`;
+            showCustomConfirm(message, function() {
+                // 버튼 비활성화 및 로딩 스피너 표시
+                const originalText = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = `<span class="ai-spinner" style="width: 14px; height: 14px; margin: 0 6px 0 0; border-width: 2px; display: inline-block; vertical-align: middle; border-top-color: #fbbf24;"></span> 구성 중...`;
+                btn.style.opacity = '0.6';
+                btn.style.cursor = 'not-allowed';
+
+                showToast('IT 감사 Pool 구성 중... 잠시만 기다려주세요.', 'info');
+                
+                fetch('/api/results/collect_pool', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: filename,
+                        spreadsheet_id: spreadsheetId
+                    })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        // 버튼 복구
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                        btn.style.opacity = '1';
+                        btn.style.cursor = 'pointer';
+
+                        if (data.success) {
+                            showToast('감사 Pool 구성 및 Neon DB 적재가 성공적으로 완료되었습니다.');
+                            console.log('Pool Collect Output:', data.output);
+                            loadResults(); // 목록 새로고침하여 구성 완료 상태 업데이트
+                        } else {
+                            showToast('Pool 구성 실패: ' + data.message, 'error');
+                            console.error('Pool Collect Error:', data.output);
+                        }
+                    })
+                    .catch(err => {
+                        // 버튼 복구
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                        btn.style.opacity = '1';
+                        btn.style.cursor = 'pointer';
+                        showToast('네트워크 오류 발생: ' + err, 'error');
+                    });
+            });
+        }
+
+        function viewPoolDetails(filename, spreadsheetId, displayTitle, originalBtn) {
+            const modal = document.getElementById('poolViewModal');
+            const titleEl = document.getElementById('poolViewModalTitle');
+            const tableBody = document.getElementById('poolViewTableBody');
+            const metaEl = document.getElementById('poolViewModalMeta');
+            const recomposeBtn = document.getElementById('poolViewRecomposeBtn');
+            
+            titleEl.textContent = `📊 '${displayTitle}' Pool 구성 내역`;
+            tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;"><div class="ai-spinner" style="margin: 0 auto 10px;"></div>조회 중...</td></tr>`;
+            metaEl.textContent = `조회 중...`;
+            
+            recomposeBtn.onclick = function() {
+                closePoolViewModal();
+                executePoolCollection(originalBtn, filename, spreadsheetId, displayTitle);
+            };
+            
+            modal.style.display = 'flex';
+            
+            fetch(`/api/pool?source_file=${filename}`)
+                .then(res => res.json())
+                .then(data => {
+                    const stocks = data.stocks || [];
+                    if (!stocks || stocks.length === 0) {
+                        tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;">구성된 Pool 데이터가 없습니다.</td></tr>`;
+                        metaEl.textContent = `총 0개 종목`;
+                        return;
+                    }
+                    
+                    // pool_score 내림차순 정렬
+                    stocks.sort((a, b) => (b.pool_score || 0) - (a.pool_score || 0));
+                    
+                    const dataDate = stocks[0].data_date || '-';
+                    metaEl.textContent = `기준일: ${dataDate} | 총 ${stocks.length}개 종목`;
+                    
+                    tableBody.innerHTML = stocks.map(stock => {
+                        const code = stock.code || '';
+                        const name = stock.name || '';
+                        const sector = stock.sector || '';
+                        const roe = stock.roe != null ? stock.roe.toFixed(1) : '-';
+                        const debt = stock.debt_ratio != null ? stock.debt_ratio.toFixed(1) : '-';
+                        const targetPrice = stock.target_price ? Number(stock.target_price).toLocaleString() : '-';
+                        const score = stock.pool_score != null ? stock.pool_score.toFixed(1) : '-';
+                        
+                        return `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); color: #e2e8f0;">
+                                <td style="padding: 12px 10px; font-family: 'Outfit', sans-serif;">${code}</td>
+                                <td style="padding: 12px 10px; font-weight: 700;">${name}</td>
+                                <td style="padding: 12px 10px; color: #94a3b8;">${sector}</td>
+                                <td style="padding: 12px 10px; text-align: right; font-family: 'Outfit', sans-serif;">${roe}%</td>
+                                <td style="padding: 12px 10px; text-align: right; font-family: 'Outfit', sans-serif;">${debt}%</td>
+                                <td style="padding: 12px 10px; text-align: right; font-family: 'Outfit', sans-serif;">${targetPrice}</td>
+                                <td style="padding: 12px 10px; text-align: right; font-weight: 800; color: #fbbf24; font-family: 'Outfit', sans-serif;">${score}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                })
+                .catch(err => {
+                    console.error('Error loading pool details:', err);
+                    tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 40px; color: #ef4444;">데이터를 불러오는 중 오류가 발생했습니다.</td></tr>`;
+                    metaEl.textContent = `오류 발생`;
+                });
+        }
+        
+        function closePoolViewModal() {
+            document.getElementById('poolViewModal').style.display = 'none';
         }
 
         function deleteResult(filename) {

@@ -280,7 +280,16 @@ industry_cache = {}
 
 # [김선화] 보유 기간 중 최고가(Trailing Stop 기준) 캐시
 # 형식: {code: {'high': 0, 'high_date': '', 'high_kospi': 0, 'date': ''}}
-holding_high_cache = {}
+holding_high_cache_file = os.path.join(RESULTS_DIR, 'holding_high_cache.json')
+try:
+    if os.path.exists(holding_high_cache_file):
+        with open(holding_high_cache_file, 'r', encoding='utf-8') as f:
+            holding_high_cache = json.load(f)
+    else:
+        holding_high_cache = {}
+except Exception as e:
+    print(f"Error loading holding_high_cache: {e}")
+    holding_high_cache = {}
 
 # [김정음] 종목 시가총액 및 코스피 전체 시총 캐시 (24h TTL)
 market_cap_cache = {}           # {code: {'cap_억': float, 'ts': float}}
@@ -885,7 +894,7 @@ def get_stock_disclosures(code):
         import json as _json
         conn = _new_db_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT disc_json FROM tr_audit_recommendations WHERE code = %s LIMIT 1", (code,))
+        cursor.execute("SELECT disc_json FROM tr_audit_recommendations WHERE code = ? LIMIT 1", (code,))
         row = cursor.fetchone()
         conn.close()
         if row and row['disc_json']:
@@ -1027,11 +1036,32 @@ def get_stock_pool():
         """)
         rec_rows = [dict(r) for r in cursor.fetchall()]
         
-        # 2. tr_stock_pool 전체 조회
-        cursor.execute("""
-            SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score
-            FROM tr_stock_pool
-        """)
+        # 2. tr_stock_pool 조회 (source_file 파라미터 지원, 없으면 최신 소스 파일 기준)
+        source_file = request.args.get('source_file')
+        if source_file:
+            cursor.execute("""
+                SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, data_date, source_file
+                FROM tr_stock_pool
+                WHERE source_file = ?
+            """, (source_file,))
+        else:
+            # 가장 최근의 source_file 조회
+            cursor.execute("""
+                SELECT source_file FROM tr_stock_pool
+                ORDER BY data_date DESC, updated_at DESC LIMIT 1
+            """)
+            latest_row = cursor.fetchone()
+            if latest_row and latest_row['source_file']:
+                cursor.execute("""
+                    SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, data_date, source_file
+                    FROM tr_stock_pool
+                    WHERE source_file = ?
+                """, (latest_row['source_file'],))
+            else:
+                cursor.execute("""
+                    SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, data_date, source_file
+                    FROM tr_stock_pool
+                """)
         pool_rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
         
@@ -1652,12 +1682,57 @@ def get_holding_high(code, added_at, current_price, purchase_price, kospi_data=N
     global holding_high_cache
 
     today_str = datetime.now().strftime('%Y-%m-%d')
+    
+    # 1. 오늘 이미 캐시가 최신화되었다면 바로 반환
     if code in holding_high_cache and holding_high_cache[code]['date'] == today_str:
         return holding_high_cache[code]
 
-    daily_prices = get_daily_prices(code, pages=3)
+    kospi_current = kospi_data[0]['index'] if kospi_data else 0
 
+    # 2. 오늘 날짜가 아니지만 기존 캐시가 있는 경우: 과거 최고가와 오늘 현재가를 비교하여 갱신 (네트워크 요청 제거)
+    if code in holding_high_cache:
+        cached = holding_high_cache[code]
+        max_price = max(cached['high'], current_price)
+        max_date = today_str if current_price > cached['high'] else cached['high_date']
+        
+        # 코스피 정보 업데이트
+        high_kospi = cached.get('high_kospi', 0)
+        if current_price > cached['high'] and kospi_current > 0:
+            high_kospi = kospi_current
+            
+        holding_high_cache[code] = {
+            'high': max_price,
+            'high_date': max_date,
+            'high_kospi': high_kospi,
+            'date': today_str
+        }
+        
+        try:
+            with open(holding_high_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(holding_high_cache, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+            
+        return holding_high_cache[code]
+
+    # 3. 오늘 등록된 종목인 경우: 네트워크 요청 없이 바로 캐시 생성
     added_date = added_at[:10]
+    if added_date >= today_str:
+        holding_high_cache[code] = {
+            'high': max(purchase_price, current_price),
+            'high_date': today_str,
+            'high_kospi': kospi_current,
+            'date': today_str
+        }
+        try:
+            with open(holding_high_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(holding_high_cache, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+        return holding_high_cache[code]
+
+    # 4. 과거에 등록되었으나 캐시가 아예 없는 경우: 최초 1회만 일별 시세 조회
+    daily_prices = get_daily_prices(code, pages=3)
     relevant = [(p['close'], p['date']) for p in daily_prices if added_date <= p['date'] < today_str]
 
     if relevant:
@@ -1665,7 +1740,7 @@ def get_holding_high(code, added_at, current_price, purchase_price, kospi_data=N
     else:
         max_close, max_date = 0, added_date
 
-    # [김선화] 취득가가 실제 최고가인 경우 → 기준 날짜는 매수일
+    # 취득가가 실제 최고가인 경우 → 기준 날짜는 매수일
     if purchase_price >= max_close:
         max_price = purchase_price
         max_date = added_date
@@ -1681,11 +1756,18 @@ def get_holding_high(code, added_at, current_price, purchase_price, kospi_data=N
                 break
 
     holding_high_cache[code] = {
-        'high': max_price,
-        'high_date': max_date,
-        'high_kospi': high_kospi,
+        'high': max(max_price, current_price),
+        'high_date': today_str if current_price > max_price else max_date,
+        'high_kospi': kospi_current if current_price > max_price else high_kospi,
         'date': today_str
     }
+    
+    try:
+        with open(holding_high_cache_file, 'w', encoding='utf-8') as f:
+            json.dump(holding_high_cache, f, ensure_ascii=False, indent=2)
+    except:
+        pass
+        
     return holding_high_cache[code]
 
 def get_kospi_daily(pages=2):
@@ -2125,6 +2207,17 @@ def get_results():
         from drive_sync import list_files_in_folder
         drive_files = list_files_in_folder()
         
+        # Neon DB에서 이미 Pool 구성 완료된 소스 파일 목록 조회
+        composed_files = set()
+        try:
+            conn = _new_db_conn()
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT source_file FROM tr_stock_pool")
+            composed_files = {row['source_file'] for row in cursor.fetchall() if row['source_file']}
+            conn.close()
+        except Exception as db_err:
+            print(f"Error checking composed pools: {db_err}")
+
         results = []
         for df in drive_files:
             if df.get('mimeType') == 'application/vnd.google-apps.spreadsheet':
@@ -2138,6 +2231,9 @@ def get_results():
                 market_val = parts[0].upper() if len(parts) > 0 else 'UNKNOWN'
                 count_val = parts[1] if len(parts) > 1 else '0'
                 
+                # filename 또는 Google Drive에 저장된 본래 name이 DB의 source_file 컬럼에 있는지 확인
+                has_pool = (name in composed_files) or (df['name'] in composed_files)
+
                 results.append({
                     'filename': name,
                     'market': market_val,
@@ -2146,7 +2242,8 @@ def get_results():
                     'size': int(df.get('size', 0)) if df.get('size') else 0,
                     'spreadsheet_id': df['id'],
                     'drive_link': df.get('webViewLink'),
-                    'ai_result': None # 실시간 조회시 AI 결과는 별도 API로 처리
+                    'ai_result': None, # 실시간 조회시 AI 결과는 별도 API로 처리
+                    'has_pool': has_pool
                 })
         return jsonify(results)
     except Exception as e:
@@ -2213,6 +2310,109 @@ def delete_result(filename):
             
         return jsonify({'success': True})
     except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/results/collect_pool', methods=['POST'])
+def collect_pool_from_result():
+    if not check_is_local():
+        return jsonify({'success': False, 'message': '서버 환경에서는 이 기능을 실행할 수 없습니다.'}), 403
+
+    data = request.get_json() or {}
+    spreadsheet_id = data.get('spreadsheet_id')
+    filename = data.get('filename')
+
+    if not spreadsheet_id and not filename:
+        return jsonify({'success': False, 'message': 'Spreadsheet ID 또는 파일명이 누락되었습니다.'}), 400
+
+    script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cowork', 'pool_collect.py')
+    python_cmd = sys.executable
+    if 'uwsgi' in python_cmd.lower():
+        python_cmd = 'python'
+
+    import subprocess
+    cmd = [python_cmd, script_path]
+    if filename:
+        cmd.extend(['--source_file', filename])
+
+    # 1. 드라이브 ID가 있는 경우 직접 드라이브에서 데이터 로드
+    if spreadsheet_id:
+        cmd.extend(['--id', spreadsheet_id])
+        try:
+            process = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                cwd=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cowork')
+            )
+            if process.returncode == 0:
+                return jsonify({
+                    'success': True,
+                    'message': '감사 Pool 구성이 성공적으로 완료되었습니다. (Neon DB 직접 적재 완료)',
+                    'output': process.stdout
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': f'Pool 구성 중 오류 발생: {process.stderr}',
+                    'output': process.stdout
+                }), 500
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
+
+    # 2. 로컬 파일로 폴백 진행
+    file_path = os.path.join(RESULTS_DIR, filename)
+    downloaded_temp = False
+    try:
+        # 로컬에 없으면 드라이브에서 다운로드 시도
+        if not os.path.exists(file_path):
+            from drive_sync import list_files_in_folder, download_from_drive
+            drive_files = list_files_in_folder()
+            target_name_base = filename.replace('.xlsx', '')
+            for df in drive_files:
+                if df['name'] == target_name_base or df['name'] == filename:
+                    spreadsheet_id = df['id']
+                    break
+            if spreadsheet_id:
+                content = download_from_drive(spreadsheet_id)
+                if content:
+                    with open(file_path, 'wb') as f:
+                        f.write(content)
+                    downloaded_temp = True
+            
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'message': '엑셀 파일을 찾을 수 없습니다.'}), 404
+
+        cmd.extend(['--file', file_path])
+        process = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            cwd=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cowork')
+        )
+
+        if downloaded_temp and os.path.exists(file_path):
+            os.remove(file_path)
+
+        if process.returncode == 0:
+            return jsonify({
+                'success': True,
+                'message': '감사 Pool 구성이 성공적으로 완료되었습니다. (Neon DB 적재 완료)',
+                'output': process.stdout
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'Pool 구성 중 오류 발생: {process.stderr}',
+                'output': process.stdout
+            }), 500
+
+    except Exception as e:
+        if downloaded_temp and os.path.exists(file_path):
+            os.remove(file_path)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/ai_report_check/<filename>', methods=['GET'])
