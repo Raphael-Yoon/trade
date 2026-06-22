@@ -1,32 +1,24 @@
 # -*- coding: utf-8 -*-
 import os
+import sqlite3
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 DATABASE_URL = os.getenv('DATABASE_URL')
 
+SQLITE_PATH = os.path.join(os.path.dirname(__file__), 'trade.db')
+
 
 def init_db():
-    if DATABASE_URL and DATABASE_URL.startswith('postgresql'):
-        _init_postgres()
-    else:
+    if DATABASE_URL and DATABASE_URL.startswith('mysql'):
         _init_mysql()
+    else:
+        _init_sqlite()
 
 
-def _init_postgres():
-    import psycopg2
-    conn = psycopg2.connect(DATABASE_URL)
+def _init_sqlite():
+    conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
-
-    # source_file 컬럼 존재 여부 체크 후 없는 경우 테이블 드롭 (복합키 스키마 마이그레이션)
-    cursor.execute("""
-        SELECT COUNT(*) FROM information_schema.columns 
-        WHERE table_name='tr_stock_pool' AND column_name='source_file'
-    """)
-    if cursor.fetchone()[0] == 0:
-        print("[DB 마이그레이션] tr_stock_pool 테이블에 source_file 컬럼이 없어 기존 테이블을 드롭하고 재생성합니다.")
-        cursor.execute("DROP TABLE IF EXISTS tr_stock_pool CASCADE")
-        conn.commit()
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_my_stocks (
@@ -48,14 +40,17 @@ def _init_postgres():
         ('stop_loss_ratio', 'REAL DEFAULT 0'),
         ('is_favorite', 'INTEGER DEFAULT 0'),
         ('peak_price', 'REAL DEFAULT 0'),
-        ("owner", "TEXT DEFAULT '나'"),
-        ("type", "TEXT DEFAULT 'portfolio'"),
+        ('owner', "TEXT DEFAULT '나'"),
+        ('type', "TEXT DEFAULT 'portfolio'"),
     ]:
-        cursor.execute(f"ALTER TABLE tr_my_stocks ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
+        try:
+            cursor.execute(f"ALTER TABLE tr_my_stocks ADD COLUMN {col_name} {col_def}")
+        except Exception:
+            pass
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_stock_daily_history (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT,
             code TEXT,
             name TEXT,
@@ -74,11 +69,14 @@ def _init_postgres():
         ('cumulative_profit', 'REAL DEFAULT 0'),
         ('change_rate', 'REAL DEFAULT 0'),
     ]:
-        cursor.execute(f"ALTER TABLE tr_stock_daily_history ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
+        try:
+            cursor.execute(f"ALTER TABLE tr_stock_daily_history ADD COLUMN {col_name} {col_def}")
+        except Exception:
+            pass
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_sell_history (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT,
             name TEXT,
             owner TEXT,
@@ -125,21 +123,24 @@ def _init_postgres():
             data_date TEXT,
             updated_at TEXT,
             market_cap REAL,
-            is_sector_leader BOOLEAN,
+            is_sector_leader INTEGER,
             source_file TEXT,
             PRIMARY KEY (code, source_file)
         )
     ''')
     for col_name, col_def in [
         ('market_cap', 'REAL'),
-        ('is_sector_leader', 'BOOLEAN'),
+        ('is_sector_leader', 'INTEGER'),
         ('source_file', 'TEXT'),
     ]:
-        cursor.execute(f"ALTER TABLE tr_stock_pool ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
+        try:
+            cursor.execute(f"ALTER TABLE tr_stock_pool ADD COLUMN {col_name} {col_def}")
+        except Exception:
+            pass
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_audit_recommendations (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT,
             name TEXT,
             current_price REAL,
@@ -163,7 +164,10 @@ def _init_postgres():
         ('one_liner', "TEXT DEFAULT ''"),
         ('disc_json', 'TEXT'),
     ]:
-        cursor.execute(f"ALTER TABLE tr_audit_recommendations ADD COLUMN IF NOT EXISTS {col_name} {col_def}")
+        try:
+            cursor.execute(f"ALTER TABLE tr_audit_recommendations ADD COLUMN {col_name} {col_def}")
+        except Exception:
+            pass
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tr_stock_daily_history_date ON tr_stock_daily_history(date)")
 
@@ -188,9 +192,8 @@ def _init_mysql():
     conn.autocommit(True)
     cursor = conn.cursor()
 
-    # source_file 컬럼 존재 여부 체크 후 없는 경우 테이블 드롭 (복합키 스키마 마이그레이션)
     cursor.execute("""
-        SELECT COUNT(*) FROM information_schema.columns 
+        SELECT COUNT(*) FROM information_schema.columns
         WHERE table_schema = DATABASE() AND table_name = 'tr_stock_pool' AND column_name = 'source_file'
     """)
     if cursor.fetchone()[0] == 0:
@@ -235,8 +238,8 @@ def _init_mysql():
         ('stop_loss_ratio', 'DOUBLE DEFAULT 0'),
         ('is_favorite', 'INT DEFAULT 0'),
         ('peak_price', 'DOUBLE DEFAULT 0'),
-        ("owner", "VARCHAR(50) DEFAULT '나'"),
-        ("type", "VARCHAR(50) DEFAULT 'portfolio'"),
+        ('owner', "VARCHAR(50) DEFAULT '나'"),
+        ('type', "VARCHAR(50) DEFAULT 'portfolio'"),
     ]:
         add_column_if_not_exists("tr_my_stocks", col_name, col_def)
 

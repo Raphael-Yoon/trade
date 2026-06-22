@@ -607,6 +607,25 @@
         </div>
     </div>
 
+    <!-- 커스텀 확인 다이얼로그 모달 -->
+    <div id="customConfirmModal" class="modal">
+        <div class="modal-content" style="max-width: 440px; width: 90%;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <h2 style="font-size: 18px;">확인</h2>
+                </div>
+                <span class="close-modal" onclick="closeCustomConfirm()" style="font-size: 28px;">&times;</span>
+            </div>
+            <div class="modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+                <p id="customConfirmMessage" style="color: var(--text-secondary); font-size: 14px; line-height: 1.7; white-space: pre-line; margin: 0;"></p>
+                <div class="modal-button-row">
+                    <button class="modal-btn-cancel" onclick="closeCustomConfirm()">취소</button>
+                    <button class="modal-btn-confirm" id="customConfirmOkBtn">확인</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- [김선화] 매도 처리 모달 -->
     <div id="sellModal" class="modal">
         <div class="modal-content" style="max-width: 460px; width: 95%;">
@@ -3238,13 +3257,27 @@
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
-            const icon = type === 'success' ? '✅' : '❌';
+            const icon = type === 'success' ? '✅' : type === 'info' ? 'ℹ️' : '❌';
             toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
             container.appendChild(toast);
             setTimeout(() => {
                 toast.style.animation = 'toastFadeOut 0.5s forwards';
                 setTimeout(() => toast.remove(), 500);
             }, 3000);
+        }
+
+        function showCustomConfirm(message, onConfirm) {
+            document.getElementById('customConfirmMessage').textContent = message;
+            const okBtn = document.getElementById('customConfirmOkBtn');
+            okBtn.onclick = function() {
+                closeCustomConfirm();
+                onConfirm();
+            };
+            document.getElementById('customConfirmModal').style.display = 'flex';
+        }
+
+        function closeCustomConfirm() {
+            document.getElementById('customConfirmModal').style.display = 'none';
         }
 
         window.onload = function () {

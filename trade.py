@@ -15,10 +15,9 @@ from datetime import datetime, timedelta
 import subprocess
 import json
 import psutil
+import sqlite3
 import pymysql
 import pymysql.cursors
-import psycopg2
-import psycopg2.extras
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -82,7 +81,7 @@ from dotenv import load_dotenv as _load_dotenv
 from urllib.parse import urlparse
 _load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 DATABASE_URL = os.getenv('DATABASE_URL')
-_IS_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith('postgresql'))
+SQLITE_PATH = os.path.join(os.path.dirname(__file__), 'trade.db')
 app.secret_key = os.getenv('SECRET_KEY', 'fallback-secret-key')
 app.permanent_session_lifetime = timedelta(hours=12)
 APP_PASSWORD = os.getenv('APP_PASSWORD', '')
@@ -210,45 +209,55 @@ class _PyMySQLAdapter:
             pass
 
 
-class _PsycopgAdapter:
-    """sqlite3 Connection 인터페이스를 흉내내는 psycopg2 연결 래퍼."""
+class _SQLiteCursor:
+    def __init__(self, cursor):
+        self._cur = cursor
 
-    # Neon DB 서버리스 특성상 idle 연결을 SSL 수준에서 강제 종료함.
-    # TCP keepalive로 주기적 패킷을 보내 연결을 유지.
-    _CONNECT_KWARGS = dict(
-        cursor_factory=psycopg2.extras.DictCursor,
-        keepalives=1,
-        keepalives_idle=30,
-        keepalives_interval=10,
-        keepalives_count=5,
-        connect_timeout=10,
-    )
+    def execute(self, query, params=None):
+        if params is not None:
+            self._cur.execute(query, params)
+        else:
+            self._cur.execute(query)
+        return self
 
-    def __init__(self, dsn):
-        self._dsn = dsn
-        self._conn = psycopg2.connect(dsn, **self._CONNECT_KWARGS)
+    def executemany(self, query, seq_of_params):
+        self._cur.executemany(query, seq_of_params)
+        return self
 
-    def _reconnect(self):
-        try:
-            self._conn.close()
-        except Exception:
-            pass
-        self._conn = psycopg2.connect(self._dsn, **self._CONNECT_KWARGS)
+    def fetchone(self):
+        row = self._cur.fetchone()
+        return dict(row) if row else None
+
+    def fetchall(self):
+        rows = self._cur.fetchall()
+        return [dict(r) for r in rows] if rows else []
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    @property
+    def description(self):
+        return self._cur.description
+
+
+class _SQLiteAdapter:
+    def __init__(self):
+        self._conn = sqlite3.connect(SQLITE_PATH, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
 
     @property
     def row_factory(self):
-        return None
+        return self._conn.row_factory
 
     @row_factory.setter
     def row_factory(self, value):
-        pass
+        self._conn.row_factory = value
 
     def cursor(self):
-        return _AdaptedCursor(self._conn.cursor())
+        return _SQLiteCursor(self._conn.cursor())
 
     def execute(self, query, params=None):
-        if query.strip().upper().startswith('PRAGMA'):
-            return _AdaptedCursor(self._conn.cursor())
         cur = self.cursor()
         cur.execute(query, params)
         return cur
@@ -262,25 +271,7 @@ class _PsycopgAdapter:
         self._conn.commit()
 
     def ping(self):
-        # self._conn.closed: 0=open, 1=closed, 2=broken(fatal error)
-        if self._conn.closed:
-            try:
-                self._reconnect()
-                return True
-            except Exception as e:
-                print(f"[DB Pool] PostgreSQL reconnect failed: {e}")
-                return False
-        try:
-            with self._conn.cursor() as cur:
-                cur.execute("SELECT 1")
-            return True
-        except Exception as e:
-            try:
-                self._reconnect()
-                return True
-            except Exception as e2:
-                print(f"[DB Pool] PostgreSQL ping failed ({e}). Reconnect failed: {e2}")
-                return False
+        return True
 
     def close(self):
         if hasattr(self, '_pool') and self._pool is not None:
@@ -374,9 +365,9 @@ _DB_POOL = None
 
 def _make_db_conn():
     """DATABASE_URL 스킴에 따라 적절한 DB 어댑터 반환."""
-    if DATABASE_URL and DATABASE_URL.startswith('postgresql'):
-        return _PsycopgAdapter(DATABASE_URL)
-    return _PyMySQLAdapter(DATABASE_URL)
+    if DATABASE_URL and DATABASE_URL.startswith('mysql'):
+        return _PyMySQLAdapter(DATABASE_URL)
+    return _SQLiteAdapter()
 
 
 def init_db_pool():
@@ -1078,106 +1069,9 @@ def get_live_prices():
                 result[code] = {'price': d['current_price'], 'change_rate': d['change_rate'], 'change': d['change']}
     return jsonify(result)
 
-@app.route('/api/targets/migrate', methods=['POST'])
-def migrate_dev_data():
-    """[김정음] Neon DB(개발 환경)의 추천 종목 및 종목 풀 데이터를 운영 DB로 이관합니다."""
-    is_prod = (os.getenv('RUN_MODE') == 'prod') or (os.getenv('FLASK_ENV') == 'production') or (os.getenv('IS_PROD') == 'true')
-    if not is_prod:
-        return jsonify({
-            'success': False,
-            'message': '이 기능은 운영서버(IS_PROD=true 또는 RUN_MODE=prod)에서만 실행 가능합니다.'
-        }), 403
-
-    neon_url = os.getenv('NEON_DATABASE_URL')
-    
-    # NEON_DATABASE_URL이 명시적으로 주어지지 않았다면 에러 처리 (단, 개발 환경과 운영 환경 분리 시 필수)
-    if not neon_url:
-        return jsonify({
-            'success': False,
-            'message': 'NEON_DATABASE_URL 환경 변수가 구성되지 않았습니다. 운영서버의 환경설정을 확인해 주세요.'
-        }), 400
-        
-    prod_url = DATABASE_URL
-    if not prod_url:
-        return jsonify({
-            'success': False,
-            'message': '운영 DB 연결 설정(DATABASE_URL)이 유효하지 않습니다.'
-        }), 400
-
-    if neon_url == prod_url:
-        return jsonify({
-            'success': True,
-            'message': '현재 개발 환경(Neon DB와 운영 DB가 동일)이므로 데이터 이관 단계를 건너뛰었습니다.'
-        })
-
-    try:
-        # 1. Neon DB (Source) 연결 및 데이터 조회
-        src_conn = psycopg2.connect(neon_url, cursor_factory=psycopg2.extras.DictCursor)
-        src_cursor = src_conn.cursor()
-        
-        # tr_audit_recommendations 데이터 조회
-        src_cursor.execute("""
-            SELECT code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json
-            FROM tr_audit_recommendations
-        """)
-        rec_rows = [dict(r) for r in src_cursor.fetchall()]
-        
-        # tr_stock_pool 데이터 조회
-        src_cursor.execute("""
-            SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, is_sector_leader, market_cap
-            FROM tr_stock_pool
-        """)
-        pool_rows = [dict(r) for r in src_cursor.fetchall()]
-        src_conn.close()
-        
-        # 2. 운영 DB (Target) 연결 및 데이터 적재
-        dest_conn = _make_db_conn()
-        
-        # a. tr_audit_recommendations 이관 (기존 데이터 비운 후 신규 적재)
-        dest_conn.execute("DELETE FROM tr_audit_recommendations")
-        for r in rec_rows:
-            dest_conn.execute("""
-                INSERT INTO tr_audit_recommendations
-                (code, name, current_price, target_price, upside, opinion, data_date, created_at, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                r['code'], r['name'], float(r['current_price']), float(r['target_price']),
-                float(r['upside']), r['opinion'], r['data_date'], r['created_at'], float(r['score']),
-                float(r['roe'] or 0), float(r['debt'] or 0), r['reason'], r['news_summary'],
-                r['rec_type'], r['one_liner'], r['disc_json']
-            ))
-            
-        # b. tr_stock_pool 이관 (기존 데이터 비운 후 신규 적재)
-        dest_conn.execute("DELETE FROM tr_stock_pool")
-        for p in pool_rows:
-            dest_conn.execute("""
-                INSERT INTO tr_stock_pool
-                (code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, is_sector_leader, market_cap)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                p['code'], p['name'], p['sector'], float(p['roe'] or 0), float(p['pbr'] or 0), float(p['per'] or 0),
-                float(p['debt_ratio'] or 0), float(p['operating_margin'] or 0), float(p['target_price'] or 0),
-                float(p['pool_score'] or 0), bool(p['is_sector_leader']), float(p['market_cap'] or 0)
-            ))
-            
-        dest_conn.commit()
-        dest_conn.close()
-        
-        return jsonify({
-            'success': True,
-            'message': f'Neon DB -> 운영 DB 이관이 성공적으로 완료되었습니다. (추천: {len(rec_rows)}건, 풀: {len(pool_rows)}건)'
-        })
-        
-    except Exception as e:
-        app.logger.error(f"Migration error: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'이관 중 오류 발생: {str(e)}'
-        }), 500
-
 @app.route('/api/pool')
 def get_stock_pool():
-    """투자적격 종목 풀 조회 (Neon DB tr_audit_recommendations Top 10 우선, 그 외 pool_score 순)"""
+    """투자적격 종목 풀 조회 (tr_audit_recommendations Top 10 우선, 그 외 pool_score 순)"""
     try:
         conn = _new_db_conn()
         cursor = conn.cursor()
@@ -2360,7 +2254,7 @@ def get_results():
         from drive_sync import list_files_in_folder
         drive_files = list_files_in_folder()
         
-        # Neon DB에서 이미 Pool 구성 완료된 소스 파일 목록 조회
+        # SQLite에서 이미 Pool 구성 완료된 소스 파일 목록 조회
         composed_files = set()
         try:
             conn = _new_db_conn()
@@ -2502,7 +2396,7 @@ def collect_pool_from_result():
             if process.returncode == 0:
                 return jsonify({
                     'success': True,
-                    'message': '감사 Pool 구성이 성공적으로 완료되었습니다. (Neon DB 직접 적재 완료)',
+                    'message': '감사 Pool 구성이 성공적으로 완료되었습니다. (SQLite 적재 완료)',
                     'output': process.stdout
                 })
             else:
@@ -2553,7 +2447,7 @@ def collect_pool_from_result():
         if process.returncode == 0:
             return jsonify({
                 'success': True,
-                'message': '감사 Pool 구성이 성공적으로 완료되었습니다. (Neon DB 적재 완료)',
+                'message': '감사 Pool 구성이 성공적으로 완료되었습니다. (SQLite 적재 완료)',
                 'output': process.stdout
             })
         else:
