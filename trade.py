@@ -1082,11 +1082,8 @@ def get_live_prices():
 @app.route('/api/targets/migrate', methods=['POST'])
 def migrate_targets():
     """공유된 JSON 추천 데이터(value/momentum)를 읽어 활성 DB(MySQL 또는 로컬 SQLite)로 이관합니다."""
-    base_dir = os.path.dirname(__file__)
-    results_dir = os.path.join(base_dir, 'results')
-    
-    value_json_path = os.path.join(results_dir, 'value_recommendations.json')
-    momentum_json_path = os.path.join(results_dir, 'momentum_recommendations.json')
+    value_json_path = os.path.join(RESULTS_DIR, 'value_recommendations.json')
+    momentum_json_path = os.path.join(RESULTS_DIR, 'momentum_recommendations.json')
     
     records = []
     
