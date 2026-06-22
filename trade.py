@@ -1113,6 +1113,7 @@ def migrate_targets():
     try:
         # 2. 연결할 대상 DB 결정 및 연결 획득 (.env의 IS_PROD로 구분)
         is_prod = os.getenv('IS_PROD', 'false').lower() == 'true'
+        is_mysql = is_prod
         
         if is_prod:
             if not DATABASE_URL or not DATABASE_URL.startswith('mysql'):
