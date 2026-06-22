@@ -1111,22 +1111,10 @@ def migrate_targets():
         }), 400
 
     try:
-        # 2. 연결할 대상 DB 결정 및 연결 획득 (.env의 IS_PROD로 구분)
-        is_prod = os.getenv('IS_PROD', 'false').lower() == 'true'
-        is_mysql = is_prod
-        
-        if is_prod:
-            if not DATABASE_URL or not DATABASE_URL.startswith('mysql'):
-                return jsonify({
-                    'success': False, 
-                    'message': '운영 환경(IS_PROD=true)이지만 MySQL 데이터베이스 URL(DATABASE_URL)이 설정되지 않았습니다.'
-                }), 400
-            conn = _new_db_conn()
-            db_label = "운영 MySQL DB"
-        else:
-            conn = sqlite3.connect(SQLITE_PATH)
-            conn.row_factory = sqlite3.Row
-            db_label = "로컬 SQLite DB"
+        # 2. 연결할 대상 DB 결정 및 연결 획득
+        is_mysql = DATABASE_URL is not None and DATABASE_URL.startswith('mysql')
+        conn = _new_db_conn()
+        db_label = "운영 MySQL DB" if is_mysql else "로컬 SQLite DB"
             
         cursor = conn.cursor()
         
