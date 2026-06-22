@@ -674,7 +674,7 @@
 
     <!-- Real-time Surge Detection Modal -->
     <div id="monitorModal" class="modal">
-        <div class="modal-content" style="max-width: 1000px; width: 95%;">
+        <div class="modal-content" style="max-width: 1200px; width: 95%;">
             <div class="modal-header">
                 <h2>🚨 실시간 급등주 탐지 현황</h2>
                 <span class="close-modal" onclick="closeMonitorModal()">&times;</span>
@@ -1279,24 +1279,16 @@
                     <h2 style="margin: 0 0 8px; color: white; font-size: 32px; font-weight: 900; letter-spacing: -1px;">🎯 AI Priority Targets</h2>
                     <p style="margin: 0 0 20px; color: var(--text-muted); font-size: 16px; font-weight: 500;">재무 건전성 + 뉴스 모멘텀 기반 AI 우선순위 종목 풀입니다.</p>
                     <div class="pool-tab-buttons" style="display: flex; gap: 10px; align-items: center;">
-                        <button id="poolSubTab1" onclick="switchPoolTab('top10')"
-                            style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(16,185,129,0.5); background: rgba(16,185,129,0.2); color: #10b981; font-weight: 800; cursor: pointer; font-size: 14px;">
-                            🏆 AI TOP 10
-                        </button>
-                        <button id="poolSubTab2" onclick="switchPoolTab('full')"
-                            style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px;">
-                            📋 전체 풀 100
-                        </button>
+
+
                         <button id="openMonitorModalBtn" onclick="openMonitorModal()"
                             style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(239,68,68,0.5); background: rgba(239,68,68,0.15); color: #f87171; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 6px; font-family: 'Inter', 'Outfit', sans-serif;">
                             🚨 실시간 급등주 탐지
                         </button>
-                        {% if is_prod %}
                         <button id="migrateDevDataBtn" onclick="migrateDevData()"
                             style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(99,102,241,0.5); background: rgba(99,102,241,0.15); color: #a5b4fc; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 6px; font-family: 'Inter', 'Outfit', sans-serif; transition: all 0.2s;">
-                            🔄 개발 데이터 이관
+                            🔄 추천 데이터 동기화
                         </button>
-                        {% endif %}
                         <span id="poolRankedBy" style="margin-left: auto; align-self: center; font-size: 12px; color: #64748b;"></span>
                     </div>
                 </div>
@@ -4640,7 +4632,7 @@
             const originalHtml = btn.innerHTML;
             btn.disabled = true;
             btn.style.opacity = '0.7';
-            btn.innerHTML = '🔄 이관 중...';
+            btn.innerHTML = '🔄 동기화 중...';
 
             fetch('/api/targets/migrate', {
                 method: 'POST',
@@ -4655,7 +4647,7 @@
                     showToast(data.message);
                     loadPoolData();
                 } else {
-                    showToast('이관 실패: ' + data.message, 'error');
+                    showToast('동기화 실패: ' + data.message, 'error');
                 }
             })
             .catch(err => {
@@ -4936,6 +4928,14 @@
                 .then(data => {
                     updateMonitorStatus(data.market_active, 'market');
                     updateMonitorStatus(data.ah_active, 'ah');
+
+                    // 장 마감 안내
+                    const statusText = document.getElementById('monitorStatusText');
+                    const indicator = document.getElementById('monitorStatusIndicator');
+                    if (data.market_active && !data.market_open && !data.ah_open) {
+                        if (statusText) { statusText.innerHTML = '장 마감 — 스캔 대기 중'; statusText.style.color = '#f59e0b'; }
+                        if (indicator) indicator.style.background = '#f59e0b';
+                    }
                 });
         }
 

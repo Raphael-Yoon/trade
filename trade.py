@@ -714,8 +714,8 @@ def run_market_monitor():
             mover_codes = {m['code'] for m in movers}
             
             # 2. 오늘 이미 포착된 종목들 목록 가져오기
-            # 메모리에서 오늘 포착된 종목 로드
-            today_alerts = list(price_alerts_store.values())
+            today_str = now.strftime('%Y-%m-%d')
+            today_alerts = [a for a in price_alerts_store.values() if a.get('created_at', '').startswith(today_str)]
 
             # 캐시 업데이트
             for alert in today_alerts:
@@ -808,8 +808,8 @@ def run_ah_monitor():
             mover_codes = {m['code'] for m in movers}
 
             # 2. 오늘 이미 포착된 종목들 목록 가져오기
-            # 메모리에서 오늘 시간외 포착 종목 로드
-            today_alerts = [a for a in price_alerts_store.values() if a.get('type') == 'after_hours']
+            today_str = now.strftime('%Y-%m-%d')
+            today_alerts = [a for a in price_alerts_store.values() if a.get('type') == 'after_hours' and a.get('created_at', '').startswith(today_str)]
 
             # 오늘 포착된 종목 중 Movers에 없는 종목 업데이트 대상 포함
             for alert in today_alerts:
@@ -960,9 +960,19 @@ def api_toggle_monitor():
 
 @app.route('/api/monitor/status')
 def api_monitor_status():
+    now = datetime.now()
+    is_weekday = now.weekday() < 5
+    market_open = is_weekday and now.replace(hour=9, minute=0, second=0, microsecond=0) <= now <= now.replace(hour=15, minute=30, second=0, microsecond=0)
+    ah_open = is_weekday and now.replace(hour=16, minute=0, second=0, microsecond=0) <= now <= now.replace(hour=18, minute=0, second=0, microsecond=0)
+
+    market_alive = monitor_active_market and (monitor_thread_market is not None) and monitor_thread_market.is_alive()
+    ah_alive = monitor_active_ah and (monitor_thread_ah is not None) and monitor_thread_ah.is_alive()
+
     return jsonify({
-        "market_active": monitor_active_market,
-        "ah_active": monitor_active_ah
+        "market_active": market_alive,
+        "ah_active": ah_alive,
+        "market_open": market_open,
+        "ah_open": ah_open,
     })
 
 @app.route('/api/monitor/threshold', methods=['GET', 'POST'])
@@ -1068,6 +1078,125 @@ def get_live_prices():
             if d.get('current_price', 0) > 0:
                 result[code] = {'price': d['current_price'], 'change_rate': d['change_rate'], 'change': d['change']}
     return jsonify(result)
+
+@app.route('/api/targets/migrate', methods=['POST'])
+def migrate_targets():
+    """공유된 JSON 추천 데이터(value/momentum)를 읽어 활성 DB(MySQL 또는 로컬 SQLite)로 이관합니다."""
+    base_dir = os.path.dirname(__file__)
+    results_dir = os.path.join(base_dir, 'results')
+    
+    value_json_path = os.path.join(results_dir, 'value_recommendations.json')
+    momentum_json_path = os.path.join(results_dir, 'momentum_recommendations.json')
+    
+    records = []
+    
+    # 1. JSON 파일 로드
+    for json_path, rec_type in [(value_json_path, 'value'), (momentum_json_path, 'momentum')]:
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        for item in data:
+                            # 개별 아이템에 rec_type 강제 보정
+                            item['rec_type'] = rec_type
+                            records.append(item)
+            except Exception as read_err:
+                return jsonify({
+                    'success': False,
+                    'message': f'{json_path} 읽기 실패: {str(read_err)}'
+                }), 500
+                
+    if not records:
+        return jsonify({
+            'success': False,
+            'message': '이관할 추천 종목 JSON 데이터가 존재하지 않거나 비어 있습니다.'
+        }), 400
+
+    try:
+        # 2. 연결할 대상 DB 결정 및 연결 획득 (.env의 IS_PROD로 구분)
+        is_prod = os.getenv('IS_PROD', 'false').lower() == 'true'
+        
+        if is_prod:
+            if not DATABASE_URL or not DATABASE_URL.startswith('mysql'):
+                return jsonify({
+                    'success': False, 
+                    'message': '운영 환경(IS_PROD=true)이지만 MySQL 데이터베이스 URL(DATABASE_URL)이 설정되지 않았습니다.'
+                }), 400
+            conn = _new_db_conn()
+            db_label = "운영 MySQL DB"
+        else:
+            conn = sqlite3.connect(SQLITE_PATH)
+            conn.row_factory = sqlite3.Row
+            db_label = "로컬 SQLite DB"
+            
+        cursor = conn.cursor()
+        
+        # 3. SQLite 테이블이 존재하지 않는 경우 자동 생성 보장
+        if not is_mysql:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tr_audit_recommendations (
+                    code TEXT PRIMARY KEY,
+                    name TEXT,
+                    current_price REAL,
+                    target_price REAL,
+                    upside REAL,
+                    opinion TEXT,
+                    data_date TEXT,
+                    created_at TEXT,
+                    score REAL,
+                    roe REAL,
+                    debt REAL,
+                    reason TEXT,
+                    news_summary TEXT,
+                    rec_type TEXT,
+                    one_liner TEXT,
+                    disc_json TEXT
+                )
+            """)
+        
+        # 기존 데이터 초기화
+        cursor.execute("DELETE FROM tr_audit_recommendations")
+        
+        insert_sql = """
+            INSERT INTO tr_audit_recommendations
+                (code, name, current_price, target_price, upside, opinion, data_date, created_at,
+                 score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        insert_data = [
+            (
+                r['code'], r['name'], float(r['current_price']) if r.get('current_price') is not None else 0.0,
+                float(r['target_price']) if r.get('target_price') is not None else 0.0,
+                float(r['upside']) if r.get('upside') is not None else 0.0, r.get('opinion', ''),
+                r.get('data_date', ''), now_str,
+                float(r['score']) if r.get('score') is not None else 0.0,
+                float(r['roe']) if r.get('roe') is not None else 0.0,
+                float(r['debt']) if r.get('debt') is not None else 0.0, r.get('reason', ''),
+                r.get('news_summary') if isinstance(r.get('news_summary'), str) else json.dumps(r.get('news_summary', []), ensure_ascii=False),
+                r.get('rec_type', 'momentum'), r.get('one_liner', ''),
+                r.get('disc_json') if isinstance(r.get('disc_json'), str) else json.dumps(r.get('disc_json', []), ensure_ascii=False)
+            )
+            for r in records
+        ]
+        
+        cursor.executemany(insert_sql, insert_data)
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'공유 JSON 파일 기반 추천 종목 {len(records)}건이 {db_label}로 성공적으로 이관되었습니다.'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'데이터 이관 중 오류 발생: {str(e)}'
+        }), 500
 
 @app.route('/api/pool')
 def get_stock_pool():
