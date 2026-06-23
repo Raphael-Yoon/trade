@@ -1785,6 +1785,14 @@
 
         function loadHistoryDates() {
             const dateInput = document.getElementById('historyDateSelect');
+            
+            // API 호출 대기 중 화면에 빈칸으로 남는 지연 현상을 방지하기 위해 오늘 날짜로 즉시 초기화
+            if (!dateInput.value) {
+                const tzOffset = new Date().getTimezoneOffset() * 60000;
+                const localISODate = new Date(Date.now() - tzOffset).toISOString().split('T')[0];
+                dateInput.value = localISODate;
+            }
+
             fetch('/api/history/dates')
                 .then(res => res.json())
                 .then(data => {
