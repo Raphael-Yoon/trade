@@ -2241,13 +2241,17 @@
             const W = 800, H = 220, pL = 72, pR = 20, pT = 28, pB = 44;
             const cW = W - pL - pR, cH = H - pT - pB;
 
-            // 월별 누적: 각 소유자의 월초 기준값 (첫날 cum_profit - 첫날 day_profit_sum)
-            const ownerBaseline = {};
+            // 각 소유자별 일자별 누적 손익 계산 (당월 일손익의 누적 합산)
+            const ownerCumulativeData = {};
             allOwners.forEach(owner => {
-                const firstRow = data.by_owner.find(r => r.date === dates[0] && r.owner === owner);
-                ownerBaseline[owner] = firstRow ? firstRow.cum_profit - (firstRow.day_profit_sum || 0) : 0;
+                ownerCumulativeData[owner] = {};
+                let runningTotal = 0;
+                dates.forEach(d => {
+                    const row = data.by_owner.find(r => r.date === d && r.owner === owner);
+                    runningTotal += row ? (row.day_profit_sum || 0) : 0;
+                    ownerCumulativeData[owner][d] = runningTotal;
+                });
             });
-            const adjCum = (owner, val) => val - (ownerBaseline[owner] || 0);
 
             // ── 당일 실적 라인 차트 ──────────────────────────────────
             const vals = filteredRows.map(r => Math.abs(r.day_profit_sum));
@@ -2306,7 +2310,12 @@
             svg += `</svg>`;
 
             // ── 누적 손익 라인 차트 (월별 초기화) ───────────────────
-            const cumVals = filteredRows.map(r => adjCum(r.owner, r.cum_profit));
+            const cumVals = [];
+            activeOwners.forEach(owner => {
+                dates.forEach(d => {
+                    cumVals.push(ownerCumulativeData[owner][d]);
+                });
+            });
             const minC = Math.min(...cumVals, 0), maxC = Math.max(...cumVals, 0);
             const cRange = maxC - minC || 1;
             const H2 = 220, cH2 = H2 - pT - pB;
@@ -2341,11 +2350,9 @@
             activeOwners.forEach((owner, oi) => {
                 const color = ownerColorMap[owner];
                 const pts = dates.map((d, i) => {
-                    const row = filteredRows.find(r => r.date === d && r.owner === owner);
-                    if (!row) return null;
-                    const adj = adjCum(owner, row.cum_profit);
+                    const adj = ownerCumulativeData[owner][d];
                     return { x: xp2(i), y: yp2(adj), date: d, cum_profit: adj };
-                }).filter(Boolean);
+                });
                 if (pts.length >= 2) {
                     const lineD = pts.map((p,i) => `${i===0?'M':'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
                     svg2 += `<path d="${lineD}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
@@ -2407,7 +2414,8 @@
             const [yr, mo] = month.split('-');
             const totalProfit = dailyTotals.reduce((s, d) => s + d.day_profit, 0);
             const lastRows = filteredRows.filter(r => r.date === dates[dates.length - 1]);
-            const finalCum = lastRows.reduce((s, r) => s + adjCum(r.owner, r.cum_profit), 0);
+            const lastDate = dates[dates.length - 1];
+            const finalCum = activeOwners.reduce((s, owner) => s + (ownerCumulativeData[owner][lastDate] || 0), 0);
             const finalAsset = lastRows.reduce((s, r) => s + (r.portfolio_value || 0), 0);
             const ownerLabel = selectedOwner === 'all' ? '' : ` · ${selectedOwner}`;
             const chartTitle = currentChartType === 'daily'

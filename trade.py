@@ -3264,13 +3264,18 @@ def backfill_history():
 @app.route('/api/history/report', methods=['GET'])
 def get_history_report():
     """[김정음] 월/분기/연 단위 히스토리 집계 리포트"""
+    is_mysql = DATABASE_URL is not None and DATABASE_URL.startswith('mysql')
     period = request.args.get('period', 'month')
     if period == 'month':
-        period_expr = "LEFT(date, 7)"
+        period_expr = "LEFT(date, 7)" if is_mysql else "substr(date, 1, 7)"
     elif period == 'quarter':
-        period_expr = "CONCAT(LEFT(date, 4), '-Q', FLOOR((CAST(SUBSTRING(date, 6, 2) AS DECIMAL) - 1) / 3) + 1)"
+        period_expr = (
+            "CONCAT(LEFT(date, 4), '-Q', FLOOR((CAST(SUBSTRING(date, 6, 2) AS DECIMAL) - 1) / 3) + 1)"
+            if is_mysql else
+            "substr(date, 1, 4) || '-Q' || (((cast(substr(date, 6, 2) as integer) - 1) / 3) + 1)"
+        )
     else:
-        period_expr = "LEFT(date, 4)"
+        period_expr = "LEFT(date, 4)" if is_mysql else "substr(date, 1, 4)"
     try:
         db = get_db()
         cursor = db.cursor()
@@ -3319,13 +3324,15 @@ def get_daily_chart():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("""
+        is_mysql = DATABASE_URL is not None and DATABASE_URL.startswith('mysql')
+        where_clause = "LEFT(date, 7) = ?" if is_mysql else "substr(date, 1, 7) = ?"
+        cursor.execute(f"""
             SELECT date, owner,
                    ROUND(CAST(SUM(day_profit) AS DECIMAL(20,4)), 0) AS day_profit_sum,
                    ROUND(CAST(SUM(cumulative_profit) AS DECIMAL(20,4)), 0) AS cum_profit,
                    ROUND(CAST(SUM(current_price * quantity) AS DECIMAL(20,4)), 0) AS portfolio_value
             FROM tr_stock_daily_history
-            WHERE LEFT(date, 7) = ?
+            WHERE {where_clause}
             GROUP BY date, owner
             ORDER BY date, owner
         """, (month,))
