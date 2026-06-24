@@ -86,6 +86,10 @@ app.secret_key = os.getenv('SECRET_KEY', 'fallback-secret-key')
 app.permanent_session_lifetime = timedelta(hours=12)
 APP_PASSWORD = os.getenv('APP_PASSWORD', '')
 
+# [김선화] PostgreSQL 또는 SQLite일 경우 ON CONFLICT 구문을 사용하도록 처리
+_IS_POSTGRES = not (DATABASE_URL and DATABASE_URL.startswith('mysql'))
+
+
 
 class _DictRow(dict):
     """딕셔너리를 SQLite Row처럼 사용 가능하게 하는 래퍼"""

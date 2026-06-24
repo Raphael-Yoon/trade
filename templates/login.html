@@ -120,7 +120,7 @@
         <div class="card">
             <form method="POST">
                 <label for="password">비밀번호</label>
-                <input type="password" id="password" name="password" autofocus autocomplete="current-password" placeholder="••••••••">
+                <input type="password" id="password" name="password" inputmode="numeric" pattern="[0-9]*" autofocus autocomplete="current-password" placeholder="••••••••">
                 {% if error %}
                 <div class="error">⚠ {{ error }}</div>
                 {% endif %}

@@ -666,8 +666,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="modal-btn-cancel" style="height: auto; padding: 12px 24px; font-size: 15px; flex: none; width: auto;" onclick="closeSellModal()">취소</button>
-                <button id="sellConfirmBtn" class="btn" style="height: auto; padding: 12px 24px; font-size: 15px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; font-weight: 800; box-shadow: none;" onclick="confirmSell()">📤 매도 확인</button>
+                <button type="button" class="modal-btn-cancel" style="height: auto; padding: 12px 24px; font-size: 15px; flex: none; width: auto;" onclick="closeSellModal()">취소</button>
+                <button type="button" id="sellConfirmBtn" class="btn" style="height: auto; padding: 12px 24px; font-size: 15px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; font-weight: 800; box-shadow: none;" onclick="confirmSell()">📤 매도 확인</button>
             </div>
         </div>
     </div>
@@ -2810,6 +2810,17 @@
                         return;
                     }
 
+                    // [김선화] 소유자별 가로 스크롤 위치 저장
+                    const scrollPositions = {};
+                    portfolioGrid.querySelectorAll('.owner-section').forEach(sec => {
+                        const header = sec.querySelector('.owner-section-header');
+                        const scrollEl = sec.querySelector('.owner-cards-scroll');
+                        if (header && scrollEl) {
+                            const owner = header.textContent.trim();
+                            scrollPositions[owner] = scrollEl.scrollLeft;
+                        }
+                    });
+
                     // Clear and re-populate (to handle moves between sections)
                     portfolioGrid.innerHTML = '';
                     watchlistGrid.innerHTML = '';
@@ -2990,6 +3001,18 @@
                             getOwnerContainer(stock.owner || '나').appendChild(card);
                         } else {
                             watchlistGrid.appendChild(card);
+                        }
+                    });
+
+                    // [김선화] 소유자별 가로 스크롤 위치 복구
+                    portfolioGrid.querySelectorAll('.owner-section').forEach(sec => {
+                        const header = sec.querySelector('.owner-section-header');
+                        const scrollEl = sec.querySelector('.owner-cards-scroll');
+                        if (header && scrollEl) {
+                            const owner = header.textContent.trim();
+                            if (scrollPositions[owner] !== undefined) {
+                                scrollEl.scrollLeft = scrollPositions[owner];
+                            }
                         }
                     });
 
@@ -3630,6 +3653,15 @@
                                         <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">평단: ${(stock.purchase_price || 0).toLocaleString()}원</div>
                                         <div style="font-size: 11px; color: var(--text-muted);">보유: ${stock.quantity}주</div>
                                         ${stock.stop_loss_ratio > 0 ? `<div style="font-size: 11px; color:#f87171; font-weight:700; margin-top: 2px;">(손절: ${stock.stop_loss_ratio}%)</div>` : ''}
+                                        ${stock.type === 'portfolio' ? `
+                                            <div style="margin-top: 8px;">
+                                                <button onclick="openSellModal('${stock.code}', '${stock.name}', ${stock.quantity || 0}, ${stock.purchase_price || 0})" 
+                                                    style="padding: 4px 10px; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; font-size: 11px; font-weight: 800; cursor: pointer; transition: all 0.2s;"
+                                                    onmouseover="this.style.background='rgba(239, 68, 68, 0.25)'" onmouseout="this.style.background='rgba(239, 68, 68, 0.15)'">
+                                                    📤 매도
+                                                </button>
+                                            </div>
+                                        ` : ''}
                                     </td>
                                     <td data-label="투자 의견">
                                         <div style="margin-bottom: 8px;">
