@@ -164,7 +164,7 @@ class _PyMySQLAdapter:
             'database': parsed.path.lstrip('/') if parsed.path else 'trade',
             'charset': 'utf8mb4',
         }
-        self._conn = pymysql.connect(**db_opts, cursorclass=pymysql.cursors.DictCursor)
+        self._conn = pymysql.connect(**db_opts, cursorclass=pymysql.cursors.DictCursor, autocommit=True)
 
     @property
     def row_factory(self):
