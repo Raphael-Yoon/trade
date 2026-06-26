@@ -1127,9 +1127,9 @@
                     <!-- 차트 유형 토글 (월별 전용) -->
                     <div id="chartTypeToggle" style="display:none;margin-left:auto;align-items:center;gap:4px;background:rgba(255,255,255,0.05);border-radius:10px;padding:4px;">
                         <button id="ctBtn_daily" onclick="setChartType('daily')"
-                            style="padding:7px 14px;border-radius:7px;border:none;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;background:rgba(99,102,241,0.8);color:white;transition:all 0.2s;">당일 실적</button>
+                            style="padding:7px 14px;border-radius:7px;border:none;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;background:rgba(99,102,241,0.8);color:white;transition:all 0.2s;">일별 실적</button>
                         <button id="ctBtn_cumulative" onclick="setChartType('cumulative')"
-                            style="padding:7px 14px;border-radius:7px;border:none;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;background:transparent;color:var(--text-muted);transition:all 0.2s;">당월 누적</button>
+                            style="padding:7px 14px;border-radius:7px;border:none;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;background:transparent;color:var(--text-muted);transition:all 0.2s;">누적 실적</button>
                     </div>
                 </div>
 
@@ -2261,11 +2261,12 @@
                 });
             });
 
-            // ── 당일 실적 라인 차트 ──────────────────────────────────
+            // ── 일별 실적 막대 차트 ──────────────────────────────────
             const vals = filteredRows.map(r => Math.abs(r.day_profit_sum));
             const maxV = Math.max(...vals, 1);
             
-            const xp = i => pL + (n <= 1 ? cW / 2 : (i / (n-1)) * cW);
+            const xp = i => pL + (i + 0.5) * (cW / n);
+            const stepW = cW / n;
             const zY = pT + cH / 2;
             const yp = v => zY - (v / maxV) * (cH / 2);
 
@@ -2288,31 +2289,44 @@
                 });
             }
 
-            // 날짜 세로 그리드 & X축 텍스트
+            // 날짜 구분 세로선 및 X축 텍스트
             dates.forEach((d, i) => {
+                const boundaryX = pL + i * stepW;
+                svg += `<line x1="${boundaryX.toFixed(1)}" y1="${pT}" x2="${boundaryX.toFixed(1)}" y2="${(pT+cH).toFixed(1)}" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>`;
+                
                 const x = xp(i);
                 const skip = n > 20 && i % Math.ceil(n/10) !== 0 && i !== n-1;
-                svg += `<line x1="${x.toFixed(1)}" y1="${pT}" x2="${x.toFixed(1)}" y2="${(pT+cH).toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>`;
                 if (!skip) svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.slice(5).replace('-','/')}</text>`;
             });
+            svg += `<line x1="${(pL+cW).toFixed(1)}" y1="${pT}" x2="${(pL+cW).toFixed(1)}" y2="${(pT+cH).toFixed(1)}" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>`;
 
-            // 라인 + 포인트 그리기
-            activeOwners.forEach((owner, oi) => {
-                const color = ownerColorMap[owner];
-                const pts = dates.map((d, i) => {
+            // 막대 그리기
+            const numOwners = activeOwners.length;
+            const barGap = 1.5;
+            const maxGroupW = stepW * 0.75;
+            let barW = (maxGroupW - (numOwners - 1) * barGap) / numOwners;
+            if (barW < 3) barW = 3;
+            if (barW > 25) barW = 25;
+            const groupW = numOwners * barW + (numOwners - 1) * barGap;
+
+            dates.forEach((d, i) => {
+                const cx = xp(i);
+                activeOwners.forEach((owner, oi) => {
+                    const color = ownerColorMap[owner];
                     const row = filteredRows.find(r => r.date === d && r.owner === owner);
                     const val = row ? row.day_profit_sum : 0;
-                    return { x: xp(i), y: yp(val), date: d, val: val };
-                });
-                if (pts.length >= 2) {
-                    const lineD = pts.map((p,i) => `${i===0?'M':'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
-                    svg += `<path d="${lineD}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
-                }
-                pts.forEach(p => {
-                    svg += `<circle class="chart-point" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#0f172a" stroke="${color}" stroke-width="2" style="cursor:pointer;"
-                        onmouseover="showChartTooltip(event, '${p.date}', '${owner} 일별 손익', ${p.val})"
-                        onmousemove="moveChartTooltip(event)"
-                        onmouseout="hideChartTooltip()"/>`;
+                    
+                    const barH = Math.abs(yp(val) - zY);
+                    const barY = val >= 0 ? yp(val) : zY;
+                    const barX = cx - groupW / 2 + oi * (barW + barGap);
+
+                    if (barH > 0.5) {
+                        svg += `<rect class="chart-bar" x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}"
+                            fill="${color}" rx="2" opacity="0.8" style="cursor:pointer; transition: opacity 0.15s;"
+                            onmouseover="this.style.opacity='1'; showChartTooltip(event, '${d}', '${owner} 일별 손익', ${val})"
+                            onmousemove="moveChartTooltip(event)"
+                            onmouseout="this.style.opacity='0.8'; hideChartTooltip()"/>`;
+                    }
                 });
             });
             svg += `</svg>`;
