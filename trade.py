@@ -42,13 +42,13 @@ def check_auth():
         return
     if not session.get('authenticated'):
         if request.path.startswith('/api/'):
-            return jsonify({'error': 'Unauthorized'}), 401
+            return jsonify({'success': False, 'error': 'Unauthorized', 'message': '로그인 세션이 만료되었습니다. 페이지를 새로고침하여 다시 로그인해 주세요.'}), 401
         return redirect(url_for('login'))
     login_time = session.get('login_time')
     if login_time and datetime.fromisoformat(login_time) + timedelta(days=1) < datetime.utcnow():
         session.clear()
         if request.path.startswith('/api/'):
-            return jsonify({'error': 'Unauthorized'}), 401
+            return jsonify({'success': False, 'error': 'Unauthorized', 'message': '로그인 세션이 만료되었습니다. 페이지를 새로고침하여 다시 로그인해 주세요.'}), 401
         return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])

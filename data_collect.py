@@ -456,7 +456,7 @@ def get_treasury_stock(dart, ticker, year, report_code, total_shares=0):
 def get_dart_financials(dart, ticker, target_year=None, report_types=None):
     """OpenDARTReader를 사용하여 지정된 연도(또는 최신)의 특정 보고서들을 검색하고 가장 최신 데이터를 추출합니다."""
     if dart is None:
-        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A (API Key Missing)", 0, 0, 0, 0, 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A (API Key Missing)", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
     # 상장주식수 먼저 파악 (비비율 계산용)
     total_shares = 0
@@ -503,7 +503,7 @@ def get_dart_financials(dart, ticker, target_year=None, report_types=None):
             except:
                 continue
     
-    return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0, 0, 0
+    return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 
 def parse_finstate_df(df, report_nm, ticker):
@@ -512,6 +512,7 @@ def parse_finstate_df(df, report_nm, ticker):
         revenue = op = re_val = cash = liabilities = equity = ocf = capex = da = net_income = current_assets = current_liabilities = 0
         prev_revenue = prev_op = prev_net_income = 0
         prev2_revenue = prev2_op = prev2_net_income = 0
+        prev_liabilities = prev2_liabilities = prev_equity = prev2_equity = 0
         
         # 계정 ID 매핑
         mapping = {
@@ -576,11 +577,17 @@ def parse_finstate_df(df, report_nm, ticker):
             
             # 5. Liabilities
             elif sj_div == 'BS' and (acc_id in mapping['liabilities'] or acc_name == '부채총계'):
-                if liabilities == 0 or acc_id in mapping['liabilities']: liabilities = val
+                if liabilities == 0 or acc_id in mapping['liabilities']: 
+                    liabilities = val
+                    prev_liabilities = prev_val
+                    prev2_liabilities = prev2_val
             
             # 6. Equity
             elif sj_div == 'BS' and (acc_id in mapping['equity'] or acc_name == '자본총계'):
-                if equity == 0 or acc_id in mapping['equity']: equity = val
+                if equity == 0 or acc_id in mapping['equity']: 
+                    equity = val
+                    prev_equity = prev_val
+                    prev2_equity = prev2_val
             
             # 7. OCF
             elif sj_div == 'CF' and (acc_id in mapping['ocf'] or acc_name == '영업활동현금흐름'):
@@ -609,10 +616,10 @@ def parse_finstate_df(df, report_nm, ticker):
             elif sj_div == 'BS' and (acc_id in mapping['current_liabilities'] or acc_name == '유동부채'):
                 if current_liabilities == 0 or acc_id in mapping['current_liabilities']: current_liabilities = val
 
-        return revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, current_assets, current_liabilities, report_nm, prev_revenue, prev_op, prev_net_income, prev2_revenue, prev2_op, prev2_net_income
+        return revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, current_assets, current_liabilities, report_nm, prev_revenue, prev_op, prev_net_income, prev2_revenue, prev2_op, prev2_net_income, prev_liabilities, prev2_liabilities, prev_equity, prev2_equity
     except Exception as e:
         print(f"[DART] {ticker} 재무제표 조회 실패: {e}")
-        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 
 def get_audit_opinions(session, corp_code, year, api_key):
@@ -807,12 +814,16 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                         cached.get('prev_rev', 0), cached.get('prev_op', 0), cached.get('prev_ni', 0),
                         cached.get('prev2_rev', 0), cached.get('prev2_op', 0), cached.get('prev2_ni', 0)
                     )
+                    prev_liabilities = cached.get('prev_liabilities', 0)
+                    prev2_liabilities = cached.get('prev2_liabilities', 0)
+                    prev_equity = cached.get('prev_equity', 0)
+                    prev2_equity = cached.get('prev2_equity', 0)
                     treasury_shares = cached.get('treasury_shares', 0)
                     treasury_ratio = cached.get('treasury_ratio', 0.0)
                 else:
                     # 캐시가 없거나 전년 데이터가 없는 구버전 캐시라면 새로 수집
                     dart_all = get_dart_financials(dart, ticker, current_year, report_types)
-                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni, treasury_shares, treasury_ratio = dart_all
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni, prev_liabilities, prev2_liabilities, prev_equity, prev2_equity, treasury_shares, treasury_ratio = dart_all
                     
                     # 캐시 저장
                     save_cache_data(ticker, cache_year, {
@@ -822,6 +833,8 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                         'report_nm': report_nm, 
                         'prev_rev': prev_rev, 'prev_op': prev_op, 'prev_ni': prev_ni,
                         'prev2_rev': prev2_rev, 'prev2_op': prev2_op, 'prev2_ni': prev2_ni,
+                        'prev_liabilities': prev_liabilities, 'prev2_liabilities': prev2_liabilities,
+                        'prev_equity': prev_equity, 'prev2_equity': prev2_equity,
                         'treasury_shares': treasury_shares,
                         'treasury_ratio': treasury_ratio
                     })
@@ -870,6 +883,27 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     if naver_data.get('bps', 0) > 0:
                         roe = round((naver_data.get('eps', 0) / naver_data.get('bps', 0)) * 100, 2)
 
+                # 과거 2개년 ROE 및 부채비율 계산
+                prev_roe = 0.0
+                if prev_equity > 0 and prev_op > 0:
+                    prev_roe = round((prev_op / prev_equity) * 100, 2)
+                elif prev_equity > 0 and prev_ni > 0:
+                    prev_roe = round((prev_ni / prev_equity) * 100, 2)
+
+                prev2_roe = 0.0
+                if prev2_equity > 0 and prev2_op > 0:
+                    prev2_roe = round((prev2_op / prev2_equity) * 100, 2)
+                elif prev2_equity > 0 and prev2_ni > 0:
+                    prev2_roe = round((prev2_ni / prev2_equity) * 100, 2)
+
+                prev_debt_ratio = 0.0
+                if prev_equity > 0:
+                    prev_debt_ratio = round((prev_liabilities / prev_equity) * 100, 2)
+
+                prev2_debt_ratio = 0.0
+                if prev2_equity > 0:
+                    prev2_debt_ratio = round((prev2_liabilities / prev2_equity) * 100, 2)
+
                 # 성장성 지표 계산
                 # 1. 당기 성장률 (YoY): (당기 - 전년) / 전년
                 rev_growth = round(((revenue - prev_rev) / abs(prev_rev) * 100), 2) if prev_rev != 0 else 0.0
@@ -900,6 +934,8 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     'PER': naver_data.get('per'),
                     '업종평균PER': naver_data.get('avg_per'),
                     'ROE': roe,
+                    '전년도ROE': prev_roe,
+                    '전전년도ROE': prev2_roe,
                     'EPS': naver_data.get('eps'),
                     'BPS': naver_data.get('bps'),
                     '배당수익률': naver_data.get('div_yield'),
@@ -932,6 +968,8 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     '52주최고가': naver_data.get('high_52w'),
                     '52주최저가': naver_data.get('low_52w'),
                     '부채비율': naver_data.get('debt_ratio') if naver_data.get('debt_ratio') > 0 else (round(liabilities/equity*100, 2) if equity > 0 else 0),
+                    '전년도부채비율': prev_debt_ratio,
+                    '전전년도부채비율': prev2_debt_ratio,
                     '유동비율': current_ratio,
                     'FCF': fcf,
                     'EBITDA': ebitda,
@@ -979,7 +1017,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     if f not in selected_fields:
                         selected_fields.insert(2, f)
             
-            yoy_fields = ['전년동기매출액', '매출액증가율(%)', '전년동기영업이익', '영업이익증가율(%)', '전년동기순이익', '순이익증가율(%)']
+            yoy_fields = ['전년동기매출액', '매출액증가율(%)', '전년동기영업이익', '영업이익증가율(%)', '전년동기순이익', '순이익증가율(%)', '전년도ROE', '전전년도ROE', '전년도부채비율', '전전년도부채비율']
             for f in yoy_fields:
                 if f not in selected_fields:
                     selected_fields.append(f)
