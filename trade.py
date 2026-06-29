@@ -1211,7 +1211,7 @@ def get_stock_pool():
         
         # 1. tr_audit_recommendations 테이블에서 추천 종목 조회
         cursor.execute("""
-            SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, opinion
+            SELECT code, name, sector, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, opinion
             FROM tr_audit_recommendations
         """)
         rec_rows = [dict(r) for r in cursor.fetchall()]
