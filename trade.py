@@ -1088,11 +1088,12 @@ def migrate_targets():
     """공유된 JSON 추천 데이터(value/momentum)를 읽어 활성 DB(MySQL 또는 로컬 SQLite)로 이관합니다."""
     value_json_path = os.path.join(RESULTS_DIR, 'value_recommendations.json')
     momentum_json_path = os.path.join(RESULTS_DIR, 'momentum_recommendations.json')
+    dividend_json_path = os.path.join(RESULTS_DIR, 'dividend_recommendations.json')
     
     records = []
     
     # 1. JSON 파일 로드
-    for json_path, rec_type in [(value_json_path, 'value'), (momentum_json_path, 'momentum')]:
+    for json_path, rec_type in [(value_json_path, 'value'), (momentum_json_path, 'momentum'), (dividend_json_path, 'dividend')]:
         if os.path.exists(json_path):
             try:
                 with open(json_path, 'r', encoding='utf-8') as f:
@@ -1128,6 +1129,7 @@ def migrate_targets():
                 CREATE TABLE IF NOT EXISTS tr_audit_recommendations (
                     code TEXT PRIMARY KEY,
                     name TEXT,
+                    sector TEXT,
                     current_price REAL,
                     target_price REAL,
                     upside REAL,
@@ -1151,24 +1153,36 @@ def migrate_targets():
         insert_sql = """
             INSERT INTO tr_audit_recommendations
                 (code, name, current_price, target_price, upside, opinion, data_date, created_at,
-                 score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, sector)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        def _get_sector(r):
+            sector_val = r.get('sector')
+            if not sector_val:
+                reason_str = r.get('reason', '')
+                if reason_str and reason_str.startswith('['):
+                    m = re.match(r'^\[(.*?)\]', reason_str)
+                    if m:
+                        sector_val = m.group(1)
+            return sector_val or '기타'
         
         insert_data = [
             (
                 r['code'], r['name'], float(r['current_price']) if r.get('current_price') is not None else 0.0,
                 float(r['target_price']) if r.get('target_price') is not None else 0.0,
-                float(r['upside']) if r.get('upside') is not None else 0.0, r.get('opinion', ''),
+                float(r['upside']) if r.get('upside') is not None else 0.0,
+                str(r.get('dividend_yield', '')) if r.get('rec_type') == 'dividend' else r.get('opinion', ''),
                 r.get('data_date', ''), now_str,
                 float(r['score']) if r.get('score') is not None else 0.0,
                 float(r['roe']) if r.get('roe') is not None else 0.0,
                 float(r['debt']) if r.get('debt') is not None else 0.0, r.get('reason', ''),
                 r.get('news_summary') if isinstance(r.get('news_summary'), str) else json.dumps(r.get('news_summary', []), ensure_ascii=False),
                 r.get('rec_type', 'momentum'), r.get('one_liner', ''),
-                r.get('disc_json') if isinstance(r.get('disc_json'), str) else json.dumps(r.get('disc_json', []), ensure_ascii=False)
+                r.get('disc_json') if isinstance(r.get('disc_json'), str) else json.dumps(r.get('disc_json', []), ensure_ascii=False),
+                _get_sector(r)
             )
             for r in records
         ]
@@ -1197,7 +1211,7 @@ def get_stock_pool():
         
         # 1. tr_audit_recommendations 테이블에서 추천 종목 조회
         cursor.execute("""
-            SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json
+            SELECT code, name, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, opinion
             FROM tr_audit_recommendations
         """)
         rec_rows = [dict(r) for r in cursor.fetchall()]
@@ -1246,12 +1260,19 @@ def get_stock_pool():
             pool_info = pool_dict.get(code, {})
             
             rec_type = rec.get('rec_type', 'momentum')
-            is_rec_val = 2 if rec_type == 'value' else 0
+            if rec_type == 'value':
+                is_rec_val = 1
+            elif rec_type == 'momentum':
+                is_rec_val = 2
+            elif rec_type == 'dividend':
+                is_rec_val = 3
+            else:
+                is_rec_val = 0
             
             results.append({
                 "code": code,
                 "name": rec.get('name') or pool_info.get('name', ''),
-                "sector": pool_info.get('sector', '기타'),
+                "sector": rec.get('sector') or pool_info.get('sector') or '기타',
                 "roe": rec.get('roe') or pool_info.get('roe', 0.0),
                 "pbr": pool_info.get('pbr'),
                 "per": pool_info.get('per'),
@@ -1267,7 +1288,8 @@ def get_stock_pool():
                 "current_price": rec.get('current_price', 0.0),
                 "is_rec": is_rec_val,
                 "rec_type": rec_type,
-                "one_liner": rec.get('one_liner', '')
+                "one_liner": rec.get('one_liner', ''),
+                "opinion": rec.get('opinion', '')
             })
             
         # 추천 종목이 아닌 나머지 종목 추가
@@ -1290,7 +1312,7 @@ def get_stock_pool():
                     "news_summary": None,
                     "upside": None,
                     "current_price": None,
-                    "is_rec": 1,
+                    "is_rec": 0,
                     "rec_type": None
                 })
                 

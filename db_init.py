@@ -143,6 +143,7 @@ def _init_sqlite():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT,
             name TEXT,
+            sector TEXT,
             current_price REAL,
             target_price REAL,
             upside REAL,
@@ -163,6 +164,7 @@ def _init_sqlite():
         ('rec_type', "TEXT DEFAULT 'momentum'"),
         ('one_liner', "TEXT DEFAULT ''"),
         ('disc_json', 'TEXT'),
+        ('sector', 'TEXT'),
     ]:
         try:
             cursor.execute(f"ALTER TABLE tr_audit_recommendations ADD COLUMN {col_name} {col_def}")
@@ -332,6 +334,7 @@ def _init_mysql():
             id INT AUTO_INCREMENT PRIMARY KEY,
             code VARCHAR(50),
             name VARCHAR(255),
+            sector VARCHAR(255),
             current_price DOUBLE,
             target_price DOUBLE,
             upside DOUBLE,
@@ -352,6 +355,7 @@ def _init_mysql():
         ('rec_type', "VARCHAR(50) DEFAULT 'momentum'"),
         ('one_liner', "VARCHAR(255) DEFAULT ''"),
         ('disc_json', 'LONGTEXT'),
+        ('sector', 'VARCHAR(255)'),
     ]:
         add_column_if_not_exists("tr_audit_recommendations", col_name, col_def)
 

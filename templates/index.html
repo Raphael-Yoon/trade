@@ -1306,6 +1306,10 @@
                         style="padding: 10px 24px; border-radius: 12px; border: none; background: transparent; color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
                         ⚡ Momentum
                     </button>
+                    <button id="recTypeTabDividend" onclick="switchRecTypeTab('dividend')"
+                        style="padding: 10px 24px; border-radius: 12px; border: none; background: transparent; color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
+                        💰 Dividend
+                    </button>
                 </div>
                 <div id="targetsList" class="results-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
                     <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 80px;"><p>불러오는 중...</p></div>
@@ -4642,13 +4646,15 @@
             try { discList = JSON.parse(stock.disc_json || '[]'); } catch(e) {}
 
             function renderDiscItem(d) {
+                const hasSentiment = d.sentiment === 'positive' || d.sentiment === 'negative';
                 const isPos = d.sentiment === 'positive';
-                const accentColor = isPos ? '#ef4444' : '#3b82f6';
-                const borderColor = isPos ? 'rgba(239,68,68,0.25)' : 'rgba(59,130,246,0.25)';
-                const bgColor = isPos ? 'rgba(239,68,68,0.05)' : 'rgba(59,130,246,0.05)';
+                const accentColor = hasSentiment ? (isPos ? '#ef4444' : '#3b82f6') : '#64748b';
+                const borderColor = hasSentiment ? (isPos ? 'rgba(239,68,68,0.25)' : 'rgba(59,130,246,0.25)') : 'rgba(100,116,139,0.2)';
+                const bgColor = hasSentiment ? (isPos ? 'rgba(239,68,68,0.05)' : 'rgba(59,130,246,0.05)') : 'transparent';
                 const tooltip = d.reason ? d.reason.replace(/"/g, '&quot;') : '평가 근거 정보가 없습니다.';
-                const badge = isPos ? `<span title="${tooltip}" style="font-size:10px;padding:2px 7px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;font-weight:700;cursor:help;">▲ 호재</span>`
-                                    : `<span title="${tooltip}" style="font-size:10px;padding:2px 7px;background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-weight:700;cursor:help;">▼ 악재</span>`;
+                const badge = !hasSentiment ? '' : (isPos
+                    ? `<span title="${tooltip}" style="font-size:10px;padding:2px 7px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;font-weight:700;cursor:help;">▲ 호재</span>`
+                    : `<span title="${tooltip}" style="font-size:10px;padding:2px 7px;background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-weight:700;cursor:help;">▼ 악재</span>`);
                 const dartLink = d.rcept_no ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${d.rcept_no}` : '';
                 const titleHtml = dartLink
                     ? `<a href="${dartLink}" target="_blank" style="font-size:14px;font-weight:700;color:${accentColor};text-decoration:none;line-height:1.4;display:flex;align-items:center;gap:6px;" class="disclosure-item-hover">🔗 ${d.report_nm}</a>`
@@ -5158,26 +5164,30 @@
 
         function switchRecTypeTab(type) {
             currentRecType = type;
-            const btnMom = document.getElementById('recTypeTabMomentum');
             const btnVal = document.getElementById('recTypeTabValue');
-            if (btnMom && btnVal) {
-                if (type === 'momentum') {
-                    btnMom.style.cssText = 'padding: 10px 24px; border-radius: 12px; border: none; background: rgba(99, 102, 241, 0.2); color: white; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
-                    btnVal.style.cssText = 'padding: 10px 24px; border-radius: 12px; border: none; background: transparent; color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
-                } else {
-                    btnMom.style.cssText = 'padding: 10px 24px; border-radius: 12px; border: none; background: transparent; color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
-                    btnVal.style.cssText = 'padding: 10px 24px; border-radius: 12px; border: none; background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
-                }
-            }
+            const btnMom = document.getElementById('recTypeTabMomentum');
+            const btnDiv = document.getElementById('recTypeTabDividend');
+            
+            const activeStyleVal = 'padding: 10px 24px; border-radius: 12px; border: none; background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
+            const activeStyleMom = 'padding: 10px 24px; border-radius: 12px; border: none; background: rgba(99, 102, 241, 0.2); color: white; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
+            const activeStyleDiv = 'padding: 10px 24px; border-radius: 12px; border: none; background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
+            const inactiveStyle = 'padding: 10px 24px; border-radius: 12px; border: none; background: transparent; color: var(--text-muted); font-weight: 700; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: all 0.2s;';
+            
+            if (btnVal) btnVal.style.cssText = (type === 'value') ? activeStyleVal : inactiveStyle;
+            if (btnMom) btnMom.style.cssText = (type === 'momentum') ? activeStyleMom : inactiveStyle;
+            if (btnDiv) btnDiv.style.cssText = (type === 'dividend') ? activeStyleDiv : inactiveStyle;
+            
             refreshPoolTop10Rendering();
         }
 
         function refreshPoolTop10Rendering() {
             const filtered = currentPoolStocks.filter(s => {
                 if (currentRecType === 'momentum') {
-                    return s.is_rec === 0 || s.rec_type === 'momentum';
+                    return s.is_rec === 2 || s.rec_type === 'momentum';
+                } else if (currentRecType === 'dividend') {
+                    return s.is_rec === 3 || s.rec_type === 'dividend';
                 } else {
-                    return s.is_rec === 2 || s.rec_type === 'value';
+                    return s.is_rec === 1 || s.rec_type === 'value';
                 }
             });
             const top10 = filtered.slice(0, 10);
@@ -5261,16 +5271,50 @@
                 const score = (s.priority_score || s.pool_score || 0).toFixed(1);
                 const summary = s.ai_summary || '';
                 const isAdded = watchlistCodes.has(s.code);
-                const isValue = s.rec_type === 'value' || s.is_rec === 2;
+                const isValue = s.rec_type === 'value' || s.is_rec === 1;
+                const isMomentum = s.rec_type === 'momentum' || s.is_rec === 2;
+                const isDividend = s.rec_type === 'dividend' || s.is_rec === 3;
                 const rawOneLiner = s.one_liner || '';
                 const oneLiner = rawOneLiner || (oneLineSummaries[s.code] || '');
 
-                const topBarBg = isValue 
-                    ? 'linear-gradient(to right, #3b82f6, #06b6d4)'
-                    : `linear-gradient(to right, ${rankColors[idx]||'#10b981'}, ${rankColors[idx]||'#059669'}88)`;
+                let topBarBg = `linear-gradient(to right, ${rankColors[idx]||'#10b981'}, ${rankColors[idx]||'#059669'}88)`;
+                let badgeColor = rankColors[idx] || '#10b981';
+                let scoreLabel = 'AI 점수';
+                let scoreColor = '#fbbf24';
+                let cardBg = 'rgba(255,255,255,0.03)';
+                let cardBorder = 'rgba(255,255,255,0.07)';
+                let calloutBg = 'rgba(99, 102, 241, 0.08)';
+                let calloutBorder = '#6366f1';
 
-                const badgeColor = isValue ? '#3b82f6' : (rankColors[idx] || '#10b981');
-                
+                if (isValue) {
+                    topBarBg = 'linear-gradient(to right, #3b82f6, #06b6d4)';
+                    badgeColor = '#3b82f6';
+                    scoreLabel = '가치점수';
+                    scoreColor = '#3b82f6';
+                    cardBg = 'linear-gradient(135deg, rgba(59,130,246,0.05), rgba(6,182,212,0.03))';
+                    cardBorder = 'rgba(59,130,246,0.15)';
+                    calloutBg = 'rgba(59, 130, 246, 0.08)';
+                    calloutBorder = '#3b82f6';
+                } else if (isMomentum) {
+                    topBarBg = 'linear-gradient(to right, #6366f1, #a855f7)';
+                    badgeColor = '#6366f1';
+                    scoreLabel = '모멘텀점수';
+                    scoreColor = '#a855f7';
+                    cardBg = 'linear-gradient(135deg, rgba(99,102,241,0.05), rgba(168,85,247,0.03))';
+                    cardBorder = 'rgba(99,102,241,0.15)';
+                    calloutBg = 'rgba(99, 102, 241, 0.08)';
+                    calloutBorder = '#6366f1';
+                } else if (isDividend) {
+                    topBarBg = 'linear-gradient(to right, #f59e0b, #d97706)';
+                    badgeColor = '#f59e0b';
+                    scoreLabel = '배당점수';
+                    scoreColor = '#f59e0b';
+                    cardBg = 'linear-gradient(135deg, rgba(245,158,11,0.05), rgba(217,119,6,0.03))';
+                    cardBorder = 'rgba(245,158,11,0.15)';
+                    calloutBg = 'rgba(245, 158, 11, 0.08)';
+                    calloutBorder = '#f59e0b';
+                }
+
                 const watchlistBtn = isAdded 
                     ? `<button disabled style="flex:1.5;padding:10px 4px;border-radius:10px;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#10b981;font-size:12px;font-weight:800;cursor:default;white-space:nowrap;">
                         ✓ 등록됨
@@ -5281,16 +5325,6 @@
                         onmouseout="this.style.background='rgba(251,191,36,0.15)'">
                         ⭐ 관심 추가
                        </button>`;
-
-                const scoreLabel = isValue ? '가치점수' : 'AI 점수';
-                const scoreColor = isValue ? '#3b82f6' : '#fbbf24';
-                const cardBg = isValue 
-                    ? 'linear-gradient(135deg, rgba(59,130,246,0.05), rgba(6,182,212,0.03))'
-                    : 'rgba(255,255,255,0.03)';
-                const cardBorder = isValue ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.07)';
-
-                const calloutBg = isValue ? 'rgba(59, 130, 246, 0.08)' : 'rgba(99, 102, 241, 0.08)';
-                const calloutBorder = isValue ? '#3b82f6' : '#6366f1';
 
                 return `
                 <div class="result-card" style="background:${cardBg};border-radius:24px;border:1px solid ${cardBorder};overflow:hidden;display:flex;flex-direction:column;">
@@ -5314,8 +5348,8 @@
                                     <div style="font-size:15px;font-weight:900;color:white;">${(s.roe||0).toFixed(1)}%</div>
                                 </div>
                                 <div style="padding:10px 8px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
-                                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">영업이익률</div>
-                                    <div style="font-size:15px;font-weight:900;color:#10b981;">${(s.operating_margin||0).toFixed(1)}%</div>
+                                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">${isDividend ? '배당수익률' : '영업이익률'}</div>
+                                    <div style="font-size:15px;font-weight:900;color:#10b981;">${isDividend ? (parseFloat(s.opinion)||0.0).toFixed(2)+'%' : (s.operating_margin||0).toFixed(1)+'%'}</div>
                                 </div>
                                 <div style="padding:10px 8px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
                                     <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">부채비율</div>

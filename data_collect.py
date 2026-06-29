@@ -873,27 +873,21 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 ebitda = op + da
                 current_ratio = round((cur_assets / cur_liab) * 100, 2) if cur_liab > 0 else 0.0
                 
-                # ROE 계산 개선: 자본총계(equity) 기준 우선, 없으면 네이버 데이터 활용
+                # ROE = 당기순이익 / 자기자본 (자본총계)
                 roe = 0.0
-                if equity > 0 and op > 0:
-                    # 단순 영업이익/자본총계 (DART 기준)
-                    roe = round((op / equity) * 100, 2)
-                elif naver_data.get('per', 0) > 0:
-                    # 네이버 ROE 활용 (eps/bps)
-                    if naver_data.get('bps', 0) > 0:
-                        roe = round((naver_data.get('eps', 0) / naver_data.get('bps', 0)) * 100, 2)
+                if equity > 0 and net_income > 0:
+                    roe = round((net_income / equity) * 100, 2)
+                elif naver_data.get('bps', 0) > 0 and naver_data.get('eps', 0) > 0:
+                    # DART 데이터 없을 때 Naver EPS/BPS 기반 계산 (동일 공식)
+                    roe = round((naver_data.get('eps', 0) / naver_data.get('bps', 0)) * 100, 2)
 
-                # 과거 2개년 ROE 및 부채비율 계산
+                # 과거 2개년 ROE
                 prev_roe = 0.0
-                if prev_equity > 0 and prev_op > 0:
-                    prev_roe = round((prev_op / prev_equity) * 100, 2)
-                elif prev_equity > 0 and prev_ni > 0:
+                if prev_equity > 0 and prev_ni > 0:
                     prev_roe = round((prev_ni / prev_equity) * 100, 2)
 
                 prev2_roe = 0.0
-                if prev2_equity > 0 and prev2_op > 0:
-                    prev2_roe = round((prev2_op / prev2_equity) * 100, 2)
-                elif prev2_equity > 0 and prev2_ni > 0:
+                if prev2_equity > 0 and prev2_ni > 0:
                     prev2_roe = round((prev2_ni / prev2_equity) * 100, 2)
 
                 prev_debt_ratio = 0.0
