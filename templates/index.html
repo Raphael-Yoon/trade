@@ -1086,10 +1086,10 @@
                     <div style="display: flex; gap: 6px; background: rgba(255,255,255,0.05); border-radius: 12px; padding: 4px;">
                         <button id="hvBtn_daily" onclick="switchHistoryView('daily')"
                             style="padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; background: rgba(99,102,241,0.8); color: white; transition: all 0.2s;">일별</button>
+                        <button id="hvBtn_week" onclick="switchHistoryView('week')"
+                            style="padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s;">주별</button>
                         <button id="hvBtn_month" onclick="switchHistoryView('month')"
                             style="padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s;">월별</button>
-                        <button id="hvBtn_quarter" onclick="switchHistoryView('quarter')"
-                            style="padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s;">분기별</button>
                         <button id="hvBtn_year" onclick="switchHistoryView('year')"
                             style="padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s;">연도별</button>
                     </div>
@@ -1118,7 +1118,11 @@
                         <option value="11">11월</option>
                         <option value="12">12월</option>
                     </select>
-                    <!-- 소유자 필터 (월별 전용) -->
+                    <span id="reportWeekLabel" style="font-size: 14px; color: var(--text-muted); font-weight: 600; display: none;">조회 주:</span>
+                    <select id="reportWeekSelect" onchange="renderHistoryReport()"
+                        style="display: none; padding: 10px 20px; border-radius: 12px; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 700; font-family: 'Outfit', sans-serif; cursor: pointer; outline: none; min-width: 140px;">
+                    </select>
+                    <!-- 소유자 필터 (월별/주별 전용) -->
                     <span id="ownerFilterLabel" style="font-size:14px;color:var(--text-muted);font-weight:600;display:none;">소유자:</span>
                     <select id="ownerFilterSelect" onchange="onOwnerFilterChange()"
                         style="display:none;padding:10px 20px;border-radius:12px;background:#0f172a;border:1px solid rgba(255,255,255,0.2);color:white;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;outline:none;min-width:120px;">
@@ -2130,7 +2134,7 @@
 
         function switchHistoryView(view) {
             currentHistoryView = view;
-            ['daily', 'month', 'quarter', 'year'].forEach(v => {
+            ['daily', 'week', 'month', 'year'].forEach(v => {
                 const btn = document.getElementById('hvBtn_' + v);
                 if (!btn) return;
                 btn.style.background = v === view ? 'rgba(99,102,241,0.8)' : 'transparent';
@@ -2141,21 +2145,27 @@
             document.getElementById('historyReportControls').style.display = isDaily ? 'none' : 'flex';
             // 연도별은 연도 자체가 기간이므로 연도 필터 불필요
             document.getElementById('reportYearSelect').parentElement.style.display = (isDaily || view === 'year') ? 'none' : 'flex';
-            // 월별일 때만 월 셀렉터 표시, 진입 시 현재 월로 초기화
+            // 월별/주별일 때만 해당 셀렉터 표시
             const showMonth = (!isDaily && view === 'month');
             document.getElementById('reportMonthSelect').style.display = showMonth ? 'block' : 'none';
             document.getElementById('reportMonthLabel').style.display = showMonth ? 'inline' : 'none';
+            const showWeek = (!isDaily && view === 'week');
+            document.getElementById('reportWeekSelect').style.display = showWeek ? 'block' : 'none';
+            document.getElementById('reportWeekLabel').style.display = showWeek ? 'inline' : 'none';
             document.getElementById('historyContent').style.display = isDaily ? 'block' : 'none';
             document.getElementById('reportContent').style.display = isDaily ? 'none' : 'block';
-            // 월별 전용: 차트유형 토글 + 소유자 필터
-            const isMonth = (view === 'month');
+            // 월별/주별 전용: 차트유형 토글 + 소유자 필터
+            const isMonth = (view === 'month' || view === 'week');
             const toggle = document.getElementById('chartTypeToggle');
             const ownerLabel = document.getElementById('ownerFilterLabel');
             const ownerSel = document.getElementById('ownerFilterSelect');
             if (toggle) toggle.style.display = isMonth ? 'flex' : 'none';
             if (ownerLabel) ownerLabel.style.display = isMonth ? 'inline' : 'none';
             if (ownerSel) ownerSel.style.display = isMonth ? 'block' : 'none';
-            if (!isDaily) loadHistoryReport(view);
+            if (!isDaily) {
+                if (view === 'week') loadWeekViewOptimized();
+                else loadHistoryReport(view);
+            }
         }
 
         function setChartType(type) {
@@ -2200,11 +2210,72 @@
                         document.getElementById('reportMonthSelect').value = curMonth;
                     }
 
+                    // 주별 뷰일 때 올해·현재 주로 기본값 설정
+                    if (period === 'week') {
+                        const now = new Date();
+                        const curYear = String(now.getFullYear());
+                        if ([...sel.options].some(o => o.value === curYear)) sel.value = curYear;
+                        updateWeekOptions(curYear, data.periods);
+                    }
+
                     renderHistoryReport();
                 })
                 .catch(err => {
                     content.innerHTML = `<p style="text-align:center;padding:40px;color:#ef4444;">리포트 로드 오류: ${err}</p>`;
                 });
+        }
+
+        // [유병욱] 주별 뷰 최적화 로드 — 빠른 경로(최신 주 차트)와 백그라운드(드롭다운 구성) 병렬 실행
+        function loadWeekViewOptimized() {
+            const content = document.getElementById('reportContent');
+            content.innerHTML = '<div class="loading-ai" style="padding: 60px 0;"><div class="ai-spinner"></div><p>최신 주간 데이터를 불러오는 중...</p></div>';
+
+            const weekSel = document.getElementById('reportWeekSelect');
+            weekSel.innerHTML = '<option>로딩 중...</option>';
+            weekSel.disabled = true;
+
+            // [빠른 경로] MAX(date) 인덱스 조회 → 최신 주 차트 즉시 렌더링
+            const fastPromise = fetch('/api/history/latest-week-key')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success || !data.week_key) return null;
+                    return fetch(`/api/history/daily-chart?week=${data.week_key}`)
+                        .then(r => r.json())
+                        .then(chartData => {
+                            if (currentHistoryView === 'week') renderDailyChart(data.week_key, chartData);
+                            return data.week_key;
+                        });
+                })
+                .catch(err => {
+                    if (currentHistoryView === 'week')
+                        content.innerHTML = `<p style="text-align:center;padding:40px;color:#ef4444;">데이터 로드 오류: ${err}</p>`;
+                    return null;
+                });
+
+            // [백그라운드] 전체 기간 집계 → 연도·주 드롭다운 구성
+            fetch('/api/history/report?period=week')
+                .then(r => r.json())
+                .then(async data => {
+                    if (!data.success || !data.periods.length) return;
+                    reportCache = { period: 'week', periods: data.periods, by_owner: data.by_owner };
+
+                    const years = [...new Set(data.periods.map(p => p.period_start.slice(0, 4)))].sort((a, b) => b - a);
+                    const sel = document.getElementById('reportYearSelect');
+                    sel.innerHTML = '<option value="all">전체</option>' + years.map(y => `<option value="${y}">${y}년</option>`).join('');
+
+                    const curYear = String(new Date().getFullYear());
+                    if ([...sel.options].some(o => o.value === curYear)) sel.value = curYear;
+
+                    updateWeekOptions(curYear, data.periods);
+                    weekSel.disabled = false;
+
+                    // 빠른 경로에서 확정된 week_key로 드롭다운 선택값 복원
+                    const latestKey = await fastPromise;
+                    if (latestKey && [...weekSel.options].some(o => o.value === latestKey)) {
+                        weekSel.value = latestKey;
+                    }
+                })
+                .catch(err => console.warn('[주별 리포트 백그라운드 로드 오류]', err));
         }
 
         // [유병욱] 특정 월 선택 시 일별 차트 렌더링 (차트유형·소유자 필터 지원)
@@ -2437,7 +2508,21 @@
                 date: d,
                 day_profit: filteredRows.filter(r => r.date === d).reduce((s, r) => s + (r.day_profit_sum || 0), 0)
             }));
-            const [yr, mo] = month.split('-');
+            const isWeekKey = month.includes('-W');
+            const periodLabel = isWeekKey
+                ? (() => {
+                    const [y, w] = month.split('-W');
+                    const wNum = parseInt(w);
+                    if (dates.length > 0) {
+                        const [, sm, sd] = dates[0].split('-');
+                        const [, em, ed] = dates[dates.length - 1].split('-');
+                        const startStr = `${parseInt(sm)}/${parseInt(sd)}`;
+                        const endStr = sm === em ? `${parseInt(ed)}` : `${parseInt(em)}/${parseInt(ed)}`;
+                        return `${y}년 ${wNum}주차(${startStr}~${endStr})`;
+                    }
+                    return `${y}년 ${wNum}주차`;
+                  })()
+                : (() => { const [y, m] = month.split('-'); return `${y}년 ${parseInt(m)}월`; })();
             const totalProfit = dailyTotals.reduce((s, d) => s + d.day_profit, 0);
             const lastRows = filteredRows.filter(r => r.date === dates[dates.length - 1]);
             const lastDate = dates[dates.length - 1];
@@ -2449,14 +2534,14 @@
                 : `📈 누적손익 추이${ownerLabel}`;
 
             content.innerHTML = `
-                <div style="margin-bottom:8px;font-size:12px;color:var(--text-muted);font-weight:700;letter-spacing:0.05em;">${yr}년 ${parseInt(mo)}월 일별 상세${ownerLabel}</div>
+                <div style="margin-bottom:8px;font-size:12px;color:var(--text-muted);font-weight:700;letter-spacing:0.05em;">${periodLabel} 일별 상세${ownerLabel}</div>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;">
                     <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
                         <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">기록 일수</div>
                         <div style="font-size:26px;font-weight:800;color:var(--text-main);font-family:'Outfit',sans-serif;">${dates.length}<span style="font-size:14px;margin-left:4px;">일</span></div>
                     </div>
                     <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
-                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">월 합산 일손익</div>
+                        <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">${isWeekKey ? '주' : '월'} 합산 일손익</div>
                         <div style="font-size:22px;font-weight:800;font-family:'Outfit',sans-serif;color:${pColor(totalProfit)};">${fmt(totalProfit)}</div>
                     </div>
                     <div style="background:rgba(255,255,255,0.05);border-radius:16px;padding:20px;border:1px solid rgba(255,255,255,0.1);">
@@ -2482,7 +2567,7 @@
             const distinctOwners = [...new Set(data.by_owner.map(r => r.owner))].sort();
             const ownerComparisonTableHtml = `
                 <div style="margin-top: 28px; background:rgba(255,255,255,0.03);border-radius:20px;border:1px solid rgba(255,255,255,0.08);padding:24px;">
-                    <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:16px;">👤 소유자별 당월 실적 비교 요약</div>
+                    <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:16px;">👤 소유자별 ${isWeekKey ? '당주' : '당월'} 실적 비교 요약</div>
                     <div style="overflow-x:auto;">
                         <table style="width:100%;border-collapse:collapse;font-size:13px;text-align:left;">
                             <thead>
@@ -2527,6 +2612,23 @@
             content.innerHTML += ownerComparisonTableHtml;
         }
 
+        function updateWeekOptions(year, allPeriods) {
+            const weekSel = document.getElementById('reportWeekSelect');
+            const prev = weekSel.value;
+            const weeks = allPeriods
+                .filter(p => p.period_key.startsWith(year + '-W'))
+                .sort((a, b) => b.period_key.localeCompare(a.period_key));
+            weekSel.innerHTML = weeks.map(p => {
+                const wNum = parseInt(p.period_key.split('-W')[1]);
+                const [, sm, sd] = p.period_start.split('-');
+                const [, em, ed] = p.period_end.split('-');
+                const startStr = `${parseInt(sm)}/${parseInt(sd)}`;
+                const endStr = sm === em ? `${parseInt(ed)}` : `${parseInt(em)}/${parseInt(ed)}`;
+                return `<option value="${p.period_key}">${wNum}주차(${startStr}~${endStr})</option>`;
+            }).join('');
+            if (prev && weeks.some(p => p.period_key === prev)) weekSel.value = prev;
+        }
+
         // [김정음] 연도/월 필터 적용 후 렌더링
         function renderHistoryReport() {
             if (!reportCache) return;
@@ -2534,13 +2636,28 @@
             const yearFilter = document.getElementById('reportYearSelect').value;
             const monthFilter = document.getElementById('reportMonthSelect').value;
 
-            // 월별 뷰: 당일 실적 모드일 때만 일별 차트, 누적 모드는 월별 누적 추이로
-            if (period === 'month' && yearFilter !== 'all' && currentChartType === 'daily') {
+            // 월별 뷰: 선택된 연도/월의 일별 데이터 fetch
+            if (period === 'month' && yearFilter !== 'all') {
                 const month = `${yearFilter}-${monthFilter}`;
                 document.getElementById('reportContent').innerHTML = '<p style="text-align:center;padding:40px;color:var(--text-muted);">로딩 중...</p>';
                 fetch(`/api/history/daily-chart?month=${month}`)
                     .then(r => r.json())
                     .then(data => renderDailyChart(month, data))
+                    .catch(err => {
+                        document.getElementById('reportContent').innerHTML = `<p style="text-align:center;padding:40px;color:#ef4444;">오류: ${err}</p>`;
+                    });
+                return;
+            }
+
+            // 주별 뷰: 선택된 주의 일별 데이터 fetch
+            if (period === 'week' && yearFilter !== 'all') {
+                updateWeekOptions(yearFilter, reportCache.periods);
+                const weekKey = document.getElementById('reportWeekSelect').value;
+                if (!weekKey) return;
+                document.getElementById('reportContent').innerHTML = '<p style="text-align:center;padding:40px;color:var(--text-muted);">로딩 중...</p>';
+                fetch(`/api/history/daily-chart?week=${weekKey}`)
+                    .then(r => r.json())
+                    .then(data => renderDailyChart(weekKey, data))
                     .catch(err => {
                         document.getElementById('reportContent').innerHTML = `<p style="text-align:center;padding:40px;color:#ef4444;">오류: ${err}</p>`;
                     });
@@ -2565,12 +2682,24 @@
             };
             const fmtLabel = key => {
                 if (period === 'month') { const [y, m] = key.split('-'); return `${y}년 ${parseInt(m)}월`; }
-                if (period === 'quarter') { const [y, q] = key.split('-'); return `${y}년 ${q}`; }
+                if (period === 'week') {
+                    const [y, w] = key.split('-W');
+                    const wNum = parseInt(w);
+                    const pData = periods.find(p => p.period_key === key);
+                    if (pData) {
+                        const [, sm, sd] = pData.period_start.split('-');
+                        const [, em, ed] = pData.period_end.split('-');
+                        const startStr = `${parseInt(sm)}/${parseInt(sd)}`;
+                        const endStr = sm === em ? `${parseInt(ed)}` : `${parseInt(em)}/${parseInt(ed)}`;
+                        return `${wNum}주차(${startStr}~${endStr})`;
+                    }
+                    return `${wNum}주차`;
+                }
                 return `${key}년`;
             };
             const pColor = n => n >= 0 ? '#10b981' : '#ef4444';
             const pStyle = n => `color:${pColor(n)};`;
-            const periodUnit = period === 'month' ? '개월' : period === 'quarter' ? '분기' : '년';
+            const periodUnit = period === 'month' ? '개월' : period === 'week' ? '주' : '년';
 
             // 전체 합산 요약 카드
             const totalDayProfit = periods.reduce((s, p) => s + p.day_profit_sum, 0);

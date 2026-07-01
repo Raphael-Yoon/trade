@@ -27,8 +27,28 @@ from get_all_naver_data import get_all_naver_data
 from db_init import init_db
 
 import time
+from datetime import date as _date, timedelta as _timedelta
 
 app = Flask(__name__)
+
+# [김정음] 리포트 API 인메모리 캐시 (period → (timestamp, response_dict))
+_report_cache: dict = {}
+_REPORT_CACHE_TTL = 300  # 5분
+
+def _week_key_to_range(week_key: str):
+    """'YYYY-WXX' → (start_date, end_date) 문자열 — strftime('%W') 기준 (월요일 시작)"""
+    year_str, w_str = week_key.split('-W')
+    year, week_num = int(year_str), int(w_str)
+    jan1 = _date(year, 1, 1)
+    days_to_monday = (7 - jan1.weekday()) % 7
+    if week_num == 0:
+        start = jan1
+        end = jan1 + _timedelta(days=days_to_monday - 1) if days_to_monday > 0 else jan1
+    else:
+        first_monday = jan1 + _timedelta(days=days_to_monday)
+        start = first_monday + _timedelta(weeks=week_num - 1)
+        end = start + _timedelta(days=6)
+    return str(start), str(end)
 
 # Flask 앱의 모든 응답에 ngrok 경고창 패스 헤더를 강제로 심어주는 코드
 @app.after_request
@@ -3289,16 +3309,21 @@ def backfill_history():
 
 @app.route('/api/history/report', methods=['GET'])
 def get_history_report():
-    """[김정음] 월/분기/연 단위 히스토리 집계 리포트"""
+    """[김정음] 주/월/연 단위 히스토리 집계 리포트"""
     is_mysql = DATABASE_URL is not None and DATABASE_URL.startswith('mysql')
     period = request.args.get('period', 'month')
+
+    # 인메모리 캐시 확인
+    cached = _report_cache.get(period)
+    if cached and (time.time() - cached[0]) < _REPORT_CACHE_TTL:
+        return jsonify(cached[1])
     if period == 'month':
         period_expr = "LEFT(date, 7)" if is_mysql else "substr(date, 1, 7)"
-    elif period == 'quarter':
+    elif period == 'week':
         period_expr = (
-            "CONCAT(LEFT(date, 4), '-Q', FLOOR((CAST(SUBSTRING(date, 6, 2) AS DECIMAL) - 1) / 3) + 1)"
+            "DATE_FORMAT(date, '%Y-W%u')"
             if is_mysql else
-            "substr(date, 1, 4) || '-Q' || (((cast(substr(date, 6, 2) as integer) - 1) / 3) + 1)"
+            "strftime('%Y-W%W', date)"
         )
     else:
         period_expr = "LEFT(date, 4)" if is_mysql else "substr(date, 1, 4)"
@@ -3336,22 +3361,31 @@ def get_history_report():
             FROM period_data GROUP BY period_key, owner ORDER BY period_key DESC, owner
         """)
         by_owner = [dict(row) for row in cursor.fetchall()]
-        return jsonify({'success': True, 'periods': periods, 'by_owner': by_owner})
+        result = {'success': True, 'periods': periods, 'by_owner': by_owner}
+        _report_cache[period] = (time.time(), result)
+        return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @app.route('/api/history/daily-chart', methods=['GET'])
 def get_daily_chart():
-    """[유병욱] 특정 월의 일자별 손익 집계 (일별 차트용)"""
+    """[유병욱] 특정 월 또는 주의 일자별 손익 집계 (일별 차트용)"""
     month = request.args.get('month')  # "2026-05"
-    if not month:
-        return jsonify({'success': False, 'message': 'month 파라미터 필요'}), 400
+    week  = request.args.get('week')   # "2026-W26"
+    if not month and not week:
+        return jsonify({'success': False, 'message': 'month 또는 week 파라미터 필요'}), 400
     try:
         db = get_db()
         cursor = db.cursor()
         is_mysql = DATABASE_URL is not None and DATABASE_URL.startswith('mysql')
-        where_clause = "LEFT(date, 7) = ?" if is_mysql else "substr(date, 1, 7) = ?"
+        if month:
+            where_clause = "LEFT(date, 7) = ?" if is_mysql else "substr(date, 1, 7) = ?"
+            params = (month,)
+        else:
+            start_date, end_date = _week_key_to_range(week)
+            where_clause = "date >= ? AND date <= ?"
+            params = (start_date, end_date)
         cursor.execute(f"""
             SELECT date, owner,
                    ROUND(CAST(SUM(day_profit) AS DECIMAL(20,4)), 0) AS day_profit_sum,
@@ -3361,10 +3395,30 @@ def get_daily_chart():
             WHERE {where_clause}
             GROUP BY date, owner
             ORDER BY date, owner
-        """, (month,))
+        """, params)
         rows = [dict(r) for r in cursor.fetchall()]
         dates = sorted({r['date'] for r in rows})
         return jsonify({'success': True, 'dates': dates, 'by_owner': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/history/latest-week-key', methods=['GET'])
+def get_latest_week_key():
+    """[김정음] 주별 뷰 빠른 초기 로드용 — MAX(date) 인덱스 조회로 최신 week_key 반환"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT MAX(date) FROM tr_stock_daily_history")
+        row = cursor.fetchone()
+        if not row or not row[0]:
+            return jsonify({'success': False, 'week_key': None})
+        latest_date_str = row[0]
+        d = _date.fromisoformat(latest_date_str)
+        week_key = d.strftime('%Y-W%W')
+        start_str, end_str = _week_key_to_range(week_key)
+        return jsonify({'success': True, 'week_key': week_key,
+                        'period_start': start_str, 'period_end': end_str})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 

@@ -172,6 +172,7 @@ def _init_sqlite():
             pass
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tr_stock_daily_history_date ON tr_stock_daily_history(date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_date_owner ON tr_stock_daily_history(date, owner)")
 
     conn.commit()
     conn.close()
@@ -360,6 +361,7 @@ def _init_mysql():
         add_column_if_not_exists("tr_audit_recommendations", col_name, col_def)
 
     create_index_if_not_exists("idx_tr_stock_daily_history_date", "tr_stock_daily_history", "date")
+    create_index_if_not_exists("idx_history_date_owner", "tr_stock_daily_history", "date, owner")
 
     conn.commit()
     conn.close()
