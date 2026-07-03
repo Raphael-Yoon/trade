@@ -7,6 +7,7 @@ ENV/
 docs_cache/
 /results/*
 !/results/sector_recommendations.json
+!/results/pool_data.json
 *.xlsx
 .vscode/
 .idea/
