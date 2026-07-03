@@ -5367,6 +5367,10 @@
                 currentSectorCategories = poolData.sector_categories || {};
                 if (topSectors.length > 0 && (!currentRecType || topSectors.indexOf(currentRecType) === -1)) {
                     currentRecType = topSectors[0];
+                } else if (topSectors.length === 0) {
+                    // Pool이 아직 구성되지 않아 대표 섹터가 없는 경우, 추천 종목은 전부 '기타'로
+                    // 매핑되므로 기본 탭도 '기타'로 맞춰야 화면에 표시된다.
+                    currentRecType = '기타';
                 }
                 buildSectorTabs(topSectors);
                 
