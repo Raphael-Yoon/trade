@@ -2227,7 +2227,12 @@
             const fastPromise = fetch('/api/history/latest-week-key')
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.success || !data.week_key) return null;
+                    if (!data.success || !data.week_key) {
+                        if (currentHistoryView === 'week') {
+                            content.innerHTML = '<p style="text-align:center;padding:40px;color:var(--text-muted);">저장된 주간 데이터가 없습니다.</p>';
+                        }
+                        return null;
+                    }
                     return fetch(`/api/history/daily-chart?week=${data.week_key}`)
                         .then(r => r.json())
                         .then(chartData => {
