@@ -1136,6 +1136,13 @@
                         <button id="ctBtn_cumulative" onclick="setChartType('cumulative')"
                             style="padding:7px 14px;border-radius:7px;border:none;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;background:transparent;color:var(--text-muted);transition:all 0.2s;">누적 실적</button>
                     </div>
+                    <!-- 집계 단위 토글 (연도별 상세 전용) -->
+                    <div id="yearUnitToggle" style="display:none;margin-left:auto;align-items:center;gap:4px;background:rgba(255,255,255,0.05);border-radius:10px;padding:4px;">
+                        <button id="yuBtn_month" onclick="setYearUnit('month')"
+                            style="padding:7px 14px;border-radius:7px;border:none;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;background:rgba(99,102,241,0.8);color:white;transition:all 0.2s;">월별</button>
+                        <button id="yuBtn_week" onclick="setYearUnit('week')"
+                            style="padding:7px 14px;border-radius:7px;border:none;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;background:transparent;color:var(--text-muted);transition:all 0.2s;">주별</button>
+                    </div>
                 </div>
 
                 <!-- 일별 컨트롤 -->
@@ -2119,6 +2126,7 @@
         let currentHistoryView = 'daily';
         let reportCache = null; // { period, periods, by_owner }
         let currentChartType = 'daily'; // 'daily' | 'cumulative'
+        let currentYearUnit = 'month'; // 'month' | 'week' — 연도별 상세 뷰의 집계 단위
         let dailyChartCache = null;    // { month, data }
 
         function switchHistoryView(view) {
@@ -2132,8 +2140,8 @@
             const isDaily = view === 'daily';
             document.getElementById('historyDailyControls').style.display = isDaily ? 'flex' : 'none';
             document.getElementById('historyReportControls').style.display = isDaily ? 'none' : 'flex';
-            // 연도별은 연도 자체가 기간이므로 연도 필터 불필요
-            document.getElementById('reportYearSelect').parentElement.style.display = (isDaily || view === 'year') ? 'none' : 'flex';
+            // 연도별도 특정 연도를 선택해 월별/주별 상세 차트를 볼 수 있어야 하므로 연도 필터 표시
+            document.getElementById('reportYearSelect').parentElement.style.display = isDaily ? 'none' : 'flex';
             // 월별/주별일 때만 해당 셀렉터 표시
             const showMonth = (!isDaily && view === 'month');
             document.getElementById('reportMonthSelect').style.display = showMonth ? 'block' : 'none';
@@ -2143,12 +2151,14 @@
             document.getElementById('reportWeekLabel').style.display = showWeek ? 'inline' : 'none';
             document.getElementById('historyContent').style.display = isDaily ? 'block' : 'none';
             document.getElementById('reportContent').style.display = isDaily ? 'none' : 'block';
-            // 월별/주별 전용: 차트유형 토글 + 소유자 필터
+            // 월별/주별 전용: 차트유형 토글 + 소유자 필터 (연도별은 특정 연도 선택 시 renderHistoryReport에서 별도 표시)
             const isMonth = (view === 'month' || view === 'week');
             const toggle = document.getElementById('chartTypeToggle');
             const ownerLabel = document.getElementById('ownerFilterLabel');
             const ownerSel = document.getElementById('ownerFilterSelect');
             if (toggle) toggle.style.display = isMonth ? 'flex' : 'none';
+            const yearToggle = document.getElementById('yearUnitToggle');
+            if (yearToggle) yearToggle.style.display = 'none';
             if (ownerLabel) ownerLabel.style.display = isMonth ? 'inline' : 'none';
             if (ownerSel) ownerSel.style.display = isMonth ? 'block' : 'none';
             if (!isDaily) {
@@ -2170,6 +2180,17 @@
 
         function onOwnerFilterChange() {
             if (dailyChartCache) renderDailyChart(dailyChartCache.month, dailyChartCache.data);
+        }
+
+        function setYearUnit(unit) {
+            currentYearUnit = unit;
+            ['month', 'week'].forEach(u => {
+                const btn = document.getElementById('yuBtn_' + u);
+                if (!btn) return;
+                btn.style.background = u === unit ? 'rgba(99,102,241,0.8)' : 'transparent';
+                btn.style.color = u === unit ? 'white' : 'var(--text-muted)';
+            });
+            renderHistoryReport();
         }
 
         // [김정음] 기간별 리포트 로드 — 데이터 fetch 후 연도 셀렉터 구성 → 렌더링
@@ -2287,14 +2308,20 @@
             const pColor = n => n >= 0 ? '#10b981' : '#ef4444';
             const pStyle = n => `color:${pColor(n)};`;
             const ownerColors = ['#6366f1', '#10b981', '#f59e0b', '#a78bfa', '#f472b6'];
-            // 주별 뷰에서는 날짜 옆에 요일도 표기 (월별 뷰는 날짜만 표시)
+            // x축 라벨: d의 실제 형식(일자/주차/월)에 따라 알맞게 표기.
+            // 주별 상세 뷰(일자 단위 d)일 때는 날짜 옆에 요일도 병기.
             const isWeekView = month.includes('-W');
             const WEEKDAY_KR = ['일', '월', '화', '수', '목', '금', '토'];
             const axisLabel = d => {
-                const dateStr = d.slice(5).replace('-', '/');
-                if (!isWeekView) return dateStr;
-                const wd = WEEKDAY_KR[new Date(d + 'T00:00:00').getDay()];
-                return `${dateStr}(${wd})`;
+                if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+                    const dateStr = d.slice(5).replace('-', '/');
+                    if (!isWeekView) return dateStr;
+                    const wd = WEEKDAY_KR[new Date(d + 'T00:00:00').getDay()];
+                    return `${dateStr}(${wd})`;
+                }
+                if (/^\d{4}-W\d{2}$/.test(d)) return `${parseInt(d.split('-W')[1])}주차`;
+                if (/^\d{4}-\d{2}$/.test(d)) return `${parseInt(d.split('-')[1])}월`;
+                return d;
             };
             const content = document.getElementById('reportContent');
 
@@ -2665,6 +2692,53 @@
                         document.getElementById('reportContent').innerHTML = `<p style="text-align:center;padding:40px;color:#ef4444;">오류: ${err}</p>`;
                     });
                 return;
+            }
+
+            // 연도별 뷰: 특정 연도 선택 시 월별/주별 집계 차트로 표시 (일자 단위로 보면 365개 점이라 너무 촘촘함)
+            if (period === 'year' && yearFilter !== 'all') {
+                const toggle = document.getElementById('chartTypeToggle');
+                const yearToggle = document.getElementById('yearUnitToggle');
+                const ownerLabel = document.getElementById('ownerFilterLabel');
+                const ownerSel = document.getElementById('ownerFilterSelect');
+                if (toggle) toggle.style.display = 'flex';
+                if (yearToggle) yearToggle.style.display = 'flex';
+                if (ownerLabel) ownerLabel.style.display = 'inline';
+                if (ownerSel) ownerSel.style.display = 'block';
+
+                document.getElementById('reportContent').innerHTML = '<p style="text-align:center;padding:40px;color:var(--text-muted);">로딩 중...</p>';
+                fetch(`/api/history/report?period=${currentYearUnit}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (!data.success) throw new Error(data.message || '조회 실패');
+                        // period_start(실제 날짜) 대신 period_key로 필터링 — ISO 주차는 연말 날짜가
+                        // 다음 해 1주차에 속할 수 있어 period_start 기준으로 거르면 누락될 수 있음
+                        const yearPeriods = data.periods.filter(p => p.period_key.startsWith(yearFilter));
+                        const yearByOwner = data.by_owner.filter(o => o.period_key.startsWith(yearFilter));
+                        const chartData = {
+                            dates: yearPeriods.map(p => p.period_key).sort(),
+                            by_owner: yearByOwner.map(o => ({
+                                date: o.period_key, owner: o.owner,
+                                day_profit_sum: o.day_profit_sum,
+                                cum_profit: o.end_cumulative_profit,
+                                portfolio_value: o.end_portfolio_value
+                            }))
+                        };
+                        renderDailyChart(`${yearFilter}-yearview-${currentYearUnit}`, chartData);
+                    })
+                    .catch(err => {
+                        document.getElementById('reportContent').innerHTML = `<p style="text-align:center;padding:40px;color:#ef4444;">오류: ${err}</p>`;
+                    });
+                return;
+            }
+
+            // 연도별 '전체' 또는 월별/주별 '전체'일 때는 토글류 숨김
+            {
+                const toggle = document.getElementById('chartTypeToggle');
+                const yearToggle = document.getElementById('yearUnitToggle');
+                if (period === 'year') {
+                    if (toggle) toggle.style.display = 'none';
+                    if (yearToggle) yearToggle.style.display = 'none';
+                }
             }
 
             const periods = yearFilter === 'all' ? allPeriods : allPeriods.filter(p => p.period_start.startsWith(yearFilter));
