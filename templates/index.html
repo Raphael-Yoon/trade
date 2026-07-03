@@ -2287,6 +2287,15 @@
             const pColor = n => n >= 0 ? '#10b981' : '#ef4444';
             const pStyle = n => `color:${pColor(n)};`;
             const ownerColors = ['#6366f1', '#10b981', '#f59e0b', '#a78bfa', '#f472b6'];
+            // 주별 뷰에서는 날짜 옆에 요일도 표기 (월별 뷰는 날짜만 표시)
+            const isWeekView = month.includes('-W');
+            const WEEKDAY_KR = ['일', '월', '화', '수', '목', '금', '토'];
+            const axisLabel = d => {
+                const dateStr = d.slice(5).replace('-', '/');
+                if (!isWeekView) return dateStr;
+                const wd = WEEKDAY_KR[new Date(d + 'T00:00:00').getDay()];
+                return `${dateStr}(${wd})`;
+            };
             const content = document.getElementById('reportContent');
 
             if (!data.dates || !data.dates.length) {
@@ -2365,7 +2374,7 @@
                 
                 const x = xp(i);
                 const skip = n > 20 && i % Math.ceil(n/10) !== 0 && i !== n-1;
-                if (!skip) svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.slice(5).replace('-','/')}</text>`;
+                if (!skip) svg += `<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${axisLabel(d)}</text>`;
             });
             svg += `<line x1="${(pL+cW).toFixed(1)}" y1="${pT}" x2="${(pL+cW).toFixed(1)}" y2="${(pT+cH).toFixed(1)}" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>`;
 
@@ -2428,7 +2437,7 @@
                 const x = xp2(i);
                 const skip = n > 20 && i % Math.ceil(n/10) !== 0 && i !== n-1;
                 svg2 += `<line x1="${x.toFixed(1)}" y1="${pT}" x2="${x.toFixed(1)}" y2="${(pT+cH2).toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>`;
-                if (!skip) svg2 += `<text x="${x.toFixed(1)}" y="${H2-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.slice(5).replace('-','/')}</text>`;
+                if (!skip) svg2 += `<text x="${x.toFixed(1)}" y="${H2-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${axisLabel(d)}</text>`;
             });
             // 범례
             activeOwners.forEach((owner, oi) => {
@@ -2478,7 +2487,7 @@
                 const x = xp3(i);
                 const skip = n > 20 && i % Math.ceil(n / 10) !== 0 && i !== n - 1;
                 svg3 += `<line x1="${x.toFixed(1)}" y1="${pT}" x2="${x.toFixed(1)}" y2="${(pT+cH3).toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>`;
-                if (!skip) svg3 += `<text x="${x.toFixed(1)}" y="${H3-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${d.slice(5).replace('-','/')}</text>`;
+                if (!skip) svg3 += `<text x="${x.toFixed(1)}" y="${H3-8}" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${axisLabel(d)}</text>`;
             });
             if (n >= 2) {
                 const areaPath = `M${xp3(0).toFixed(1)},${yp3(assetTotals[0]).toFixed(1)} `
