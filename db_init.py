@@ -132,6 +132,7 @@ def _init_sqlite():
         ('market_cap', 'REAL'),
         ('is_sector_leader', 'INTEGER'),
         ('source_file', 'TEXT'),
+        ('sector_category', 'TEXT'),
     ]:
         try:
             cursor.execute(f"ALTER TABLE tr_stock_pool ADD COLUMN {col_name} {col_def}")
@@ -327,6 +328,7 @@ def _init_mysql():
         ('market_cap', 'DOUBLE'),
         ('is_sector_leader', 'BOOLEAN'),
         ('source_file', 'VARCHAR(255)'),
+        ('sector_category', 'VARCHAR(20)'),
     ]:
         add_column_if_not_exists("tr_stock_pool", col_name, col_def)
 

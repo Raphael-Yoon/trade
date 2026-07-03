@@ -6,8 +6,7 @@ venv/
 ENV/
 docs_cache/
 /results/*
-!/results/value_recommendations.json
-!/results/momentum_recommendations.json
+!/results/sector_recommendations.json
 *.xlsx
 .vscode/
 .idea/

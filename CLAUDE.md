@@ -10,14 +10,15 @@
 - **메인 시스템 종료 (Gunicorn 중지)**: `./coffee_house_stop.sh`
 - **데이터 수집 파이프라인**: `python data_collect.py`
 - **DART 공시 일괄 수집**: `python collect_disclosures.py --days 30` (최근 N일간 시장 전체 공시 수집)
-- **AI 종목 분석 실행**: `python ai_analysis.py`
 - **드라이브 백업 동기화**: `python drive_sync.py`
+
+> [!NOTE]
+> 시스템 내 AI API(Gemini) 직접 호출 기능은 제거되었습니다. AI 분석은 앱 내부가 아닌 별도 프롬프트를 통해서만 수행합니다.
 
 ## 2. 테스트 및 검증 (Tests)
 
 - **수집 데이터 유효성 검사**: `python data_collect.py --test`
 - **주문 로직 안정성 테스트 (권보성 담당)**: `pytest tests/trading/`
-- **AI 분석 리포트 생성 검증**: `python ai_analysis.py --report`
 
 ## 3. 프로젝트 파일 참조 (Reference)
 
@@ -25,7 +26,6 @@
 |------|------|
 | `trade.py` | 메인 트레이딩 애플리케이션 |
 | `collect_disclosures.py` | DART 일괄 공시 수집 모듈 (AI-Free) |
-| `ai_analysis.py` | AI 기반 종목 분석 모듈 |
 | `data_collect.py` | 시장 데이터 수집 파이프라인 |
 | `drive_sync.py` | Google Drive 백업 동기화 |
 | `results/` | 분석 결과 저장 폴더 |

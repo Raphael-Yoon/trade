@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 import subprocess
 import json
 import psutil
+
 import sqlite3
 import pymysql
 import pymysql.cursors
@@ -22,8 +23,8 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ai_analysis import analyze_stock_data, analyze_portfolio
 from get_all_naver_data import get_all_naver_data
+
 from db_init import init_db
 
 import time
@@ -1105,30 +1106,24 @@ def get_live_prices():
 
 @app.route('/api/targets/migrate', methods=['POST'])
 def migrate_targets():
-    """공유된 JSON 추천 데이터(value/momentum)를 읽어 활성 DB(MySQL 또는 로컬 SQLite)로 이관합니다."""
-    value_json_path = os.path.join(RESULTS_DIR, 'value_recommendations.json')
-    momentum_json_path = os.path.join(RESULTS_DIR, 'momentum_recommendations.json')
-    dividend_json_path = os.path.join(RESULTS_DIR, 'dividend_recommendations.json')
-    
+    """섹터별 추천 데이터(results/sector_recommendations.json)를 읽어 활성 DB(MySQL 또는 로컬 SQLite)로 이관합니다."""
+    sector_json_path = os.path.join(RESULTS_DIR, 'sector_recommendations.json')
+
     records = []
-    
-    # 1. JSON 파일 로드
-    for json_path, rec_type in [(value_json_path, 'value'), (momentum_json_path, 'momentum'), (dividend_json_path, 'dividend')]:
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    if isinstance(data, list):
-                        for item in data:
-                            # 개별 아이템에 rec_type 강제 보정
-                            item['rec_type'] = rec_type
-                            records.append(item)
-            except Exception as read_err:
-                return jsonify({
-                    'success': False,
-                    'message': f'{json_path} 읽기 실패: {str(read_err)}'
-                }), 500
-                
+
+    # 1. JSON 파일 로드 (audit_logic.md 지침에 따라 Claude 세션이 생성한 섹터별 추천 결과)
+    if os.path.exists(sector_json_path):
+        try:
+            with open(sector_json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    records = data
+        except Exception as read_err:
+            return jsonify({
+                'success': False,
+                'message': f'{sector_json_path} 읽기 실패: {str(read_err)}'
+            }), 500
+
     if not records:
         return jsonify({
             'success': False,
@@ -1194,26 +1189,26 @@ def migrate_targets():
                 r['code'], r['name'], float(r['current_price']) if r.get('current_price') is not None else 0.0,
                 float(r['target_price']) if r.get('target_price') is not None else 0.0,
                 float(r['upside']) if r.get('upside') is not None else 0.0,
-                str(r.get('dividend_yield', '')) if r.get('rec_type') == 'dividend' else r.get('opinion', ''),
+                r.get('opinion', ''),
                 r.get('data_date', ''), now_str,
                 float(r['score']) if r.get('score') is not None else 0.0,
                 float(r['roe']) if r.get('roe') is not None else 0.0,
                 float(r['debt']) if r.get('debt') is not None else 0.0, r.get('reason', ''),
                 r.get('news_summary') if isinstance(r.get('news_summary'), str) else json.dumps(r.get('news_summary', []), ensure_ascii=False),
-                r.get('rec_type', 'momentum'), r.get('one_liner', ''),
+                'sector', r.get('one_liner', ''),
                 r.get('disc_json') if isinstance(r.get('disc_json'), str) else json.dumps(r.get('disc_json', []), ensure_ascii=False),
                 _get_sector(r)
             )
             for r in records
         ]
-        
+
         cursor.executemany(insert_sql, insert_data)
         conn.commit()
         conn.close()
-        
+
         return jsonify({
             'success': True,
-            'message': f'공유 JSON 파일 기반 추천 종목 {len(records)}건이 {db_label}로 성공적으로 이관되었습니다.'
+            'message': f'섹터별 추천 종목 {len(records)}건이 {db_label}로 성공적으로 이관되었습니다.'
         })
         
     except Exception as e:
@@ -1224,20 +1219,42 @@ def migrate_targets():
 
 @app.route('/api/pool')
 def get_stock_pool():
-    """투자적격 종목 풀 조회 (tr_audit_recommendations Top 10 우선, 그 외 pool_score 순)"""
+    """투자적격 종목 풀 조회 (8대 주요 섹터 + 기타 그룹화 반환)"""
     try:
         conn = _new_db_conn()
         cursor = conn.cursor()
         
-        # 1. tr_audit_recommendations 테이블에서 추천 종목 조회
+        # 1. 최신 source_file 조회
+        source_file = request.args.get('source_file')
+        if not source_file:
+            cursor.execute("""
+                SELECT source_file FROM tr_stock_pool
+                ORDER BY data_date DESC, updated_at DESC LIMIT 1
+            """)
+            latest_row = cursor.fetchone()
+            source_file = latest_row['source_file'] if latest_row else None
+            
+        # 2. 8대 주요 섹터 식별 (is_sector_leader = 1인 고유 섹터들)
+        # sector_category: 'scale'(영업이익 규모 대표) / 'growth'(성장 대표) — 화면 탭 구분용
+        top_sectors = []
+        sector_categories = {}
+        if source_file:
+            cursor.execute("""
+                SELECT DISTINCT sector, sector_category FROM tr_stock_pool
+                WHERE source_file = ? AND is_sector_leader = 1
+            """, (source_file,))
+            for row in cursor.fetchall():
+                top_sectors.append(row['sector'])
+                sector_categories[row['sector']] = row['sector_category'] or 'scale'
+            
+        # 3. tr_audit_recommendations 테이블에서 추천 종목 조회
         cursor.execute("""
             SELECT code, name, sector, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, opinion
             FROM tr_audit_recommendations
         """)
         rec_rows = [dict(r) for r in cursor.fetchall()]
         
-        # 2. tr_stock_pool 조회 (source_file 파라미터 지원, 없으면 최신 소스 파일 기준)
-        source_file = request.args.get('source_file')
+        # 4. tr_stock_pool 조회
         if source_file:
             cursor.execute("""
                 SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, data_date, source_file
@@ -1245,54 +1262,33 @@ def get_stock_pool():
                 WHERE source_file = ?
             """, (source_file,))
         else:
-            # 가장 최근의 source_file 조회
             cursor.execute("""
-                SELECT source_file FROM tr_stock_pool
-                ORDER BY data_date DESC, updated_at DESC LIMIT 1
+                SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, data_date, source_file
+                FROM tr_stock_pool
             """)
-            latest_row = cursor.fetchone()
-            if latest_row and latest_row['source_file']:
-                cursor.execute("""
-                    SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, data_date, source_file
-                    FROM tr_stock_pool
-                    WHERE source_file = ?
-                """, (latest_row['source_file'],))
-            else:
-                cursor.execute("""
-                    SELECT code, name, sector, roe, pbr, per, debt_ratio, operating_margin, target_price, pool_score, data_date, source_file
-                    FROM tr_stock_pool
-                """)
         pool_rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
         
         pool_dict = {r['code']: r for r in pool_rows}
-        
         results = []
         rec_codes = set()
         
-        # 추천 종목 우선 매핑
+        # 추천 종목 매핑
         for rec in rec_rows:
             code = rec.get('code')
             if not code:
                 continue
             rec_codes.add(code)
-            
             pool_info = pool_dict.get(code, {})
             
-            rec_type = rec.get('rec_type', 'momentum')
-            if rec_type == 'value':
-                is_rec_val = 1
-            elif rec_type == 'momentum':
-                is_rec_val = 2
-            elif rec_type == 'dividend':
-                is_rec_val = 3
-            else:
-                is_rec_val = 0
+            sector_val = rec.get('sector') or pool_info.get('sector') or '기타'
+            mapped_sector = sector_val if sector_val in top_sectors else '기타'
             
             results.append({
                 "code": code,
                 "name": rec.get('name') or pool_info.get('name', ''),
-                "sector": rec.get('sector') or pool_info.get('sector') or '기타',
+                "sector": sector_val,
+                "mapped_sector": mapped_sector,
                 "roe": rec.get('roe') or pool_info.get('roe', 0.0),
                 "pbr": pool_info.get('pbr'),
                 "per": pool_info.get('per'),
@@ -1306,20 +1302,23 @@ def get_stock_pool():
                 "disc_json": rec.get('disc_json', '[]'),
                 "upside": rec.get('upside', 0.0),
                 "current_price": rec.get('current_price', 0.0),
-                "is_rec": is_rec_val,
-                "rec_type": rec_type,
+                "is_rec": 1,  # 추천 종목 표시
+                "rec_type": 'sector',
                 "one_liner": rec.get('one_liner', ''),
                 "opinion": rec.get('opinion', '')
             })
             
-        # 추천 종목이 아닌 나머지 종목 추가
+        # 추천이 아닌 일반 풀 종목 추가
         other_stocks = []
         for r in pool_rows:
             if r['code'] not in rec_codes:
+                sector_val = r['sector'] or '기타'
+                mapped_sector = sector_val if sector_val in top_sectors else '기타'
                 other_stocks.append({
                     "code": r['code'],
                     "name": r['name'],
-                    "sector": r['sector'],
+                    "sector": sector_val,
+                    "mapped_sector": mapped_sector,
                     "roe": r['roe'],
                     "pbr": r['pbr'],
                     "per": r['per'],
@@ -1336,21 +1335,22 @@ def get_stock_pool():
                     "rec_type": None
                 })
                 
-        # 나머지 종목 정렬 (pool_score DESC)
+        # 일반 종목 스코어 순 정렬
         other_stocks.sort(key=lambda x: x['pool_score'] or 0.0, reverse=True)
-        
-        # 추천 종목 정렬 (priority_score DESC)
+        # 추천 종목 우선순위 순 정렬
         results.sort(key=lambda x: x['priority_score'] or 0.0, reverse=True)
         
-        # 합산
         combined = results + other_stocks
-        
-        ranked_by = "ai" if rec_rows else "score"
-        return jsonify({"ranked_by": ranked_by, "stocks": combined})
+        return jsonify({
+            "ranked_by": "sector",
+            "top_sectors": top_sectors,
+            "sector_categories": sector_categories,
+            "stocks": combined
+        })
         
     except Exception as e:
         print(f"pool 조회 오류: {e}")
-        return jsonify({"ranked_by": "score", "stocks": []})
+        return jsonify({"ranked_by": "score", "top_sectors": [], "stocks": []})
 
 
 def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', year=None, report_types=None):
@@ -2671,43 +2671,15 @@ def ai_analyze(filename):
         # 파일명에서 확장자 제거 (AI 리포트 검색용)
         base_name = os.path.splitext(filename)[0]
 
-        # 1. 구글 드라이브에서 기존 AI 리포트 확인 (혹시 직접 호출된 경우 대비)
+        # 1. 구글 드라이브에서 기존 AI 리포트 확인 (신규 생성 없이 과거 캐시만 조회)
         existing_report = find_ai_report(base_name)
         if existing_report:
             cached_content = get_doc_content(existing_report['id'])
             if cached_content and len(cached_content.strip()) > 100:
                 return jsonify({'success': True, 'result': cached_content, 'cached': True})
 
-        # 2. 원본 데이터 파일 확인 (Drive-Native: gspread 직접 읽기 후 로컬 저장)
-        file_path = os.path.join(RESULTS_DIR, filename)
-        if not os.path.exists(file_path):
-            drive_files = list_files_in_folder()
-            target_name = filename.replace('.xlsx', '')
-            spreadsheet_id = None
-            for df in drive_files:
-                if df['name'] == target_name or df['name'] == filename:
-                    spreadsheet_id = df['id']
-                    break
-            if spreadsheet_id:
-                df_data = read_sheet_as_df(spreadsheet_id)
-                df_data.to_excel(file_path, index=False)
-            else:
-                return jsonify({'success': False, 'message': '드라이브에서 파일을 찾을 수 없습니다.'}), 404
-
-        # 3. AI 분석 수행
-        try:
-            result_text = analyze_stock_data(file_path)
-        finally:
-            # Drive-Native: 분석용 임시 파일 즉시 삭제
-            if os.path.exists(file_path):
-                os.remove(file_path)
-
-        # 4. 결과를 구글 문서로 저장 (유효한 경우만)
-        if "오류" not in result_text and "제한" not in result_text:
-            report_title = f"AI 분석 리포트 - {base_name}"
-            create_google_doc(report_title, result_text)
-
-        return jsonify({'success': True, 'result': result_text, 'cached': False})
+        # AI API 직접 호출 기능은 앱에서 제거되었습니다. 신규 분석은 별도 프롬프트를 통해 진행합니다.
+        return jsonify({'success': False, 'message': 'AI 분석 기능은 더 이상 앱 내에서 제공되지 않습니다. 기존 캐시된 리포트가 없습니다.'}), 404
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -2743,22 +2715,8 @@ def ai_analyze_portfolio():
             if row and row['ai_result']:
                 return jsonify({'success': True, 'result': row['ai_result'], 'cached': True})
             
-        # 4. AI 분석 수행
-        result_text = analyze_portfolio(portfolio_data)
-        
-        # 5. 결과 저장 (유효한 경우만)
-        if "오류" not in result_text and "제한" not in result_text:
-            _cache_sql = (
-                "INSERT INTO tr_portfolio_ai_cache (cache_key, ai_result, created_at) VALUES (?, ?, ?) "
-                "ON CONFLICT (cache_key) DO UPDATE SET ai_result=EXCLUDED.ai_result, created_at=EXCLUDED.created_at"
-                if _IS_POSTGRES else
-                "INSERT INTO tr_portfolio_ai_cache (cache_key, ai_result, created_at) VALUES (?, ?, ?) "
-                "ON DUPLICATE KEY UPDATE ai_result=VALUES(ai_result), created_at=VALUES(created_at)"
-            )
-            cursor.execute(_cache_sql, (cache_key, result_text, datetime.now().isoformat()))
-            db.commit()
-            
-        return jsonify({'success': True, 'result': result_text, 'cached': False})
+        # AI API 직접 호출 기능은 앱에서 제거되었습니다. 신규 분석은 별도 프롬프트를 통해 진행합니다.
+        return jsonify({'success': False, 'message': 'AI 분석 기능은 더 이상 앱 내에서 제공되지 않습니다. 기존 캐시된 리포트가 없습니다.'}), 404
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
