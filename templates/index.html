@@ -2292,6 +2292,38 @@
                 .catch(err => console.warn('[주별 리포트 백그라운드 로드 오류]', err));
         }
 
+        // "적당히 깔끔한" 숫자로 반올림 (1/2/5 × 10^n 계열) — Heckbert의 nice-number 축 알고리즘
+        function niceNum(range, round) {
+            if (range <= 0) return 1;
+            const exponent = Math.floor(Math.log10(range));
+            const fraction = range / Math.pow(10, exponent);
+            let niceFraction;
+            if (round) {
+                if (fraction < 1.5) niceFraction = 1;
+                else if (fraction < 3) niceFraction = 2;
+                else if (fraction < 7) niceFraction = 5;
+                else niceFraction = 10;
+            } else {
+                if (fraction <= 1) niceFraction = 1;
+                else if (fraction <= 2) niceFraction = 2;
+                else if (fraction <= 5) niceFraction = 5;
+                else niceFraction = 10;
+            }
+            return niceFraction * Math.pow(10, exponent);
+        }
+
+        // min~max 범위를 깔끔한 눈금으로 재계산 (개수는 targetCount 기준 유동적)
+        function niceTicks(min, max, targetCount = 5) {
+            if (min === max) { min -= 1; max += 1; }
+            const range = niceNum(max - min, false);
+            const step = niceNum(range / (targetCount - 1), true);
+            const niceMin = Math.floor(min / step) * step;
+            const niceMax = Math.ceil(max / step) * step;
+            const ticks = [];
+            for (let v = niceMin; v <= niceMax + step * 0.5; v += step) ticks.push(Math.round(v));
+            return { niceMin, niceMax, step, ticks };
+        }
+
         // [유병욱] 특정 월 선택 시 일별 차트 렌더링 (차트유형·소유자 필터 지원)
         function renderDailyChart(month, data) {
             // 데이터 캐시
@@ -2367,21 +2399,21 @@
 
             // ── 일별 실적 막대 차트 ──────────────────────────────────
             const vals = filteredRows.map(r => Math.abs(r.day_profit_sum));
-            const maxV = Math.max(...vals, 1);
-            
+            const rawMaxV = Math.max(...vals, 1);
+            const { niceMax: maxV, ticks: vTicks } = niceTicks(-rawMaxV, rawMaxV);
+
             const xp = i => pL + (i + 0.5) * (cW / n);
             const stepW = cW / n;
             const zY = pT + cH / 2;
             const yp = v => zY - (v / maxV) * (cH / 2);
 
             let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">`;
-            for (let i = -2; i <= 2; i++) {
-                const v = (maxV / 2) * i;
+            vTicks.forEach(v => {
                 const y = yp(v);
-                const isZero = i === 0;
+                const isZero = v === 0;
                 svg += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${isZero?'0.2':'0.06'})" stroke-width="${isZero?'1.5':'1'}"/>`;
                 svg += `<text x="${pL-6}" y="${(y+4).toFixed(1)}" text-anchor="end" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${fmt(v)}</text>`;
-            }
+            });
 
             // 범례 (소유자 필터가 'all'일 때만 표시)
             if (selectedOwner === 'all') {
@@ -2442,7 +2474,8 @@
                     cumVals.push(ownerCumulativeData[owner][d]);
                 });
             });
-            const minC = Math.min(...cumVals, 0), maxC = Math.max(...cumVals, 0);
+            const rawMinC = Math.min(...cumVals, 0), rawMaxC = Math.max(...cumVals, 0);
+            const { niceMin: minC, niceMax: maxC, ticks: cTicks } = niceTicks(rawMinC, rawMaxC);
             const cRange = maxC - minC || 1;
             const H2 = 220, cH2 = H2 - pT - pB;
             const xp2 = i => pL + (n <= 1 ? cW / 2 : (i / (n-1)) * cW);
@@ -2450,13 +2483,12 @@
             const zY2 = yp2(0);
 
             let svg2 = `<svg viewBox="0 0 ${W} ${H2}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">`;
-            for (let i = 0; i <= 4; i++) {
-                const v = minC + (cRange / 4) * i;
+            cTicks.forEach(v => {
                 const y = yp2(v);
-                const isZero = Math.abs(v) < cRange * 0.01;
+                const isZero = v === 0;
                 svg2 += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${isZero?'0.18':'0.06'})" stroke-width="${isZero?'1.5':'1'}"/>`;
                 svg2 += `<text x="${pL-6}" y="${(y+4).toFixed(1)}" text-anchor="end" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${fmt(v)}</text>`;
-            }
+            });
             if (minC < 0 && maxC > 0)
                 svg2 += `<line x1="${pL}" y1="${zY2.toFixed(1)}" x2="${W-pR}" y2="${zY2.toFixed(1)}" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="5,3"/>`;
             dates.forEach((d, i) => {
@@ -2497,18 +2529,18 @@
                 const rows = filteredRows.filter(r => r.date === d);
                 return rows.reduce((s, r) => s + (r.portfolio_value || 0), 0);
             });
-            const maxA = Math.max(...assetTotals, 1);
+            const rawMaxA = Math.max(...assetTotals, 1);
+            const { niceMax: maxA, ticks: aTicks } = niceTicks(0, rawMaxA);
             const H3 = 180, cH3 = H3 - pT - pB;
             const xp3 = i => pL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW);
             const yp3 = v => pT + cH3 - (v / maxA * cH3);
 
             let svg3 = `<svg viewBox="0 0 ${W} ${H3}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">`;
-            for (let i = 0; i <= 4; i++) {
-                const v = (maxA / 4) * i;
+            aTicks.forEach(v => {
                 const y = yp3(v);
-                svg3 += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${i===0?'0.12':'0.05'})" stroke-width="${i===0?'1.5':'1'}"/>`;
+                svg3 += `<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,${v===0?'0.12':'0.05'})" stroke-width="${v===0?'1.5':'1'}"/>`;
                 svg3 += `<text x="${pL-6}" y="${(y+4).toFixed(1)}" text-anchor="end" fill="rgba(255,255,255,0.35)" font-size="10" font-family="Outfit,sans-serif">${fmt(v)}</text>`;
-            }
+            });
             dates.forEach((d, i) => {
                 const x = xp3(i);
                 const skip = n > 20 && i % Math.ceil(n / 10) !== 0 && i !== n - 1;
