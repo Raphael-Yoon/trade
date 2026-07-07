@@ -1211,22 +1211,79 @@ def migrate_targets():
             'message': f'데이터 이관 중 오류 발생: {str(e)}'
         }), 500
 
-@app.route('/api/pool/sources')
-def get_pool_sources():
-    """Pool이 구성된 source_file 목록 반환 (최신순)"""
+@app.route('/api/pool/migrate', methods=['POST'])
+def migrate_pool():
+    """로컬에서 구성한 Pool 데이터(results/pool_data.json)를 활성 DB로 이관합니다.
+    Pool 구성(cowork/pool_collect.py) 자체는 스크래핑을 동반해 check_is_local()로 제한되지만,
+    이미 구성된 결과를 DB에 적재하는 이 작업은 서버 환경에서도 실행 가능해야 하므로 제한을 두지 않는다."""
+    pool_json_path = os.path.join(RESULTS_DIR, 'pool_data.json')
+
+    records = []
+    if os.path.exists(pool_json_path):
+        try:
+            with open(pool_json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    records = data
+        except Exception as read_err:
+            return jsonify({
+                'success': False,
+                'message': f'{pool_json_path} 읽기 실패: {str(read_err)}'
+            }), 500
+
+    if not records:
+        return jsonify({
+            'success': False,
+            'message': '이관할 Pool 데이터가 존재하지 않거나 비어 있습니다.'
+        }), 400
+
     try:
+        is_mysql = DATABASE_URL is not None and DATABASE_URL.startswith('mysql')
         conn = _new_db_conn()
+        db_label = "운영 MySQL DB" if is_mysql else "로컬 SQLite DB"
+
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT DISTINCT source_file, data_date
-            FROM tr_stock_pool
-            ORDER BY data_date DESC, updated_at DESC
-        """)
-        rows = [{'source_file': r['source_file'], 'data_date': r['data_date']} for r in cursor.fetchall()]
+
+        source_files = {r.get('source_file') for r in records if r.get('source_file')}
+        for sf in source_files:
+            cursor.execute("DELETE FROM tr_stock_pool WHERE source_file = ?", (sf,))
+
+        insert_sql = """
+            INSERT INTO tr_stock_pool (
+                code, name, sector, roe, pbr, per, debt_ratio, operating_margin,
+                target_price, pool_score, data_date, updated_at, market_cap,
+                is_sector_leader, source_file, sector_category
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        insert_data = [
+            (
+                r['code'], r['name'], r.get('sector', '기타'),
+                float(r.get('roe') or 0.0), float(r.get('pbr') or 0.0), float(r.get('per') or 0.0),
+                float(r.get('debt_ratio') or 0.0), float(r.get('operating_margin') or 0.0),
+                float(r.get('target_price') or 0.0), float(r.get('pool_score') or 0.0),
+                r.get('data_date', ''), now_str,
+                float(r.get('market_cap') or 0.0), int(r.get('is_sector_leader') or 0),
+                r.get('source_file', ''), r.get('sector_category', 'other')
+            )
+            for r in records
+        ]
+
+        cursor.executemany(insert_sql, insert_data)
+        conn.commit()
         conn.close()
-        return jsonify(rows)
+
+        return jsonify({
+            'success': True,
+            'message': f'Pool 종목 {len(records)}건이 {db_label}로 성공적으로 이관되었습니다.'
+        })
+
     except Exception as e:
-        return jsonify([])
+        return jsonify({
+            'success': False,
+            'message': f'Pool 데이터 이관 중 오류 발생: {str(e)}'
+        }), 500
 
 @app.route('/api/pool')
 def get_stock_pool():

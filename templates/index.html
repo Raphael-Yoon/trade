@@ -224,7 +224,8 @@
                 padding: 8px 14px !important;
             }
             #openMonitorModalBtn,
-            #migrateDevDataBtn {
+            #migrateDevDataBtn,
+            #migratePoolDataBtn {
                 display: none !important;
             }
             .result-card .card-body {
@@ -1300,12 +1301,11 @@
                             style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(99,102,241,0.5); background: rgba(99,102,241,0.15); color: #a5b4fc; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 6px; font-family: 'Inter', 'Outfit', sans-serif; transition: all 0.2s;">
                             🔄 추천 데이터 동기화
                         </button>
-                        <select id="poolSourceSelector"
-                            onchange="loadPoolData(this.value)"
-                            style="margin-left: auto; padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: #cbd5e1; font-size: 13px; font-weight: 600; font-family: 'Inter', 'Outfit', sans-serif; cursor: pointer; outline: none; max-width: 280px;">
-                            <option value="">Pool 불러오는 중...</option>
-                        </select>
-                        <span id="poolRankedBy" style="align-self: center; font-size: 12px; color: #64748b;"></span>
+                        <button id="migratePoolDataBtn" onclick="migratePoolData()"
+                            style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(251,191,36,0.5); background: rgba(251,191,36,0.15); color: #fbbf24; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 6px; font-family: 'Inter', 'Outfit', sans-serif; transition: all 0.2s;">
+                            📦 Pool 데이터 동기화
+                        </button>
+                        <span id="poolRankedBy" style="margin-left: auto; align-self: center; font-size: 12px; color: #64748b;"></span>
                     </div>
                 </div>
             </div>
@@ -4747,6 +4747,39 @@
             });
         }
 
+        function migratePoolData() {
+            const btn = document.getElementById('migratePoolDataBtn');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.style.opacity = '0.7';
+            btn.innerHTML = '📦 동기화 중...';
+
+            fetch('/api/pool/migrate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.innerHTML = originalHtml;
+                if (data.success) {
+                    showToast(data.message);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    showToast('동기화 실패: ' + (data.message || data.error || '알 수 없는 오류가 발생했습니다.'), 'error');
+                }
+            })
+            .catch(err => {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.innerHTML = originalHtml;
+                showToast('네트워크 오류가 발생했습니다.', 'error');
+            });
+        }
+
         function openMonitorModal() {
             const modal = document.getElementById('monitorModal');
             if (modal) {
@@ -5175,25 +5208,7 @@
             `;
         }
 
-        function loadAuditDates() { loadPoolSources(); }
-
-        function loadPoolSources() {
-            fetch('/api/pool/sources')
-                .then(res => res.json())
-                .then(sources => {
-                    const sel = document.getElementById('poolSourceSelector');
-                    if (!sel) return;
-                    if (!sources || sources.length === 0) {
-                        sel.innerHTML = '<option value="">구성된 Pool 없음</option>';
-                        return;
-                    }
-                    sel.innerHTML = sources.map(s =>
-                        `<option value="${s.source_file}">${s.source_file} (${s.data_date || '-'})</option>`
-                    ).join('');
-                    loadPoolData(sources[0].source_file);
-                })
-                .catch(() => loadPoolData());
-        }
+        function loadAuditDates() { loadPoolData(); }
 
         let currentPoolTab = 'top10';
         let currentRecType = '반도체와반도체장비';
@@ -5272,12 +5287,9 @@
             }
         }
 
-        function loadPoolData(sourceFile) {
-            const poolUrl = sourceFile
-                ? `/api/pool?source_file=${encodeURIComponent(sourceFile)}`
-                : '/api/pool';
+        function loadPoolData() {
             Promise.all([
-                fetch(poolUrl).then(res => res.json()),
+                fetch('/api/pool').then(res => res.json()),
                 fetch('/api/watchlist').then(res => res.json())
             ])
             .then(([poolData, watchlistData]) => {
