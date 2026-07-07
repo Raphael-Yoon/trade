@@ -28,7 +28,7 @@ from get_all_naver_data import get_all_naver_data
 from db_init import init_db
 
 import time
-from datetime import date as _date, timedelta as _timedelta
+from datetime import date as _date
 
 app = Flask(__name__)
 
@@ -37,18 +37,12 @@ _report_cache: dict = {}
 _REPORT_CACHE_TTL = 300  # 5분
 
 def _week_key_to_range(week_key: str):
-    """'YYYY-WXX' → (start_date, end_date) 문자열 — strftime('%W') 기준 (월요일 시작)"""
+    """'YYYY-WXX' → (start_date, end_date) 문자열 — ISO-8601 주차 기준 (월요일 시작).
+    MySQL DATE_FORMAT(..., '%x-W%v')와 동일한 ISO 주차 체계를 따라야 한다."""
     year_str, w_str = week_key.split('-W')
-    year, week_num = int(year_str), int(w_str)
-    jan1 = _date(year, 1, 1)
-    days_to_monday = (7 - jan1.weekday()) % 7
-    if week_num == 0:
-        start = jan1
-        end = jan1 + _timedelta(days=days_to_monday - 1) if days_to_monday > 0 else jan1
-    else:
-        first_monday = jan1 + _timedelta(days=days_to_monday)
-        start = first_monday + _timedelta(weeks=week_num - 1)
-        end = start + _timedelta(days=6)
+    iso_year, week_num = int(year_str), int(w_str)
+    start = _date.fromisocalendar(iso_year, week_num, 1)
+    end = _date.fromisocalendar(iso_year, week_num, 7)
     return str(start), str(end)
 
 # Flask 앱의 모든 응답에 ngrok 경고창 패스 헤더를 강제로 심어주는 코드
@@ -3294,10 +3288,12 @@ def get_history_report():
     if period == 'month':
         period_expr = "LEFT(date, 7)" if is_mysql else "substr(date, 1, 7)"
     elif period == 'week':
+        # ISO-8601 주차 기준 (_week_key_to_range와 반드시 일치해야 함)
         period_expr = (
-            "DATE_FORMAT(date, '%Y-W%u')"
+            "DATE_FORMAT(date, '%x-W%v')"
             if is_mysql else
-            "strftime('%Y-W%W', date)"
+            "(strftime('%Y', date, '-' || ((CAST(strftime('%w', date) AS INTEGER) + 6) % 7) || ' days', '+3 days') "
+            "|| '-W' || printf('%02d', ((CAST(strftime('%j', date, '-' || ((CAST(strftime('%w', date) AS INTEGER) + 6) % 7) || ' days', '+3 days') AS INTEGER) - 1) / 7) + 1))"
         )
     else:
         period_expr = "LEFT(date, 4)" if is_mysql else "substr(date, 1, 4)"
@@ -3389,7 +3385,8 @@ def get_latest_week_key():
             return jsonify({'success': False, 'week_key': None})
         latest_date_str = row[0]
         d = _date.fromisoformat(latest_date_str)
-        week_key = d.strftime('%Y-W%W')
+        iso_year, iso_week, _ = d.isocalendar()
+        week_key = f'{iso_year}-W{iso_week:02d}'
         start_str, end_str = _week_key_to_range(week_key)
         return jsonify({'success': True, 'week_key': week_key,
                         'period_start': start_str, 'period_end': end_str})
