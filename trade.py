@@ -511,8 +511,8 @@ def load_financial_health(force=False):
     # 2. 로컬 데이터 폴백 (가장 최신 파일 탐색)
     try:
         # [김선화] Linux/Windows 호환 경로 설정
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        report_dir = os.path.join(base_dir, 'cowork', 'Report')
+        base_dir = os.path.dirname(__file__)
+        report_dir = os.path.join(base_dir, 'Report')
         
         if os.path.exists(report_dir):
             local_files = [os.path.join(report_dir, f) for f in os.listdir(report_dir) if f.endswith('.xlsx')]
@@ -1216,7 +1216,7 @@ def migrate_targets():
 @app.route('/api/pool/migrate', methods=['POST'])
 def migrate_pool():
     """로컬에서 구성한 Pool 데이터(results/pool_data.json)를 활성 DB로 이관합니다.
-    Pool 구성(cowork/pool_collect.py) 자체는 스크래핑을 동반해 check_is_local()로 제한되지만,
+    Pool 구성(pool_collect.py) 자체는 스크래핑을 동반해 check_is_local()로 제한되지만,
     이미 구성된 결과를 DB에 적재하는 이 작업은 서버 환경에서도 실행 가능해야 하므로 제한을 두지 않는다."""
     pool_json_path = os.path.join(RESULTS_DIR, 'pool_data.json')
 
@@ -2728,7 +2728,7 @@ def collect_pool_from_result():
     if not spreadsheet_id and not filename:
         return jsonify({'success': False, 'message': 'Spreadsheet ID 또는 파일명이 누락되었습니다.'}), 400
 
-    script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cowork', 'pool_collect.py')
+    script_path = os.path.join(os.path.dirname(__file__), 'pool_collect.py')
     python_cmd = sys.executable
     if 'uwsgi' in python_cmd.lower():
         python_cmd = 'python'
@@ -2748,7 +2748,7 @@ def collect_pool_from_result():
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding='utf-8',
-                cwd=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cowork')
+                cwd=os.path.dirname(__file__)
             )
             if process.returncode == 0:
                 return jsonify({
@@ -2795,7 +2795,7 @@ def collect_pool_from_result():
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
-            cwd=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cowork')
+            cwd=os.path.dirname(__file__)
         )
 
         if downloaded_temp and os.path.exists(file_path):

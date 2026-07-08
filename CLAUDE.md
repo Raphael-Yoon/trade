@@ -11,6 +11,10 @@
 - **데이터 수집 파이프라인**: `python data_collect.py`
 - **DART 공시 일괄 수집**: `python collect_disclosures.py --days 30` (최근 N일간 시장 전체 공시 수집)
 - **드라이브 백업 동기화**: `python drive_sync.py`
+- **추천종목 선정 파이프라인** (STEP 1~4, 개발2팀 김희선·김도희 담당. 상세 절차는 [추천종목_선정_작업지침서.md](추천종목_선정_작업지침서.md) 참조):
+  - `python pool_collect.py --source_file <파일명>` — Pool 구성
+  - `python select_top_10.py` — 뉴스·공시 수집 → `pool_context.json`
+  - `python audit_save.py sector_rankings.json --type sector` — DB 적재 + `results/sector_recommendations.json` 생성
 
 > [!NOTE]
 > 시스템 내 AI API(Gemini) 직접 호출 기능은 제거되었습니다. AI 분석은 앱 내부가 아닌 별도 프롬프트를 통해서만 수행합니다.
@@ -28,6 +32,12 @@
 | `collect_disclosures.py` | DART 일괄 공시 수집 모듈 (AI-Free) |
 | `data_collect.py` | 시장 데이터 수집 파이프라인 |
 | `drive_sync.py` | Google Drive 백업 동기화 |
+| `pool_collect.py` | 추천종목 파이프라인 STEP 1 — Pool 구성 (구 `cowork/pool_collect.py`, 개발2팀 이관) |
+| `select_top_10.py` | 추천종목 파이프라인 STEP 2 — 뉴스·공시 수집 (구 `cowork/select_top_10.py`, 개발2팀 이관) |
+| `audit_save.py` | 추천종목 파이프라인 STEP 4 — DB 적재 (구 `cowork/audit_save.py`, 개발2팀 이관) |
+| `pool_save.py` | Pool 수동 저장 유틸리티 (구 `cowork/pool_save.py`, 개발2팀 이관) |
+| `pool_naver_data.py` | 추천종목 파이프라인 전용 네이버 크롤러 (구 `cowork/get_all_naver_data.py`). `get_all_naver_data.py`(trade.py용)와는 별개 모듈 |
+| `Report/` | 추천종목 선정 로직 정의서 및 실행 절차 문서 (구 `cowork/Report/`, 개발2팀 이관) |
 | `results/` | 분석 결과 저장 폴더 |
 | `docs_cache/` | 수집된 공시 데이터 캐시 |
 
