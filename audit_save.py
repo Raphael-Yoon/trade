@@ -75,12 +75,12 @@ def _execute_save(conn, db_type, records, data_date, rec_type, now_str):
         
         cursor.execute(f"""
             INSERT INTO tr_audit_recommendations
-                (code, name, current_price, target_price, buy_target_price, upside, opinion, data_date, created_at,
+                (code, name, current_price, target_price, upside, opinion, data_date, created_at,
                  score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, sector)
-            VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+            VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
         """, (
             r['code'], r['name'], float(r['current_price']), float(r['target_price']),
-            float(r.get('buy_target_price', 0) or 0), float(r['upside']), opinion_val, item_data_date, now_str, float(r['score']),
+            float(r['upside']), opinion_val, item_data_date, now_str, float(r['score']),
             float(r.get('roe', 0)), float(r.get('debt', 0)), r.get('reason', ''),
             r.get('news_summary', '[]'), item_rec_type, r.get('one_liner', ''),
             r.get('disc_json', '[]'), sector_val

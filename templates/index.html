@@ -1059,12 +1059,6 @@
                 </div>
 
                 <div id="watchlistSection" class="sub-tab-content">
-                    <div style="display: flex; justify-content: flex-end; margin-bottom: 16px;">
-                        <button id="estimateTargetPricesBtn" onclick="estimateWatchlistTargetPrices()"
-                            style="padding: 10px 20px; border-radius: 12px; border: 1px solid rgba(16,185,129,0.4); background: rgba(16,185,129,0.15); color: #10b981; font-weight: 800; cursor: pointer; font-size: 13px;">
-                            🧮 매수목표가 일괄 산정
-                        </button>
-                    </div>
                     <div id="watchlistList" class="my-stocks-list realtime-stock-grid"
                         style="gap: 16px; margin-bottom: 40px; min-height: 100px; padding: 32px; background: rgba(255,255,255,0.02); border-radius: 24px; border: 1px dashed rgba(255,255,255,0.1);">
                         <p
@@ -1311,14 +1305,6 @@
                             style="padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(251,191,36,0.5); background: rgba(251,191,36,0.15); color: #fbbf24; font-weight: 800; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 6px; font-family: 'Inter', 'Outfit', sans-serif; transition: all 0.2s;">
                             📦 Pool 데이터 동기화
                         </button>
-                        <div style="margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);">
-                            <label for="safetyMarginInput" style="font-size: 12px; color: #94a3b8; font-weight: 700; white-space: nowrap;">매수목표가 안전마진</label>
-                            <input id="safetyMarginInput" type="number" min="0" max="90" step="1"
-                                style="width: 52px; text-align: center; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 4px; color: white; font-size: 13px; font-weight: 700;">
-                            <span style="font-size: 12px; color: #94a3b8;">%</span>
-                            <button onclick="saveSafetyMargin()"
-                                style="padding: 4px 10px; border-radius: 8px; border: none; background: rgba(16,185,129,0.2); color: #10b981; font-weight: 700; font-size: 12px; cursor: pointer;">저장</button>
-                        </div>
                         <span id="poolRankedBy" style="align-self: center; font-size: 12px; color: #64748b;"></span>
                     </div>
                 </div>
@@ -1636,7 +1622,6 @@
                 stopTargetLivePricePolling();
             } else if (tabId === 'targets') {
                 loadAuditDates();
-                loadSafetyMargin();
                 stopRealtimePolling();
                 stopMonitorPolling();
                 startTargetLivePricePolling();
@@ -2921,11 +2906,9 @@
                         const card = document.createElement('div');
                         card.id = `rt-card-${stock.code}`;
                         card.className = 'result-card';
-                        const _reachedForCard = stock.type === 'watchlist' && stock.target_buy_price > 0
-                            && stock.price > 0 && stock.price <= stock.target_buy_price;
                         card.style.padding = '24px';
-                        card.style.background = stock.is_stop_loss ? 'rgba(239, 68, 68, 0.1)' : (_reachedForCard ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.05)');
-                        card.style.border = stock.is_stop_loss ? '1px solid rgba(239, 68, 68, 0.3)' : (_reachedForCard ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid transparent');
+                        card.style.background = stock.is_stop_loss ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255,255,255,0.05)';
+                        card.style.border = stock.is_stop_loss ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid transparent';
                         card.style.borderRadius = '20px';
                         card.style.transition = 'all 0.3s ease';
 
@@ -2964,10 +2947,6 @@
                         const institutionInvestor = fmtInvestor(investor.institution);
                         const individualInvestor = fmtInvestor(investor.individual);
 
-                        // [김정음] 관심종목 매수목표가 도달 여부
-                        const reachedBuyTarget = stock.type === 'watchlist' && stock.target_buy_price > 0
-                            && stock.price > 0 && stock.price <= stock.target_buy_price;
-
                         if (stock.type === 'portfolio') {
                             totalInvested += (stock.purchase_price * stock.quantity);
                             totalValue += (stock.price * stock.quantity);
@@ -2993,7 +2972,7 @@
                                     </div>` : ''}
                                     <div style="min-width: 0; flex: 1;">
                                         <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 1px; font-weight: 500;">
-                                            ${stock.code} ${stock.is_stop_loss ? '<span style="color:#ef4444; font-weight:800; font-size:10px; background:rgba(239,68,68,0.1); padding:1px 4px; border-radius:4px;">STOP-LOSS</span>' : ''}${reachedBuyTarget ? '<span style="color:#10b981; font-weight:800; font-size:10px; background:rgba(16,185,129,0.15); padding:1px 4px; border-radius:4px;">🎯 매수목표가 도달</span>' : ''}
+                                            ${stock.code} ${stock.is_stop_loss ? '<span style="color:#ef4444; font-weight:800; font-size:10px; background:rgba(239,68,68,0.1); padding:1px 4px; border-radius:4px;">STOP-LOSS</span>' : ''}
                                         </div>
                                         <div style="font-size: 19px; font-weight: 800; color: white; font-family: 'Outfit', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${stock.name}">${stock.name}</div>
                                     </div>
@@ -3033,7 +3012,6 @@
                                         </div>
                                     </span>` : ''}
                                     ${stock.type === 'portfolio' ? `<span style="color:#ef4444; white-space:nowrap;">최고 ${stock.holding_high ? stock.holding_high.toLocaleString() : '-'}</span>` : ''}
-                                    ${stock.type === 'watchlist' && stock.target_buy_price > 0 ? `<span style="color:#10b981; white-space:nowrap;">매수목표 ${stock.target_buy_price.toLocaleString()}</span>` : ''}
                                     <span style="color:var(--text-muted); font-weight:600; white-space:nowrap;">어제 ${prevClose.toLocaleString()}</span>
                                 </div>
                             </div>
@@ -3070,7 +3048,7 @@
 
                             <div style="display: flex; gap: 8px;">
                                 <button onclick="selectStockForAnalysis('${stock.code}')" style="flex: 1; padding: 10px; font-size: 11px; border-radius: 10px; background: rgba(255,255,255,0.1); border: none; color: white; cursor: pointer; font-weight: 600;">분석실 이동</button>
-                                ${stock.type === 'watchlist' ? `<button onclick="promoteStockUI('${stock.code}', '${stock.name}')" style="flex: 1; padding: 10px; font-size: 11px; border-radius: 10px; background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.4); color: #10b981; cursor: pointer; font-weight: 600;">포트폴리오로 전환</button>` : ''}
+                                ${stock.type === 'watchlist' ? `<button onclick="promoteStockUI('${stock.code}', '${stock.name}')" style="flex: 1; padding: 10px; font-size: 11px; border-radius: 10px; background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.4); color: #10b981; cursor: pointer; font-weight: 600;">👛 매수</button>` : ''}
                             </div>
                         `;
 
@@ -3152,7 +3130,7 @@
                 });
         }
 
-        function loadWatchlist(onDone) {
+        function loadWatchlist() {
             fetch('/api/watchlist')
                 .then(response => response.json())
                 .then(data => {
@@ -3173,16 +3151,6 @@
                                 <span style="color: var(--text-muted); font-weight: 600;">증권사 목표가</span>
                                 <span id="analyst-target-${stock.code}" style="color: #fbbf24; font-weight: 700;">조회 중...</span>
                             </div>
-                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px;">
-                                <span style="color: var(--text-muted); font-weight: 600;">매수목표가</span>
-                                <input type="text" inputmode="numeric" id="target-buy-input-${stock.code}"
-                                    value="${stock.target_buy_price ? Number(stock.target_buy_price).toLocaleString() : ''}"
-                                    placeholder="입력 후 Enter"
-                                    title="매수목표가를 입력하고 Enter를 누르거나 다른 곳을 클릭하면 저장됩니다."
-                                    onkeydown="if(event.key==='Enter') this.blur()"
-                                    onchange="updateTargetBuyPrice('${stock.code}', this.value)"
-                                    style="width: 110px; text-align: right; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; padding: 4px 8px; color: white; font-size: 13px; font-weight: 700; cursor: text;">
-                            </div>
                             <div style="display: flex; gap: 8px; margin-top: 12px;">
                                 <button class="btn" onclick="promoteStockUI('${stock.code}', '${stock.name}')"
                                     style="flex: 1; padding: 8px; font-size: 13px; height: auto; border-radius: 12px; background: rgba(168, 85, 247, 0.2); box-shadow: none;">👛 매수</button>
@@ -3193,20 +3161,7 @@
                     `).join('');
 
                     loadAnalystTargets(data.map(s => s.code));
-                    if (typeof onDone === 'function') onDone();
                 });
-        }
-
-        function flashTargetPriceInput(code) {
-            const input = document.getElementById(`target-buy-input-${code}`);
-            if (!input) return;
-            input.style.transition = 'none';
-            input.style.background = 'rgba(16,185,129,0.6)';
-            input.style.borderColor = '#10b981';
-            requestAnimationFrame(() => {
-                input.style.transition = 'background 1.2s ease';
-                input.style.background = 'rgba(16,185,129,0.08)';
-            });
         }
 
         function loadAnalystTargets(codes) {
@@ -3233,42 +3188,6 @@
                     if (el) el.textContent = '-';
                 });
             });
-        }
-
-        function estimateWatchlistTargetPrices() {
-            const btn = document.getElementById('estimateTargetPricesBtn');
-            const originalHtml = btn.innerHTML;
-            btn.disabled = true;
-            btn.style.opacity = '0.7';
-            btn.innerHTML = '🧮 산정 중...';
-
-            fetch('/api/watchlist/estimate_target_prices', { method: 'POST' })
-                .then(res => res.json())
-                .then(data => {
-                    btn.disabled = false;
-                    btn.style.opacity = '1';
-                    btn.innerHTML = originalHtml;
-                    if (data.success) {
-                        if (data.estimated_count === 0) {
-                            showToast('매수목표가를 산정하지 못했습니다. Pool 데이터(섹터 PER/PBR)가 없는지 확인해주세요.', 'error');
-                        } else {
-                            showToast(`매수목표가 산정 완료 (${data.estimated_count}/${data.total_count}건)`);
-                        }
-                        loadWatchlist(() => {
-                            Object.entries(data.results || {}).forEach(([code, price]) => {
-                                if (price > 0) flashTargetPriceInput(code);
-                            });
-                        });
-                    } else {
-                        showToast('산정 실패: ' + (data.message || '알 수 없는 오류'), 'error');
-                    }
-                })
-                .catch(() => {
-                    btn.disabled = false;
-                    btn.style.opacity = '1';
-                    btn.innerHTML = originalHtml;
-                    showToast('네트워크 오류가 발생했습니다.', 'error');
-                });
         }
 
         // [김선화] 소유주 변경
@@ -3353,22 +3272,6 @@
                 btn.disabled = false;
                 btn.innerHTML = originalHtml;
                 btn.style.opacity = '1';
-            });
-        }
-
-        function updateTargetBuyPrice(code, value) {
-            const target_buy_price = parseInt(String(value).replace(/[^0-9]/g, ''), 10) || 0;
-            fetch('/api/watchlist/target_buy_price', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code, target_buy_price })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    showToast('매수 목표가가 저장되었습니다.');
-                    loadWatchlist();
-                }
             });
         }
 
@@ -4930,38 +4833,6 @@
             });
         }
 
-        function loadSafetyMargin() {
-            fetch('/api/settings/buy_target_safety_margin')
-                .then(res => res.json())
-                .then(data => {
-                    const input = document.getElementById('safetyMarginInput');
-                    if (input) input.value = data.value;
-                });
-        }
-
-        function saveSafetyMargin() {
-            const input = document.getElementById('safetyMarginInput');
-            const value = parseFloat(input.value);
-            if (isNaN(value) || value < 0 || value > 90) {
-                showToast('안전마진은 0~90 사이 숫자로 입력해주세요.', 'error');
-                return;
-            }
-            fetch('/api/settings/buy_target_safety_margin', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ value })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    showToast('안전마진이 저장되었습니다. 다음 Pool 산출부터 적용됩니다.');
-                } else {
-                    showToast('저장 실패: ' + (data.message || '알 수 없는 오류'), 'error');
-                }
-            })
-            .catch(() => showToast('네트워크 오류가 발생했습니다.', 'error'));
-        }
-
         function openMonitorModal() {
             const modal = document.getElementById('monitorModal');
             if (modal) {
@@ -5600,10 +5471,6 @@
                                 <div style="padding:10px 14px;background:rgba(251,191,36,0.06);border-radius:12px;border:1px solid rgba(251,191,36,0.15);">
                                     <div style="font-size:10px;color:#fbbf24;margin-bottom:3px;">목표주가</div>
                                     <div style="font-size:15px;font-weight:900;color:#fbbf24;font-family:'Outfit',sans-serif;">${s.target_price > 0 ? s.target_price.toLocaleString()+'원' : '-'}</div>
-                                </div>
-                                <div style="padding:10px 14px;background:rgba(16,185,129,0.06);border-radius:12px;border:1px solid rgba(16,185,129,0.15);">
-                                    <div style="font-size:10px;color:#10b981;margin-bottom:3px;">매수목표가</div>
-                                    <div style="font-size:15px;font-weight:900;color:#10b981;font-family:'Outfit',sans-serif;">${s.buy_target_price > 0 ? s.buy_target_price.toLocaleString()+'원' : '-'}</div>
                                 </div>
                                 <div style="padding:10px 14px;background:rgba(99,102,241,0.06);border-radius:12px;border:1px solid rgba(99,102,241,0.15);">
                                     <div style="font-size:10px;color:#818cf8;margin-bottom:3px;">재무 기본점수</div>

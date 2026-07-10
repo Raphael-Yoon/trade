@@ -63,7 +63,7 @@ def parse_market_cap(cap_str):
     return val
 
 
-def collect_candidate(cand, pool, dart_key, sector_avg_pbr=None, sector_avg_per=None, safety_margin=15.0):
+def collect_candidate(cand, pool, dart_key, sector_avg_pbr=None):
     """종목 1개의 시장 데이터·뉴스·공시를 수집하여 반환."""
     code = cand['code']
     name = cand['name']
@@ -101,24 +101,6 @@ def collect_candidate(cand, pool, dart_key, sector_avg_pbr=None, sector_avg_per=
     upside = round(((target_price - current_price) / current_price) * 100.0, 1)
     if upside <= 0:
         return None
-
-    # [김희선] 매수목표가 산정 — 자체 밸류에이션(PER/PBR 밴드 평균) × (1 - 안전마진)
-    sector = cand.get('sector', '기타')
-    eps = naver_data.get('eps', 0) or naver_data.get('estimated_eps', 0)
-    bps = naver_data.get('bps', 0)
-    avg_per = (sector_avg_per or {}).get(sector, 0.0)
-    avg_pbr = (sector_avg_pbr or {}).get(sector, 0.0)
-
-    fair_values = []
-    if eps > 0 and avg_per > 0:
-        fair_values.append(avg_per * eps)
-    if bps > 0 and avg_pbr > 0:
-        fair_values.append(avg_pbr * bps)
-
-    buy_target_price = 0
-    if fair_values:
-        fair_value = sum(fair_values) / len(fair_values)
-        buy_target_price = int(fair_value * (1 - safety_margin / 100.0))
 
     ma5_diff  = naver_data.get('ma5_diff', 0.0)
     ma20_diff = naver_data.get('ma20_diff', 0.0)
@@ -168,7 +150,6 @@ def collect_candidate(cand, pool, dart_key, sector_avg_pbr=None, sector_avg_per=
         'target_price':  target_price,
         'upside':        upside,
         'is_estimated_tp': is_estimated_tp,
-        'buy_target_price': buy_target_price,
         'roe':           roe,
         'debt':          debt,
         'ma5_diff':      round(ma5_diff, 2),
@@ -305,32 +286,16 @@ def run_collection(source_file=None):
 
     rows = cursor.fetchall()
 
-    # 매수목표가 안전마진(%) 조회 — 화면(trade 앱)에서 조정 가능, 기본값 15%
-    safety_margin = 15.0
-    try:
-        key_col = '"key"' if db_type != 'mysql' else '`key`'
-        cursor.execute(f"SELECT value FROM tr_settings WHERE {key_col} = 'buy_target_safety_margin'")
-        margin_row = cursor.fetchone()
-        if margin_row and margin_row['value'] is not None:
-            safety_margin = float(margin_row['value'])
-    except Exception:
-        pass
-
     conn.close()
 
-    # 섹터별 평균 PBR/PER 계산 (자체 목표주가·매수목표가 추정용)
+    # 섹터별 평균 PBR 계산 (자체 목표주가 추정용)
     from collections import defaultdict
     sector_pbr_map = defaultdict(list)
-    sector_per_map = defaultdict(list)
     for r in rows:
         pbr_val = r['pbr'] if r['pbr'] else 0.0
         if pbr_val > 0:
             sector_pbr_map[r['sector'] or '기타'].append(float(pbr_val))
-        per_val = r['per'] if r['per'] else 0.0
-        if per_val > 0:
-            sector_per_map[r['sector'] or '기타'].append(float(per_val))
     sector_avg_pbr = {s: sum(vals) / len(vals) for s, vals in sector_pbr_map.items() if vals}
-    sector_avg_per = {s: sum(vals) / len(vals) for s, vals in sector_per_map.items() if vals}
 
     pool       = [{'code': r['code'], 'name': r['name'],
                    'roe': r['roe'] or 0.0, 'debt': r['debt_ratio'] or 0.0,
@@ -358,7 +323,7 @@ def run_collection(source_file=None):
 
     results = []
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(collect_candidate, c, pool, dart_key, sector_avg_pbr, sector_avg_per, safety_margin): c for c in candidates}
+        futures = {executor.submit(collect_candidate, c, pool, dart_key, sector_avg_pbr): c for c in candidates}
         done = 0
         for future in as_completed(futures):
             done += 1
@@ -448,7 +413,6 @@ if __name__ == '__main__':
             "sector":        r["sector"],
             "current_price": r["current_price"],
             "target_price":  r["target_price"],
-            "buy_target_price": r.get("buy_target_price", 0),
             "upside":        r["upside"],
             "roe":           r["roe"],
             "debt":          r["debt"],

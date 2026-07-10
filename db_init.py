@@ -31,8 +31,7 @@ def _init_sqlite():
             is_favorite INTEGER DEFAULT 0,
             peak_price REAL DEFAULT 0,
             owner TEXT DEFAULT '나',
-            type TEXT DEFAULT 'portfolio',
-            target_buy_price REAL DEFAULT 0
+            type TEXT DEFAULT 'portfolio'
         )
     ''')
     for col_name, col_def in [
@@ -43,7 +42,6 @@ def _init_sqlite():
         ('peak_price', 'REAL DEFAULT 0'),
         ('owner', "TEXT DEFAULT '나'"),
         ('type', "TEXT DEFAULT 'portfolio'"),
-        ('target_buy_price', 'REAL DEFAULT 0'),
     ]:
         try:
             cursor.execute(f"ALTER TABLE tr_my_stocks ADD COLUMN {col_name} {col_def}")
@@ -183,14 +181,6 @@ def _init_sqlite():
             value TEXT
         )
     ''')
-    cursor.execute(
-        'INSERT OR IGNORE INTO tr_settings ("key", value) VALUES (\'buy_target_safety_margin\', \'15\')'
-    )
-
-    try:
-        cursor.execute("ALTER TABLE tr_audit_recommendations ADD COLUMN buy_target_price REAL DEFAULT 0")
-    except Exception:
-        pass
 
     conn.commit()
     conn.close()
@@ -250,8 +240,7 @@ def _init_mysql():
             is_favorite INT DEFAULT 0,
             peak_price DOUBLE DEFAULT 0,
             owner VARCHAR(50) DEFAULT '나',
-            type VARCHAR(50) DEFAULT 'portfolio',
-            target_buy_price DOUBLE DEFAULT 0
+            type VARCHAR(50) DEFAULT 'portfolio'
         )
     ''')
     for col_name, col_def in [
@@ -262,7 +251,6 @@ def _init_mysql():
         ('peak_price', 'DOUBLE DEFAULT 0'),
         ('owner', "VARCHAR(50) DEFAULT '나'"),
         ('type', "VARCHAR(50) DEFAULT 'portfolio'"),
-        ('target_buy_price', 'DOUBLE DEFAULT 0'),
     ]:
         add_column_if_not_exists("tr_my_stocks", col_name, col_def)
 
@@ -381,17 +369,12 @@ def _init_mysql():
     ]:
         add_column_if_not_exists("tr_audit_recommendations", col_name, col_def)
 
-    add_column_if_not_exists("tr_audit_recommendations", "buy_target_price", "DOUBLE DEFAULT 0")
-
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_settings (
             `key` VARCHAR(100) PRIMARY KEY,
             value VARCHAR(255)
         )
     ''')
-    cursor.execute("""
-        INSERT IGNORE INTO tr_settings (`key`, value) VALUES ('buy_target_safety_margin', '15')
-    """)
 
     create_index_if_not_exists("idx_tr_stock_daily_history_date", "tr_stock_daily_history", "date")
     create_index_if_not_exists("idx_history_date_owner", "tr_stock_daily_history", "date, owner")

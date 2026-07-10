@@ -1141,7 +1141,6 @@ def migrate_targets():
                     sector TEXT,
                     current_price REAL,
                     target_price REAL,
-                    buy_target_price REAL,
                     upside REAL,
                     opinion TEXT,
                     data_date TEXT,
@@ -1162,9 +1161,9 @@ def migrate_targets():
 
         insert_sql = """
             INSERT INTO tr_audit_recommendations
-                (code, name, current_price, target_price, buy_target_price, upside, opinion, data_date, created_at,
+                (code, name, current_price, target_price, upside, opinion, data_date, created_at,
                  score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, sector)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1183,7 +1182,6 @@ def migrate_targets():
             (
                 r['code'], r['name'], float(r['current_price']) if r.get('current_price') is not None else 0.0,
                 float(r['target_price']) if r.get('target_price') is not None else 0.0,
-                float(r['buy_target_price']) if r.get('buy_target_price') is not None else 0.0,
                 float(r['upside']) if r.get('upside') is not None else 0.0,
                 r.get('opinion', ''),
                 r.get('data_date', ''), now_str,
@@ -1287,44 +1285,6 @@ def migrate_pool():
             'message': f'Pool 데이터 이관 중 오류 발생: {str(e)}'
         }), 500
 
-@app.route('/api/settings/buy_target_safety_margin', methods=['GET'])
-def get_buy_target_safety_margin():
-    """[김희선] Pool 매수목표가 산정에 쓰이는 안전마진(%)을 조회합니다."""
-    try:
-        db = get_db()
-        cursor = db.cursor()
-        key_col = '"key"' if _IS_POSTGRES else '`key`'
-        cursor.execute(f"SELECT value FROM tr_settings WHERE {key_col} = 'buy_target_safety_margin'")
-        row = cursor.fetchone()
-        value = float(row['value']) if row and row['value'] is not None else 15.0
-        return jsonify({'value': value})
-    except Exception as e:
-        return jsonify({'value': 15.0, 'error': str(e)})
-
-@app.route('/api/settings/buy_target_safety_margin', methods=['POST'])
-def update_buy_target_safety_margin():
-    """[김희선] Pool 매수목표가 산정에 쓰이는 안전마진(%)을 저장합니다."""
-    try:
-        data = request.get_json()
-        value = float(data.get('value'))
-        if not (0 <= value <= 90):
-            return jsonify({'success': False, 'message': '안전마진은 0~90 사이여야 합니다.'}), 400
-
-        db = get_db()
-        cursor = db.cursor()
-        _upsert_sql = (
-            "INSERT INTO tr_settings (\"key\", value) VALUES ('buy_target_safety_margin', ?) "
-            "ON CONFLICT(\"key\") DO UPDATE SET value = excluded.value"
-            if _IS_POSTGRES else
-            "INSERT INTO tr_settings (`key`, value) VALUES ('buy_target_safety_margin', ?) "
-            "ON DUPLICATE KEY UPDATE value = VALUES(value)"
-        )
-        cursor.execute(_upsert_sql, (str(value),))
-        db.commit()
-        return jsonify({'success': True, 'value': value})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
 @app.route('/api/pool')
 def get_stock_pool():
     """투자적격 종목 풀 조회 (8대 주요 섹터 + 기타 그룹화 반환)"""
@@ -1357,7 +1317,7 @@ def get_stock_pool():
             
         # 3. tr_audit_recommendations 테이블에서 추천 종목 조회
         cursor.execute("""
-            SELECT code, name, sector, current_price, target_price, buy_target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, opinion
+            SELECT code, name, sector, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, opinion
             FROM tr_audit_recommendations
         """)
         rec_rows = [dict(r) for r in cursor.fetchall()]
@@ -1403,7 +1363,6 @@ def get_stock_pool():
                 "debt_ratio": rec.get('debt') or pool_info.get('debt_ratio', 0.0),
                 "operating_margin": pool_info.get('operating_margin'),
                 "target_price": rec.get('target_price') or pool_info.get('target_price', 0.0),
-                "buy_target_price": rec.get('buy_target_price', 0.0),
                 "pool_score": pool_info.get('pool_score', 0.0),
                 "priority_score": rec.get('score', 0.0),
                 "ai_summary": rec.get('reason', ''),
@@ -2986,116 +2945,16 @@ def get_watchlist():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT code, name, added_at, owner, target_buy_price FROM tr_my_stocks WHERE type = 'watchlist' ORDER BY added_at DESC")
+        cursor.execute("""
+            SELECT m.code, m.name, m.added_at, m.owner
+            FROM tr_my_stocks m
+            WHERE m.type = 'watchlist'
+            ORDER BY m.added_at DESC
+        """)
         stocks = [dict(row) for row in cursor.fetchall()]
         return jsonify(stocks)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-@app.route('/api/watchlist/target_buy_price', methods=['POST'])
-def update_watchlist_target_buy_price():
-    """[김정음] 관심종목의 매수 목표가를 업데이트합니다."""
-    try:
-        data = request.get_json()
-        code = data.get('code')
-        target_buy_price = data.get('target_buy_price', 0)
-
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute(
-            "UPDATE tr_my_stocks SET target_buy_price = ? WHERE code = ? AND type = 'watchlist'",
-            (target_buy_price, code)
-        )
-        db.commit()
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-def _fetch_buy_target_price(code, avg_per_map, avg_pbr_map, safety_margin):
-    """[김희선] 종목 1개의 PER/PBR 밴드 매수목표가를 계산합니다. (스레드용, DB 접근 없음)"""
-    try:
-        naver_data = get_all_naver_data(code)
-        sector = naver_data.get('industry_name', '기타')
-        eps = naver_data.get('eps', 0) or naver_data.get('estimated_eps', 0)
-        bps = naver_data.get('bps', 0)
-
-        avg_per = avg_per_map.get(sector, 0.0)
-        avg_pbr = avg_pbr_map.get(sector, 0.0)
-
-        fair_values = []
-        if eps > 0 and avg_per > 0:
-            fair_values.append(avg_per * eps)
-        if bps > 0 and avg_pbr > 0:
-            fair_values.append(avg_pbr * bps)
-
-        if not fair_values:
-            return 0
-        fair_value = sum(fair_values) / len(fair_values)
-        return int(fair_value * (1 - safety_margin / 100.0))
-    except Exception as e:
-        print(f"buy_target_price 계산 오류 {code}: {e}")
-        return 0
-
-@app.route('/api/watchlist/estimate_target_prices', methods=['POST'])
-def estimate_watchlist_target_prices():
-    """[김희선] 관심종목 전체에 PER/PBR 밴드 + 안전마진 기반 매수목표가를 산정하여 저장합니다."""
-    try:
-        db = get_db()
-        cursor = db.cursor()
-
-        cursor.execute("SELECT code FROM tr_my_stocks WHERE type = 'watchlist'")
-        codes = [r['code'] for r in cursor.fetchall()]
-        if not codes:
-            return jsonify({'success': False, 'message': '관심종목이 없습니다.'}), 400
-
-        cursor.execute("SELECT sector, per, pbr FROM tr_stock_pool")
-        pool_rows = cursor.fetchall()
-        from collections import defaultdict
-        per_map, pbr_map = defaultdict(list), defaultdict(list)
-        for r in pool_rows:
-            sector = r['sector'] or '기타'
-            if r['per'] and r['per'] > 0:
-                per_map[sector].append(r['per'])
-            if r['pbr'] and r['pbr'] > 0:
-                pbr_map[sector].append(r['pbr'])
-        avg_per_map = {s: sum(v) / len(v) for s, v in per_map.items() if v}
-        avg_pbr_map = {s: sum(v) / len(v) for s, v in pbr_map.items() if v}
-
-        key_col = '"key"' if _IS_POSTGRES else '`key`'
-        cursor.execute(f"SELECT value FROM tr_settings WHERE {key_col} = 'buy_target_safety_margin'")
-        margin_row = cursor.fetchone()
-        safety_margin = float(margin_row['value']) if margin_row and margin_row['value'] is not None else 15.0
-
-        results = {}
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            future_to_code = {
-                executor.submit(_fetch_buy_target_price, code, avg_per_map, avg_pbr_map, safety_margin): code
-                for code in codes
-            }
-            for future in as_completed(future_to_code):
-                code = future_to_code[future]
-                try:
-                    results[code] = future.result()
-                except Exception:
-                    results[code] = 0
-
-        for code, price in results.items():
-            if price > 0:
-                cursor.execute(
-                    "UPDATE tr_my_stocks SET target_buy_price = ? WHERE code = ? AND type = 'watchlist'",
-                    (price, code)
-                )
-        db.commit()
-
-        estimated_count = sum(1 for p in results.values() if p > 0)
-        return jsonify({
-            'success': True,
-            'results': results,
-            'estimated_count': estimated_count,
-            'total_count': len(codes)
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/watchlist', methods=['POST'])
 def add_to_watchlist():
@@ -3202,7 +3061,7 @@ def get_realtime_prices():
         cursor = db.cursor()
 
         # [김선화] 효율적 실시간 모니터링을 위해 손절 설정치, 소유주, 추가일자 조회
-        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, owner, added_at, type, target_buy_price FROM tr_my_stocks")
+        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, owner, added_at, type FROM tr_my_stocks")
         all_stocks = [dict(s) for s in cursor.fetchall()]
         if not all_stocks:
             return jsonify([])
@@ -3274,9 +3133,7 @@ def get_realtime_prices():
                     'owner': stock.get('owner', '나'),
                     'is_stop_loss': is_stop_loss,
                     'type': stock['type'],
-                    'investor': investor,
-                    'target_buy_price': stock.get('target_buy_price', 0)
-                }
+                    'investor': investor,                }
             except Exception:
                 return {
                     'code': stock['code'],
@@ -3298,9 +3155,7 @@ def get_realtime_prices():
                     'owner': stock.get('owner', '나'),
                     'is_stop_loss': False,
                     'type': stock['type'],
-                    'investor': {'foreign': None, 'institution': None, 'individual': None},
-                    'target_buy_price': stock.get('target_buy_price', 0)
-                }
+                    'investor': {'foreign': None, 'institution': None, 'individual': None},                }
 
         with ThreadPoolExecutor(max_workers=10) as executor:
             future_to_stock = {executor.submit(fetch_stock_data, s): s for s in all_stocks}
@@ -3330,8 +3185,7 @@ def get_realtime_prices():
                         'owner': stock.get('owner', '나'),
                         'is_stop_loss': False,
                         'type': stock['type'],
-                        'investor': {'foreign': None, 'institution': None, 'individual': None},
-                        'target_buy_price': stock.get('target_buy_price', 0)
+                        'investor': {'foreign': None, 'institution': None, 'individual': None}
                     })
 
         return jsonify(results)
