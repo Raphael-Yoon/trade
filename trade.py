@@ -3086,6 +3086,25 @@ def get_realtime_prices():
                 kospi_drop_pct = 0
                 kospi_weight_pct = 0
 
+                # [김정음] 당일 손익(change) 계산 기준가 결정: 매수 당일은 전일종가가 아닌
+                # 실제 매입 체결가(purchase_price) 대비로 계산해야 함 (/api/my_stocks/status,
+                # 히스토리 스냅샷 저장 로직과 동일 기준으로 통일)
+                today_str = datetime.now().strftime('%Y-%m-%d')
+                is_today_buy = False
+                if stock.get('added_at'):
+                    try:
+                        if stock['added_at'][:10] == today_str:
+                            is_today_buy = True
+                    except Exception:
+                        pass
+
+                if is_today_buy and purchase_price > 0:
+                    day_change = current_price - purchase_price
+                    day_change_rate = round((day_change / purchase_price) * 100, 2)
+                else:
+                    day_change = price_info['change']
+                    day_change_rate = price_info['change_rate']
+
                 if stock['type'] == 'portfolio' and purchase_price > 0:
                     profit_rate = round(((current_price - purchase_price) / purchase_price) * 100, 2)
                     profit = (current_price - purchase_price) * quantity
@@ -3123,8 +3142,8 @@ def get_realtime_prices():
                     'effective_stop_loss_price': effective_stop_loss_price,
                     'kospi_drop_pct': kospi_drop_pct,
                     'kospi_weight_pct': kospi_weight_pct,
-                    'change': price_info['change'],
-                    'change_rate': price_info['change_rate'],
+                    'change': day_change,
+                    'change_rate': day_change_rate,
                     'purchase_price': purchase_price,
                     'quantity': quantity,
                     'profit_rate': profit_rate,
