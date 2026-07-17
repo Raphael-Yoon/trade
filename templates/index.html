@@ -4400,7 +4400,7 @@
                                 <a href="/api/download/${file.filename}" class="result-btn btn-download">다운로드</a>
                                 <button onclick="deleteResult('${file.filename}')" class="result-btn btn-delete">삭제</button>
                                 <button onclick="runAiAnalysis('${file.filename}')" class="result-btn btn-ai">🤖 AI 분석 리포트</button>
-                                <button onclick="runPoolCollection(this, '${file.filename}', '${file.spreadsheet_id}', '${displayTitle}')" class="result-btn btn-pool${file.has_pool ? ' composed' : ''}">${file.has_pool ? '📊 Pool 구성 완료' : '📊 Pool 구성'}</button>
+                                <button onclick="startCalibration(this, '${file.filename}')" class="result-btn btn-pool">🔄 시총 보정</button>
                             </div>
                         </div>
                         `;
@@ -4412,126 +4412,100 @@
                 });
         }
 
-        function runPoolCollection(btn, filename, spreadsheetId, displayTitle) {
-            const isComposed = btn.classList.contains('composed');
-            if (isComposed) {
-                viewPoolDetails(filename, spreadsheetId, displayTitle, btn);
-            } else {
-                executePoolCollection(btn, filename, spreadsheetId, displayTitle);
-            }
-        }
-
-        function executePoolCollection(btn, filename, spreadsheetId, displayTitle) {
-            const message = `'${displayTitle || '선택한 분석'}' 데이터를 기준으로 투자 후보군(Pool)을 구성하시겠습니까?\n이 작업은 시스템의 투자 후보군 목록에 해당 데이터를 추가/최신화합니다.`;
+        function startCalibration(btn, filename) {
+            const message = `'${filename}' 파일을 기준으로 실시간 시가총액을 재수집하고, 3대 트랙(대형주, 가치주, 상승주) 분석 및 요약을 다시 구성하시겠습니까?\n이 작업은 약 1~2분 정도 소요됩니다.`;
             showCustomConfirm(message, function() {
-                // 버튼 비활성화 및 로딩 스피너 표시
+                // Disable button and show loader
                 const originalText = btn.innerHTML;
                 btn.disabled = true;
-                btn.innerHTML = `<span class="ai-spinner" style="width: 14px; height: 14px; margin: 0 6px 0 0; border-width: 2px; display: inline-block; vertical-align: middle; border-top-color: #fbbf24;"></span> 구성 중...`;
+                btn.innerHTML = `<span class="ai-spinner" style="width: 14px; height: 14px; margin: 0 6px 0 0; border-width: 2px; display: inline-block; vertical-align: middle; border-top-color: #fbbf24;"></span> 보정 중...`;
                 btn.style.opacity = '0.6';
                 btn.style.cursor = 'not-allowed';
 
-                showToast('IT 감사 Pool 구성 중... 잠시만 기다려주세요.', 'info');
+                showToast('실시간 시가총액 수집 및 3대 트랙 재구성 시작...', 'info');
                 
-                fetch('/api/results/collect_pool', {
+                // Show collection log area
+                const logArea = document.getElementById('collectionLogArea');
+                const logDiv = document.getElementById('collectionLog');
+                if (logArea) logArea.style.display = 'block';
+                if (logDiv) logDiv.innerHTML = '시가총액 보정 작업 시작 중...';
+
+                fetch('/api/calibrate_and_rebuild', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        filename: filename,
-                        spreadsheet_id: spreadsheetId
-                    })
+                    body: JSON.stringify({ filename: filename })
                 })
-                    .then(response => response.json())
-                    .then(data => {
-                        // 버튼 복구
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        currentTaskId = data.task_id;
+                        checkCalibrationStatus(btn, originalText);
+                    } else {
+                        // Reset button
                         btn.disabled = false;
                         btn.innerHTML = originalText;
                         btn.style.opacity = '1';
                         btn.style.cursor = 'pointer';
-
-                        if (data.success) {
-                            showToast('감사 Pool 구성 및 Neon DB 적재가 성공적으로 완료되었습니다.');
-                            console.log('Pool Collect Output:', data.output);
-                            loadResults(); // 목록 새로고침하여 구성 완료 상태 업데이트
-                        } else {
-                            showToast('Pool 구성 실패: ' + data.message, 'error');
-                            console.error('Pool Collect Error:', data.output);
-                        }
-                    })
-                    .catch(err => {
-                        // 버튼 복구
-                        btn.disabled = false;
-                        btn.innerHTML = originalText;
-                        btn.style.opacity = '1';
-                        btn.style.cursor = 'pointer';
-                        showToast('네트워크 오류 발생: ' + err, 'error');
-                    });
+                        showToast('작업 시작 실패: ' + data.message, 'error');
+                        if (logArea) logArea.style.display = 'none';
+                    }
+                })
+                .catch(err => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                    btn.style.opacity = '1';
+                    btn.style.cursor = 'pointer';
+                    showToast('네트워크 오류: ' + err, 'error');
+                    if (logArea) logArea.style.display = 'none';
+                });
             });
         }
 
-        function viewPoolDetails(filename, spreadsheetId, displayTitle, originalBtn) {
-            const modal = document.getElementById('poolViewModal');
-            const titleEl = document.getElementById('poolViewModalTitle');
-            const tableBody = document.getElementById('poolViewTableBody');
-            const metaEl = document.getElementById('poolViewModalMeta');
-            const recomposeBtn = document.getElementById('poolViewRecomposeBtn');
+        function checkCalibrationStatus(btn, originalText) {
+            if (!currentTaskId) return;
+            if (statusCheckInterval) clearInterval(statusCheckInterval);
             
-            titleEl.textContent = `📊 '${displayTitle}' Pool 구성 내역`;
-            tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;"><div class="ai-spinner" style="margin: 0 auto 10px;"></div>조회 중...</td></tr>`;
-            metaEl.textContent = `조회 중...`;
-            
-            recomposeBtn.onclick = function() {
-                closePoolViewModal();
-                executePoolCollection(originalBtn, filename, spreadsheetId, displayTitle);
-            };
-            
-            modal.style.display = 'flex';
-            
-            fetch(`/api/pool?source_file=${filename}`)
-                .then(res => res.json())
+            statusCheckInterval = setInterval(() => {
+                fetch(`/api/status/${currentTaskId}`)
+                .then(response => response.json())
                 .then(data => {
-                    const stocks = data.stocks || [];
-                    if (!stocks || stocks.length === 0) {
-                        tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 40px; color: #94a3b8;">구성된 Pool 데이터가 없습니다.</td></tr>`;
-                        metaEl.textContent = `총 0개 종목`;
-                        return;
-                    }
-                    
-                    // pool_score 내림차순 정렬
-                    stocks.sort((a, b) => (b.pool_score || 0) - (a.pool_score || 0));
-                    
-                    const dataDate = stocks[0].data_date || '-';
-                    metaEl.textContent = `기준일: ${dataDate} | 총 ${stocks.length}개 종목`;
-                    
-                    tableBody.innerHTML = stocks.map(stock => {
-                        const code = stock.code || '';
-                        const name = stock.name || '';
-                        const sector = stock.sector || '';
-                        const roe = stock.roe != null ? stock.roe.toFixed(1) : '-';
-                        const debt = stock.debt_ratio != null ? stock.debt_ratio.toFixed(1) : '-';
-                        const targetPrice = stock.target_price ? Number(stock.target_price).toLocaleString() : '-';
-                        const score = stock.pool_score != null ? stock.pool_score.toFixed(1) : '-';
+                    const logDiv = document.getElementById('collectionLog');
+                    if (data.status === 'completed') {
+                        clearInterval(statusCheckInterval);
+                        statusCheckInterval = null;
                         
-                        return `
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); color: #e2e8f0;">
-                                <td style="padding: 12px 10px; font-family: 'Outfit', sans-serif;">${code}</td>
-                                <td style="padding: 12px 10px; font-weight: 700;">${name}</td>
-                                <td style="padding: 12px 10px; color: #94a3b8;">${sector}</td>
-                                <td style="padding: 12px 10px; text-align: right; font-family: 'Outfit', sans-serif;">${roe}%</td>
-                                <td style="padding: 12px 10px; text-align: right; font-family: 'Outfit', sans-serif;">${debt}%</td>
-                                <td style="padding: 12px 10px; text-align: right; font-family: 'Outfit', sans-serif;">${targetPrice}</td>
-                                <td style="padding: 12px 10px; text-align: right; font-weight: 800; color: #fbbf24; font-family: 'Outfit', sans-serif;">${score}</td>
-                            </tr>
-                        `;
-                    }).join('');
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                        btn.style.opacity = '1';
+                        btn.style.cursor = 'pointer';
+                        
+                        if (logDiv) logDiv.innerHTML = `[완료] ${data.message}`;
+                        showToast('시가총액 보정 및 3대 트랙 재집계 완료!');
+                        alert('시가총액 보정 및 3대 트랙 재집계가 성공적으로 완료되었습니다! 대시보드 화면을 새로고침합니다.');
+                        location.reload();
+                    } else if (data.status === 'failed') {
+                        clearInterval(statusCheckInterval);
+                        statusCheckInterval = null;
+                        
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                        btn.style.opacity = '1';
+                        btn.style.cursor = 'pointer';
+                        
+                        if (logDiv) logDiv.innerHTML = `[오류] ${data.message}`;
+                        showToast('시총 보정 및 재집계 실패: ' + data.message, 'error');
+                    } else if (data.status === 'running') {
+                        btn.innerHTML = `<span class="ai-spinner" style="width: 14px; height: 14px; margin: 0 6px 0 0; border-width: 2px; display: inline-block; vertical-align: middle; border-top-color: #fbbf24;"></span> 보정 중(${data.progress}%)...`;
+                        if (logDiv) logDiv.innerHTML = `[진행] ${data.message}`;
+                    }
                 })
                 .catch(err => {
-                    console.error('Error loading pool details:', err);
-                    tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 40px; color: #ef4444;">데이터를 불러오는 중 오류가 발생했습니다.</td></tr>`;
-                    metaEl.textContent = `오류 발생`;
+                    console.error('Status check error:', err);
                 });
+            }, 2000);
         }
-        
+
+
         function closePoolViewModal() {
             document.getElementById('poolViewModal').style.display = 'none';
         }

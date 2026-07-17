@@ -1566,6 +1566,85 @@ def start_collection():
         'message': '데이터 수집이 시작되었습니다.'
     })
 
+def run_calibrate_and_rebuild(task_id, filename):
+    try:
+        tasks[task_id]['status'] = 'running'
+        tasks[task_id]['progress'] = 10
+        tasks[task_id]['message'] = '최신 수집 엑셀 데이터 파일 검증 중...'
+        
+        results_dir = os.path.join(os.path.dirname(__file__), 'results')
+        file_path = os.path.join(results_dir, filename)
+        if not os.path.exists(file_path):
+            tasks[task_id]['status'] = 'failed'
+            tasks[task_id]['message'] = f"보정할 엑셀 수집 파일이 존재하지 않습니다: {filename}"
+            return
+            
+        tasks[task_id]['message'] = f"대상 파일 발견: {filename}. 실시간 시가총액 보정 시작..."
+        tasks[task_id]['progress'] = 20
+        
+        # 1. 시가총액 보정 실행
+        py_exe = sys.executable
+        res = subprocess.run([py_exe, 'calibrate_market_cap.py', '--source_file', file_path], capture_output=True, text=True, encoding='utf-8')
+        if res.returncode != 0:
+            tasks[task_id]['status'] = 'failed'
+            tasks[task_id]['message'] = f"시가총액 보정 실패: {res.stderr or res.stdout}"
+            return
+            
+        tasks[task_id]['progress'] = 60
+        tasks[task_id]['message'] = '3대 트랙 정량 필터링 및 파이프라인 분석 가동 중...'
+        
+        # 2. 통합 파이프라인 실행
+        res = subprocess.run([py_exe, 'run_pipeline.py', '--source_file', file_path], capture_output=True, text=True, encoding='utf-8')
+        if res.returncode != 0:
+            tasks[task_id]['status'] = 'failed'
+            tasks[task_id]['message'] = f"파이프라인 실행 실패: {res.stderr or res.stdout}"
+            return
+            
+        tasks[task_id]['progress'] = 85
+        tasks[task_id]['message'] = '정성적 분석 코멘트(One-liner/Reason) 적재 중...'
+        
+        # 3. 정성 요약 적재 실행
+        res = subprocess.run([py_exe, 'enrich_recommendations.py'], capture_output=True, text=True, encoding='utf-8')
+        if res.returncode != 0:
+            tasks[task_id]['status'] = 'failed'
+            tasks[task_id]['message'] = f"코멘트 적재 실패: {res.stderr or res.stdout}"
+            return
+            
+        tasks[task_id]['progress'] = 100
+        tasks[task_id]['status'] = 'completed'
+        tasks[task_id]['message'] = '시가총액 보정 및 3대 트랙 재집계 완료! 대시보드를 새로고침하세요.'
+        
+    except Exception as e:
+        tasks[task_id]['status'] = 'failed'
+        tasks[task_id]['message'] = f"오류 발생: {str(e)}"
+
+@app.route('/api/calibrate_and_rebuild', methods=['POST'])
+def start_calibration_and_rebuild():
+    if not check_is_local():
+        return jsonify({'success': False, 'message': '서버 환경에서는 이 기능을 사용할 수 없습니다.'}), 403
+        
+    data = request.get_json() or {}
+    filename = data.get('filename')
+    if not filename:
+        return jsonify({'success': False, 'message': '보정할 파일명이 누락되었습니다.'}), 400
+        
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {
+        'status': 'pending',
+        'progress': 0,
+        'message': '대기 중...',
+        'created_at': datetime.now().isoformat()
+    }
+    
+    thread = threading.Thread(target=run_calibrate_and_rebuild, args=(task_id, filename))
+    thread.start()
+    
+    return jsonify({
+        'success': True,
+        'task_id': task_id,
+        'message': '시가총액 보정 및 재집계 작업이 백그라운드에서 시작되었습니다.'
+    })
+
 @app.route('/api/status/<task_id>', methods=['GET'])
 def get_status(task_id):
     if task_id not in tasks:
