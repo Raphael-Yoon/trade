@@ -1190,7 +1190,7 @@ def migrate_targets():
                 float(r['roe']) if r.get('roe') is not None else 0.0,
                 float(r['debt']) if r.get('debt') is not None else 0.0, r.get('reason', ''),
                 r.get('news_summary') if isinstance(r.get('news_summary'), str) else json.dumps(r.get('news_summary', []), ensure_ascii=False),
-                'sector', r.get('one_liner', ''),
+                r.get('rec_type', 'sector'), r.get('one_liner', ''),
                 r.get('disc_json') if isinstance(r.get('disc_json'), str) else json.dumps(r.get('disc_json', []), ensure_ascii=False),
                 _get_sector(r)
             )
