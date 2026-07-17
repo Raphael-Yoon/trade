@@ -31,6 +31,7 @@ import time
 from datetime import date as _date
 
 app = Flask(__name__)
+init_db()  # [김선화] uwsgi/gunicorn 기동 환경에서도 DB 초기화 및 컬럼 마이그레이션 자동 실행 보장
 
 # [김정음] 리포트 API 인메모리 캐시 (period → (timestamp, response_dict))
 _report_cache: dict = {}
