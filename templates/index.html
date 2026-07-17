@@ -4400,7 +4400,7 @@
                                 <a href="/api/download/${file.filename}" class="result-btn btn-download">다운로드</a>
                                 <button onclick="deleteResult('${file.filename}')" class="result-btn btn-delete">삭제</button>
                                 <button onclick="runAiAnalysis('${file.filename}')" class="result-btn btn-ai">🤖 AI 분석 리포트</button>
-                                <button onclick="startCalibration(this, '${file.filename}')" class="result-btn btn-pool">🔄 시총 보정</button>
+                                <button onclick="startCalibration(this, '${file.filename}')" class="result-btn btn-pool">⚡ 실시간 업데이트</button>
                             </div>
                         </div>
                         `;
@@ -4413,22 +4413,22 @@
         }
 
         function startCalibration(btn, filename) {
-            const message = `'${filename}' 파일을 기준으로 실시간 시가총액을 재수집하고, 3대 트랙(대형주, 가치주, 상승주) 분석 및 요약을 다시 구성하시겠습니까?\n이 작업은 약 1~2분 정도 소요됩니다.`;
+            const message = `'${filename}' 파일을 기준으로 가격 및 시가총액을 최신 실시간 데이터로 동기화하고, 3대 트랙(대형주, 가치주, 상승주) 분석 및 요약을 다시 구성하시겠습니까?\n이 작업은 약 1~2분 정도 소요됩니다.`;
             showCustomConfirm(message, function() {
                 // Disable button and show loader
                 const originalText = btn.innerHTML;
                 btn.disabled = true;
-                btn.innerHTML = `<span class="ai-spinner" style="width: 14px; height: 14px; margin: 0 6px 0 0; border-width: 2px; display: inline-block; vertical-align: middle; border-top-color: #fbbf24;"></span> 보정 중...`;
+                btn.innerHTML = `<span class="ai-spinner" style="width: 14px; height: 14px; margin: 0 6px 0 0; border-width: 2px; display: inline-block; vertical-align: middle; border-top-color: #fbbf24;"></span> 업데이트 중...`;
                 btn.style.opacity = '0.6';
                 btn.style.cursor = 'not-allowed';
 
-                showToast('실시간 시가총액 수집 및 3대 트랙 재구성 시작...', 'info');
+                showToast('실시간 시세 반영 및 3대 트랙 재구성 시작...', 'info');
                 
                 // Show collection log area
                 const logArea = document.getElementById('collectionLogArea');
                 const logDiv = document.getElementById('collectionLog');
                 if (logArea) logArea.style.display = 'block';
-                if (logDiv) logDiv.innerHTML = '시가총액 보정 작업 시작 중...';
+                if (logDiv) logDiv.innerHTML = '실시간 시세 업데이트 작업 시작 중...';
 
                 fetch('/api/calibrate_and_rebuild', {
                     method: 'POST',
@@ -4480,8 +4480,8 @@
                         btn.style.cursor = 'pointer';
                         
                         if (logDiv) logDiv.innerHTML = `[완료] ${data.message}`;
-                        showToast('시가총액 보정 및 3대 트랙 재집계 완료!');
-                        alert('시가총액 보정 및 3대 트랙 재집계가 성공적으로 완료되었습니다! 대시보드 화면을 새로고침합니다.');
+                        showToast('실시간 데이터 반영 및 3대 트랙 재집계 완료!');
+                        alert('실시간 시세 데이터 반영 및 3대 트랙 재집계가 성공적으로 완료되었습니다! 대시보드 화면을 새로고침합니다.');
                         location.reload();
                     } else if (data.status === 'failed') {
                         clearInterval(statusCheckInterval);
@@ -4493,9 +4493,9 @@
                         btn.style.cursor = 'pointer';
                         
                         if (logDiv) logDiv.innerHTML = `[오류] ${data.message}`;
-                        showToast('시총 보정 및 재집계 실패: ' + data.message, 'error');
+                        showToast('실시간 업데이트 실패: ' + data.message, 'error');
                     } else if (data.status === 'running') {
-                        btn.innerHTML = `<span class="ai-spinner" style="width: 14px; height: 14px; margin: 0 6px 0 0; border-width: 2px; display: inline-block; vertical-align: middle; border-top-color: #fbbf24;"></span> 보정 중(${data.progress}%)...`;
+                        btn.innerHTML = `<span class="ai-spinner" style="width: 14px; height: 14px; margin: 0 6px 0 0; border-width: 2px; display: inline-block; vertical-align: middle; border-top-color: #fbbf24;"></span> 업데이트 중(${data.progress}%)...`;
                         if (logDiv) logDiv.innerHTML = `[진행] ${data.message}`;
                     }
                 })
