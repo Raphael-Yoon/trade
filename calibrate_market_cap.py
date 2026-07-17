@@ -34,10 +34,10 @@ def fetch_realtime_market_cap(code):
                     # 시가총액 (원 단위) -> 억 단위 환산
                     market_cap_won = count_stock * price
                     market_cap_billion = int(market_cap_won // 100000000)
-                    return code_str, market_cap_billion
+                    return code_str, market_cap_billion, price
     except Exception as e:
         pass
-    return code_str, None
+    return code_str, None, None
 
 def main():
     parser = argparse.ArgumentParser(description="수집 엑셀 데이터 시가총액 보정 도구")
@@ -71,6 +71,7 @@ def main():
     print(f"[*] 총 {len(codes)}개 종목의 실시간 시가총액 정보 수집 시작...")
     
     market_cap_map = {}
+    price_map = {}
     success_count = 0
     
     # ThreadPool을 활용한 비동기 초고속 수집 (최대 30개 스레드)
@@ -80,9 +81,10 @@ def main():
         for i, future in enumerate(as_completed(futures), 1):
             code, name = futures[future]
             try:
-                code_str, cap_billion = future.result()
+                code_str, cap_billion, price = future.result()
                 if cap_billion is not None:
                     market_cap_map[code_str] = cap_billion
+                    price_map[code_str] = price
                     success_count += 1
                 if i % 100 == 0 or i == len(codes):
                     print(f"    - 진행률: {i}/{len(codes)} 완료 (성공: {success_count}개)")
@@ -94,14 +96,31 @@ def main():
     # 엑셀 데이터 업데이트
     print("[*] 엑셀 데이터 보정 및 저장 중...")
     
-    # 기존 시가총액 값을 Naver 실시간 값으로 치환 (수집 실패 시 기존 값 유지)
+    # 기존 시가총액/PBR/PER 값을 Naver 실시간 값으로 치환
     updated_count = 0
     for idx, row in df.iterrows():
         code_str = row[code_col]
         if code_str in market_cap_map:
             old_val = row.get('시가총액')
             new_val = market_cap_map[code_str]
+            price = price_map[code_str]
+            
             df.at[idx, '시가총액'] = new_val
+            
+            # 실시간 PBR 재계산 (Price / BPS)
+            if 'BPS' in df.columns:
+                bps = pd.to_numeric(row.get('BPS'), errors='coerce')
+                if pd.notna(bps) and bps > 0 and price > 0:
+                    df.at[idx, 'PBR'] = round(price / bps, 2)
+                    
+            # 실시간 PER 재계산 (Price / EPS)
+            if 'EPS' in df.columns:
+                eps = pd.to_numeric(row.get('EPS'), errors='coerce')
+                if pd.notna(eps) and eps > 0 and price > 0:
+                    df.at[idx, 'PER'] = round(price / eps, 2)
+                elif pd.notna(eps) and eps <= 0:
+                    df.at[idx, 'PER'] = 0.0 # 적자 또는 EPS 0 이하
+            
             if pd.isna(old_val) or old_val != new_val:
                 updated_count += 1
                 
