@@ -1371,7 +1371,7 @@ def get_stock_pool():
                 "upside": rec.get('upside', 0.0),
                 "current_price": rec.get('current_price', 0.0),
                 "is_rec": 1,  # 추천 종목 표시
-                "rec_type": 'sector',
+                "rec_type": rec.get('rec_type') or 'sector',
                 "one_liner": rec.get('one_liner', ''),
                 "opinion": rec.get('opinion', '')
             })

@@ -3025,6 +3025,12 @@
                             ${stock.type === 'portfolio' ? `
                             <div style="display: flex; flex-direction: column; gap: 6px; background: rgba(255,255,255,0.05); padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.05);">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">보유 수량</div>
+                                    <div style="font-size: 13px; font-weight: 700; color: white; font-family: 'Outfit', sans-serif;">
+                                        ${stock.quantity ? stock.quantity.toLocaleString() : '0'}주
+                                    </div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px;">
                                     <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">누적 수익</div>
                                     <div style="font-size: 14px; font-weight: 900; color: ${profitColor}; font-family: 'Outfit', sans-serif;">
                                         ${fmtProfit(profit, `${profitSign}${profitRate}`)}
@@ -5264,16 +5270,19 @@
         function loadAuditDates() { loadPoolData(); }
 
         let currentPoolTab = 'top10';
-        let currentRecType = '반도체와반도체장비';
+        let currentRecType = '대형주 TOP 10';
         let currentWatchlistCodes = new Set();
         let currentTopSectors = [];
         let currentSectorCategories = {};
 
-        // 섹터 구분별 표시 스타일: scale(영업이익 규모 대표) / growth(성장 대표) / other(기타)
+        // 섹터 구분별 표시 스타일: scale(영업이익 규모 대표) / growth(성장 대표) / other(기타) / large_cap(대형주) / value(가치주) / momentum(상승주)
         const SECTOR_CATEGORY_STYLE = {
-            scale:  { icon: '📊', accent: '#fbbf24', label: '규모' },
-            growth: { icon: '🚀', accent: '#34d399', label: '성장' },
-            other:  { icon: '',   accent: '#64748b', label: '' },
+            large_cap: { icon: '🎯', accent: '#a5b4fc', label: '대형주' },
+            value:     { icon: '💎', accent: '#60a5fa', label: '가치주' },
+            momentum:  { icon: '🔥', accent: '#ef4444', label: '상승주' },
+            scale:     { icon: '📊', accent: '#fbbf24', label: '규모' },
+            growth:    { icon: '🚀', accent: '#34d399', label: '성장' },
+            other:     { icon: '',   accent: '#64748b', label: '' },
         };
 
         function buildSectorTabs(topSectors) {
@@ -5281,14 +5290,11 @@
             if (!container) return;
             currentTopSectors = topSectors;
 
-            const allTabs = [...topSectors];
-            if (allTabs.indexOf('기타') === -1) {
-                allTabs.push('기타');
-            }
+            const allTabs = ['대형주 TOP 10', '가치주 TOP 10', '상승주 TOP 10'];
 
             container.innerHTML = allTabs.map((sectorName, index) => {
                 const isActive = (currentRecType === sectorName);
-                const category = sectorName === '기타' ? 'other' : (currentSectorCategories[sectorName] || 'scale');
+                const category = sectorName === '대형주 TOP 10' ? 'large_cap' : (sectorName === '가치주 TOP 10' ? 'value' : (sectorName === '상승주 TOP 10' ? 'momentum' : (sectorName === '기타' ? 'other' : (currentSectorCategories[sectorName] || 'scale'))));
                 const style = SECTOR_CATEGORY_STYLE[category];
 
                 const bgStyle = isActive ? 'rgba(99, 102, 241, 0.2)' : 'transparent';
@@ -5312,9 +5318,18 @@
         }
 
         function refreshPoolTop10Rendering() {
-            const filtered = currentPoolStocks.filter(s => {
-                return s.mapped_sector === currentRecType;
-            });
+            let filtered;
+            if (currentRecType === '대형주 TOP 10') {
+                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'large_cap');
+            } else if (currentRecType === '가치주 TOP 10') {
+                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'value');
+            } else if (currentRecType === '상승주 TOP 10') {
+                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'momentum');
+            } else {
+                filtered = currentPoolStocks.filter(s => {
+                    return s.mapped_sector === currentRecType;
+                });
+            }
             const top10 = filtered.slice(0, 10);
             renderPoolTop10(top10, currentWatchlistCodes);
 
@@ -5357,13 +5372,9 @@
                 const topSectors = poolData.top_sectors || [];
                 currentTopSectors = topSectors;
                 currentSectorCategories = poolData.sector_categories || {};
-                if (topSectors.length > 0 && (!currentRecType || topSectors.indexOf(currentRecType) === -1)) {
-                    currentRecType = topSectors[0];
-                } else if (topSectors.length === 0) {
-                    // Pool이 아직 구성되지 않아 대표 섹터가 없는 경우, 추천 종목은 전부 '기타'로
-                    // 매핑되므로 기본 탭도 '기타'로 맞춰야 화면에 표시된다.
-                    currentRecType = '기타';
-                }
+                
+                currentRecType = '대형주 TOP 10';
+                
                 buildSectorTabs(topSectors);
                 
                 refreshPoolTop10Rendering();

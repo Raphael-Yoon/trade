@@ -160,7 +160,20 @@ def get_naver_financials(session, ticker):
         try:
             market_cap_area = soup.select_one('#_market_sum')
             if market_cap_area:
-                market_cap = int(market_cap_area.text.strip().replace(',', '').replace('조', '0000').replace('억', ''))
+                s = market_cap_area.text.strip().replace(',', '')
+                import re
+                val = 0
+                m_cho = re.search(r'(\d+)조', s)
+                m_uk = re.search(r'(\d+)억', s)
+                if m_cho:
+                    val += int(m_cho.group(1)) * 10000
+                if m_uk:
+                    val += int(m_uk.group(1))
+                if not m_cho and not m_uk:
+                    nums = re.findall(r'\d+', s)
+                    if nums:
+                        val = int(nums[0])
+                market_cap = val
             
             price_area = soup.select_one('.no_today .no_up .blind, .no_today .no_down .blind, .no_today .no_steady .blind')
             if price_area:
@@ -923,6 +936,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     '최근공시': recent_disclosures,
                     '업종': naver_data.get('sector'),
                     '시가총액': naver_data.get('market_cap'),
+                    '자산총계': (liabilities or 0.0) + (equity or 0.0),
                     'PBR': naver_data.get('pbr'),
                     '업종평균PBR': naver_data.get('avg_pbr'),
                     'PER': naver_data.get('per'),
