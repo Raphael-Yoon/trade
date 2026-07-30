@@ -3314,7 +3314,7 @@ def get_history_dates():
 
 @app.route('/api/history/data', methods=['GET'])
 def get_history_data():
-    """[김선화] 특정 날짜의 종목별 상세 데이터 조회"""
+    """[김선화] 특정 날짜의 종목별 상세 데이터 및 투자일지 조회"""
     date = request.args.get('date')
     if not date:
         return jsonify({'success': False, 'message': '날짜를 지정해주세요.'}), 400
@@ -3323,7 +3323,78 @@ def get_history_data():
         cursor = db.cursor()
         cursor.execute("SELECT * FROM tr_stock_daily_history WHERE date = ? ORDER BY owner, name", (date,))
         history = [dict(row) for row in cursor.fetchall()]
-        return jsonify({'success': True, 'data': history})
+
+        cursor.execute("SELECT * FROM tr_investment_journal WHERE date = ?", (date,))
+        j_row = cursor.fetchone()
+        journal = dict(j_row) if j_row else None
+
+        return jsonify({'success': True, 'data': history, 'journal': journal})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/journal', methods=['GET'])
+def get_investment_journal():
+    """[김선화] 특정 일자의 투자일지 조회"""
+    date = request.args.get('date')
+    if not date:
+        return jsonify({'success': False, 'message': '날짜를 지정해주세요.'}), 400
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM tr_investment_journal WHERE date = ?", (date,))
+        row = cursor.fetchone()
+        journal = dict(row) if row else {'date': date, 'content': '', 'created_at': None, 'updated_at': None}
+        return jsonify({'success': True, 'journal': journal})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/journal/save', methods=['POST'])
+def save_investment_journal():
+    """[김선화] 특정 일자의 투자일지 저장/수정"""
+    try:
+        body = request.get_json() or {}
+        date = body.get('date') or datetime.now().strftime('%Y-%m-%d')
+        content = (body.get('content') or '').strip()
+
+        db = get_db()
+        cursor = db.cursor()
+        now_iso = datetime.now().isoformat()
+
+        cursor.execute("SELECT id FROM tr_investment_journal WHERE date = ?", (date,))
+        row = cursor.fetchone()
+
+        if row:
+            cursor.execute("""
+                UPDATE tr_investment_journal
+                SET content = ?, updated_at = ?
+                WHERE date = ?
+            """, (content, now_iso, date))
+        else:
+            cursor.execute("""
+                INSERT INTO tr_investment_journal (date, content, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+            """, (date, content, now_iso, now_iso))
+
+        db.commit()
+        return jsonify({'success': True, 'message': f'{date} 투자일지가 저장되었습니다.', 'date': date, 'content': content})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/journal/delete', methods=['DELETE'])
+def delete_investment_journal():
+    """[김선화] 특정 일자의 투자일지 삭제"""
+    date = request.args.get('date')
+    if not date:
+        return jsonify({'success': False, 'message': '날짜를 지정해주세요.'}), 400
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("DELETE FROM tr_investment_journal WHERE date = ?", (date,))
+        db.commit()
+        return jsonify({'success': True, 'message': f'{date} 투자일지가 삭제되었습니다.'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 

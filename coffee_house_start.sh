@@ -17,6 +17,10 @@ pkill -f "gunicorn.*trade:app"
 # 2. 조금의 틈을 주어 포트가 확실히 풀리도록 대기
 sleep 1
 
+# 2.5 DB 마이그레이션 실행 (신규 테이블 및 컬럼 자동 반영)
+echo "Running DB Migration..."
+/home/raphael/Dev/pythons/.venv/bin/python db_init.py
+
 # 3. 127.0.0.1:5000번 포트로 백그라운드 구동 (PID 파일 지정)
 /home/raphael/Dev/pythons/.venv/bin/gunicorn --daemon --workers 2 --bind 127.0.0.1:5000 --pid "$PID_FILE" --access-logfile flask.log --error-logfile flask.log trade:app
 

@@ -182,6 +182,17 @@ def _init_sqlite():
         )
     ''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tr_investment_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT UNIQUE,
+            content TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    ''')
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_journal_date ON tr_investment_journal(date)")
+
     conn.commit()
     conn.close()
 
@@ -376,8 +387,19 @@ def _init_mysql():
         )
     ''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tr_investment_journal (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            date VARCHAR(50) UNIQUE,
+            content LONGTEXT,
+            created_at VARCHAR(50),
+            updated_at VARCHAR(50)
+        )
+    ''')
+
     create_index_if_not_exists("idx_tr_stock_daily_history_date", "tr_stock_daily_history", "date")
     create_index_if_not_exists("idx_history_date_owner", "tr_stock_daily_history", "date, owner")
+    create_index_if_not_exists("idx_journal_date", "tr_investment_journal", "date")
 
     conn.commit()
     conn.close()
