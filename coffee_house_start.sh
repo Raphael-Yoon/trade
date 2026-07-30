@@ -1,8 +1,9 @@
 #!/bin/bash
 
-# 0. 깃허브 최신 소스코드 동기화
-echo "Pulling latest code from GitHub..."
-git pull origin master
+# 0. 깃허브 최신 소스코드 강제 동기화 (origin/master 기준)
+echo "Resetting local code to match GitHub origin/master..."
+git fetch origin
+git reset --hard origin/master
 
 # 1. 기존에 돌고 있는 trade 관련 Gunicorn 프로세스만 종료 (PID 파일 활용)
 PID_FILE="/home/raphael/Dev/pythons/trade/coffee_house.pid"
