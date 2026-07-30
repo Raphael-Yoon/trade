@@ -643,7 +643,7 @@
                 </div>
                 <div class="modal-form-group" style="margin-bottom: 0;">
                     <label for="journalContentInput" class="modal-label" style="font-size: 14px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; display: block;">투자일지 / 매매 복기 내용</label>
-                    <textarea id="journalContentInput" placeholder="오늘의 매매 복기, 아이디어, 시장 느낌, 반성할 점 등을 자유롭게 기록하세요..." style="width: 100%; min-height: 200px; padding: 14px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 14px; line-height: 1.6; resize: vertical; outline: none;"></textarea>
+                    <textarea id="journalContentInput" placeholder="오늘의 매매 복기, 아이디어, 시장 느낌, 반성할 점 등을 자유롭게 기록하세요..." style="width: 100%; min-height: 260px; height: 260px; padding: 14px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 14px; line-height: 1.6; resize: vertical; outline: none;"></textarea>
                 </div>
             </div>
             <div class="modal-footer" style="padding: 16px 24px; display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
@@ -1758,7 +1758,7 @@
             const selDate = targetDate || todayStr;
 
             dateInput.value = selDate;
-            contentInput.value = '';
+            contentInput.value = DEFAULT_JOURNAL_TEMPLATE;
 
             fetch(`/api/journal?date=${selDate}`)
                 .then(res => res.json())
