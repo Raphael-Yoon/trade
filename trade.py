@@ -1102,6 +1102,12 @@ def get_live_prices():
 @app.route('/api/targets/migrate', methods=['POST'])
 def migrate_targets():
     """섹터별 추천 데이터(results/sector_recommendations.json)를 읽어 활성 DB(MySQL 또는 로컬 SQLite)로 이관합니다."""
+    if not check_is_prod():
+        return jsonify({
+            'success': False,
+            'message': '데이터 이관 기능은 운영 서버 환경(IS_PROD=true)에서만 사용할 수 있습니다.'
+        }), 403
+
     sector_json_path = os.path.join(RESULTS_DIR, 'sector_recommendations.json')
 
     records = []
@@ -1457,9 +1463,12 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', y
 def check_is_local():
     return os.name == 'nt' or 'PYTHONANYWHERE_DOMAIN' not in os.environ
 
+def check_is_prod():
+    return (os.getenv('RUN_MODE') == 'prod') or (os.getenv('FLASK_ENV') == 'production') or (os.getenv('IS_PROD') == 'true')
+
 @app.route('/')
 def index():
-    is_prod = (os.getenv('RUN_MODE') == 'prod') or (os.getenv('FLASK_ENV') == 'production') or (os.getenv('IS_PROD') == 'true')
+    is_prod = check_is_prod()
     return render_template('index.html', is_local=check_is_local(), is_prod=is_prod)
 
 @app.route('/api/collect', methods=['POST'])
