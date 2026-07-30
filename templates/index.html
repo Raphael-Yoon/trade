@@ -642,10 +642,7 @@
                     <input type="date" id="journalDateInput" class="modal-input" style="width: 100%; padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 15px;" onchange="onJournalDateChange(this.value)">
                 </div>
                 <div class="modal-form-group" style="margin-bottom: 0;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <label for="journalContentInput" class="modal-label" style="font-size: 14px; font-weight: 600; color: var(--text-muted); margin: 0;">투자일지 / 매매 복기 내용</label>
-                        <button type="button" onclick="applyJournalTemplate()" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #60a5fa; font-size: 12px; padding: 4px 10px; border-radius: 8px; cursor: pointer;">📝 기본 양식 불러오기</button>
-                    </div>
+                    <label for="journalContentInput" class="modal-label" style="font-size: 14px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; display: block;">투자일지 / 매매 복기 내용</label>
                     <textarea id="journalContentInput" placeholder="오늘의 매매 복기, 아이디어, 시장 느낌, 반성할 점 등을 자유롭게 기록하세요..." style="width: 100%; min-height: 200px; padding: 14px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 14px; line-height: 1.6; resize: vertical; outline: none;"></textarea>
                 </div>
             </div>
@@ -1747,14 +1744,6 @@
 
 [내일의 대응 전략]
 - `;
-
-        function applyJournalTemplate() {
-            const contentInput = document.getElementById('journalContentInput');
-            if (contentInput.value.trim().length > 0) {
-                if (!confirm('기존 입력 내용이 있습니다. 기본 양식으로 변경하시겠습니까?')) return;
-            }
-            contentInput.value = DEFAULT_JOURNAL_TEMPLATE;
-        }
 
         // [김선화] 오늘 종목별 데이터 스냅샷 및 투자일지 팝업 연동
         function takeSnapshot() {
