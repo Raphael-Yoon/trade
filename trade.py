@@ -1139,6 +1139,14 @@ def migrate_targets():
             
         cursor = conn.cursor()
         
+        # 신규 재무/성장성 컬럼 자동 추가 (운영 MySQL 및 로컬 SQLite 대응)
+        for col in ['operating_growth', 'revenue_growth', 'pbr', 'op_profit']:
+            try:
+                col_type = "DOUBLE" if is_mysql else "REAL"
+                cursor.execute(f"ALTER TABLE tr_audit_recommendations ADD COLUMN {col} {col_type}")
+            except Exception:
+                pass
+                
         # 3. SQLite 테이블이 존재하지 않는 경우 자동 생성 보장
         if not is_mysql:
             cursor.execute("""
