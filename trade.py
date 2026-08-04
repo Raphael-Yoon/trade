@@ -1159,7 +1159,11 @@ def migrate_targets():
                     news_summary TEXT,
                     rec_type TEXT,
                     one_liner TEXT,
-                    disc_json TEXT
+                    disc_json TEXT,
+                    operating_growth REAL,
+                    revenue_growth REAL,
+                    pbr REAL,
+                    op_profit REAL
                 )
             """)
 
@@ -1169,8 +1173,8 @@ def migrate_targets():
         insert_sql = """
             INSERT INTO tr_audit_recommendations
                 (code, name, current_price, target_price, upside, opinion, data_date, created_at,
-                 score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, sector)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, sector, operating_growth, revenue_growth, pbr, op_profit)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1198,7 +1202,11 @@ def migrate_targets():
                 r.get('news_summary') if isinstance(r.get('news_summary'), str) else json.dumps(r.get('news_summary', []), ensure_ascii=False),
                 r.get('rec_type', 'sector'), r.get('one_liner', ''),
                 r.get('disc_json') if isinstance(r.get('disc_json'), str) else json.dumps(r.get('disc_json', []), ensure_ascii=False),
-                _get_sector(r)
+                _get_sector(r),
+                float(r['operating_growth']) if r.get('operating_growth') is not None else 0.0,
+                float(r['revenue_growth']) if r.get('revenue_growth') is not None else 0.0,
+                float(r['pbr']) if r.get('pbr') is not None else 0.0,
+                float(r['op_profit']) if r.get('op_profit') is not None else 0.0
             )
             for r in records
         ]
@@ -1252,7 +1260,7 @@ def get_stock_pool():
             
         # 3. tr_audit_recommendations 테이블에서 추천 종목 조회
         cursor.execute("""
-            SELECT code, name, sector, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, opinion
+            SELECT code, name, sector, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, opinion, operating_growth, revenue_growth, pbr, op_profit
             FROM tr_audit_recommendations
         """)
         rec_rows = [dict(r) for r in cursor.fetchall()]
@@ -1293,7 +1301,7 @@ def get_stock_pool():
                 "sector": sector_val,
                 "mapped_sector": mapped_sector,
                 "roe": rec.get('roe') or pool_info.get('roe', 0.0),
-                "pbr": pool_info.get('pbr'),
+                "pbr": rec.get('pbr') if rec.get('pbr') is not None else pool_info.get('pbr'),
                 "per": pool_info.get('per'),
                 "debt_ratio": rec.get('debt') or pool_info.get('debt_ratio', 0.0),
                 "operating_margin": pool_info.get('operating_margin'),
@@ -1308,7 +1316,10 @@ def get_stock_pool():
                 "is_rec": 1,  # 추천 종목 표시
                 "rec_type": rec.get('rec_type') or 'sector',
                 "one_liner": rec.get('one_liner', ''),
-                "opinion": rec.get('opinion', '')
+                "opinion": rec.get('opinion', ''),
+                "operating_growth": rec.get('operating_growth') if rec.get('operating_growth') is not None else 0.0,
+                "revenue_growth": rec.get('revenue_growth') if rec.get('revenue_growth') is not None else 0.0,
+                "op_profit": rec.get('op_profit') if rec.get('op_profit') is not None else 0.0
             })
             
         # 추천이 아닌 일반 풀 종목 추가

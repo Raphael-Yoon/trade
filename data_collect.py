@@ -1035,11 +1035,25 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
         else:
             df = pd.DataFrame(results)
 
-        output_file = output_path if output_path else os.path.join(os.path.dirname(os.path.abspath(__file__)), "result.xlsx")
+        if output_path:
+            output_file = output_path
+        else:
+            time_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
+            market_lower = market.lower() if market else 'all'
+            output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"kospi,kosdaq_{market_lower}_{time_suffix}.xlsx")
+            
         df.to_excel(output_file, index=False)
-        
         print(f"\n\nData saved: {output_file}")
         print(f"Total stocks: {len(df)}")
+        
+        # 구글 드라이브에 자동 업로드 연동
+        try:
+            print("[*] Uploading generated spreadsheet to Google Drive...")
+            from drive_sync import upload_to_drive
+            upload_to_drive(output_file)
+            print("[+] Auto-upload to Google Drive completed successfully.")
+        except Exception as drive_err:
+            print(f"[!] Google Drive upload failed: {drive_err}")
 
     except Exception as e:
         print(f"\n메인 루프 오류 발생: {e}")

@@ -60,7 +60,7 @@ def analyze_disclosures(disc_list):
     pos_keywords = ['공급계약', '단일판매', '특허', '수익', '흑자', '취득', '합병', '양수', '무상증자']
     neg_keywords = ['소송', '피소', '재해', '파산', '영업정지', '배임', '횡령', '부적정', '의견거절', '범위제한', '벌금', '제재', '유상증자']
     
-    impact = 0
+    impact = 0.0
     enriched_disc = []
     
     for d in disc_list:
@@ -71,12 +71,17 @@ def analyze_disclosures(disc_list):
         found_pos = [w for w in pos_keywords if w in name]
         found_neg = [w for w in neg_keywords if w in name]
         
+        # 기재정정, 단순 발행결과 등은 노이즈로 보고 영향도를 최소화
+        is_minor = any(w in name for w in ['기재정정', '발행결과', '결과보고서', '소유상황'])
+        
         if found_pos and not found_neg:
-            impact += 5
+            val = 0.5 if is_minor else 1.5
+            impact += val
             sentiment = 'positive'
             reason = f"호재성 공시({', '.join(found_pos)})가 확인되었습니다."
         elif found_neg and not found_pos:
-            impact -= 5
+            val = -0.5 if is_minor else -1.5
+            impact -= val
             sentiment = 'negative'
             reason = f"악재성 공시({', '.join(found_neg)})가 확인되었습니다."
             
@@ -91,7 +96,7 @@ def analyze_disclosures(disc_list):
             'reason': reason
         })
         
-    impact = max(-5, min(5, impact))
+    impact = max(-1.5, min(1.5, impact))
     return enriched_disc, impact
 
 def main():
@@ -107,8 +112,8 @@ def main():
         candidates = json.load(f)
         
     large_caps = []
-    value_stocks = []
-    momentum_stocks = []
+    mid_caps = []
+    small_caps = []
     
     for c in candidates:
         name = c['name']
@@ -125,27 +130,38 @@ def main():
             print(f"  [제외] {name}({code}): 중대 공시 리스크 감지")
             continue
             
-        # Hard Filter: Momentum용 역배열 제외
-        if rec_type == 'momentum':
-            if c.get('ma5_diff', 0.0) <= 0 or c.get('ma20_diff', 0.0) <= 0:
-                print(f"  [제외] {name}({code}): 단기 하락 추세(MA5: {c.get('ma5_diff')}%, MA20: {c.get('ma20_diff')}%)")
-                continue
-                
         # 뉴스 및 공시 감성 분석
         enriched_news, news_score = analyze_news_sentiment(c.get('news', []))
         enriched_disc, disc_impact = analyze_disclosures(c.get('disclosures', []))
         
-        # 최종 점수 계산
+        # 최종 점수 계산 (단일 공식 통일 및 정성 평가 스케일 다운)
         step1_score = c['score']
-        if rec_type == 'large_cap':
-            final_score = step1_score + (news_score * 0.20) + disc_impact
-        elif rec_type == 'value':
-            final_score = step1_score + (news_score * 0.20) + disc_impact
-        else: # momentum
-            final_score = step1_score + (news_score * 0.25) + disc_impact
+        final_score = step1_score + ((news_score - 50) * 0.06) + disc_impact
             
         opinion = "적극매수" if final_score >= 80 else ("매수" if final_score >= 60 else "보유")
-        one_liner = f"재무 정량점수 {step1_score:.1f}점에 뉴스/공시 모멘텀을 결합한 {rec_type.upper()} 추천주"
+        kor_type = {'large_cap': '대형주', 'mid_cap': '중형주', 'small_cap': '소형주'}.get(rec_type, rec_type)
+        
+        # 최근 공시 및 뉴스 정보 추출 (중복 템플릿 제거)
+        recent_discs = [d['report_nm'].strip() for d in c.get('disclosures', []) if d.get('report_nm')]
+        recent_news = [n['title'].strip() for n in c.get('news', []) if n.get('title')]
+        
+        if recent_discs:
+            one_liner = f"최근 공시: {recent_discs[0]}"
+        elif recent_news:
+            one_liner = f"최근 뉴스: {recent_news[0]}"
+        else:
+            one_liner = f"[{c['sector']}] 재무 밸런스가 돋보이는 {kor_type} 우량 추천주"
+            
+        desc_parts = []
+        if recent_discs:
+            desc_parts.append(f"최근 공시로 '{recent_discs[0]}'" + (f" 외 {len(recent_discs)-1}건" if len(recent_discs) > 1 else "") + "이 발표되었습니다.")
+        if recent_news:
+            desc_parts.append(f"최근 관련 보도로 '{recent_news[0]}'" + (f" 외 {len(recent_news)-1}건" if len(recent_news) > 1 else "") + " 뉴스 등이 확인됩니다.")
+            
+        if desc_parts:
+            reason = f"[{c['sector']}] " + " ".join(desc_parts)
+        else:
+            reason = f"[{c['sector']}] 특이 공시 및 시장 노이즈가 최소화된 안정적인 펀더멘털 집중 구간입니다."
         
         result_item = {
             'code': code,
@@ -156,8 +172,12 @@ def main():
             'upside': c['upside'],
             'roe': c['roe'],
             'debt': c['debt'],
+            'pbr': c.get('pbr', 0.0),
+            'op_profit': c.get('op_profit', 0.0),
+            'operating_growth': c.get('op_growth', 0.0),
+            'revenue_growth': c.get('rev_growth', 0.0),
             'score': round(final_score, 2),
-            'reason': f"[{c['sector']}] 뉴스심리 {news_score:.1f}점 및 공시가감점 {disc_impact:+}점 반영. ROE {c['roe']}% / 부채비율 {c['debt']}%",
+            'reason': reason,
             'news_summary': json.dumps(enriched_news, ensure_ascii=False),
             'disc_json': json.dumps(enriched_disc, ensure_ascii=False),
             'rec_type': rec_type,
@@ -168,25 +188,25 @@ def main():
         
         if rec_type == 'large_cap':
             large_caps.append(result_item)
-        elif rec_type == 'value':
-            value_stocks.append(result_item)
-        elif rec_type == 'momentum':
-            momentum_stocks.append(result_item)
+        elif rec_type == 'mid_cap':
+            mid_caps.append(result_item)
+        elif rec_type == 'small_cap':
+            small_caps.append(result_item)
             
     # 정렬 및 Top 10 선정
     large_caps.sort(key=lambda x: x['score'], reverse=True)
-    value_stocks.sort(key=lambda x: x['score'], reverse=True)
-    momentum_stocks.sort(key=lambda x: x['score'], reverse=True)
+    mid_caps.sort(key=lambda x: x['score'], reverse=True)
+    small_caps.sort(key=lambda x: x['score'], reverse=True)
     
     top10_large_cap = large_caps[:10]
-    top10_value = value_stocks[:10]
-    top10_momentum = momentum_stocks[:10]
+    top10_mid_cap = mid_caps[:10]
+    top10_small_cap = small_caps[:10]
     
     print(f"[+] Selected Large-cap Top 10: {[s['name'] for s in top10_large_cap]}")
-    print(f"[+] Selected Value Top 10: {[s['name'] for s in top10_value]}")
-    print(f"[+] Selected Momentum Top 10: {[s['name'] for s in top10_momentum]}")
+    print(f"[+] Selected Mid-cap Top 10: {[s['name'] for s in top10_mid_cap]}")
+    print(f"[+] Selected Small-cap Top 10: {[s['name'] for s in top10_small_cap]}")
     
-    combined = top10_large_cap + top10_value + top10_momentum
+    combined = top10_large_cap + top10_mid_cap + top10_small_cap
     
     # 1. 파일 저장
     rec_json_file = results_dir / 'sector_recommendations.json'
@@ -199,20 +219,28 @@ def main():
     conn = sqlite3.connect(SQLITE_PATH)
     cursor = conn.cursor()
     
-    # 기존 대형주, 가치주, 상승주 데이터 삭제 후 재적재
-    cursor.execute("DELETE FROM tr_audit_recommendations WHERE rec_type IN ('large_cap', 'value', 'momentum')")
+    # tr_audit_recommendations 테이블에 컬럼이 없을 경우를 대비해 ALTER TABLE 자동 실행
+    for col in ['operating_growth', 'revenue_growth', 'pbr', 'op_profit']:
+        try:
+            cursor.execute(f"ALTER TABLE tr_audit_recommendations ADD COLUMN {col} REAL")
+        except sqlite3.OperationalError:
+            pass
+    
+    # 기존 대형주, 중형주, 소형주 및 구 가치주/상승주 데이터 삭제 후 재적재
+    cursor.execute("DELETE FROM tr_audit_recommendations WHERE rec_type IN ('large_cap', 'mid_cap', 'small_cap', 'value', 'momentum')")
     
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     for r in combined:
         cursor.execute("""
             INSERT INTO tr_audit_recommendations
             (code, name, sector, current_price, target_price, upside, opinion, data_date, created_at,
-             score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, operating_growth, revenue_growth, pbr, op_profit)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             r['code'], r['name'], r['sector'], r['current_price'], r['target_price'], r['upside'],
             r['opinion'], r['data_date'], now_str, r['score'], r['roe'], r['debt'], r['reason'],
-            r['news_summary'], r['rec_type'], r['one_liner'], r['disc_json']
+            r['news_summary'], r['rec_type'], r['one_liner'], r['disc_json'], r['operating_growth'], r['revenue_growth'],
+            r['pbr'], r['op_profit']
         ))
     conn.commit()
     conn.close()

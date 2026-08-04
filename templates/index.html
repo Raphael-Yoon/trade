@@ -4566,7 +4566,7 @@
         }
 
         function startCalibration(btn, filename) {
-            const message = `'${filename}' 파일을 기준으로 가격 및 시가총액을 최신 실시간 데이터로 동기화하고, 3대 트랙(대형주, 가치주, 상승주) 분석 및 요약을 다시 구성하시겠습니까?\n이 작업은 약 1~2분 정도 소요됩니다.`;
+            const message = `'${filename}' 파일을 기준으로 가격 및 시가총액을 최신 실시간 데이터로 동기화하고, 3대 트랙(대형주, 중형주, 소형주) 분석 및 요약을 다시 구성하시겠습니까?\n이 작업은 약 1~2분 정도 소요됩니다.`;
             showCustomConfirm(message, function() {
                 // Disable button and show loader
                 const originalText = btn.innerHTML;
@@ -5371,11 +5371,11 @@
         let currentTopSectors = [];
         let currentSectorCategories = {};
 
-        // 섹터 구분별 표시 스타일: scale(영업이익 규모 대표) / growth(성장 대표) / other(기타) / large_cap(대형주) / value(가치주) / momentum(상승주)
+        // 섹터 구분별 표시 스타일: scale(영업이익 규모 대표) / growth(성장 대표) / other(기타) / large_cap(대형주) / mid_cap(중형주) / small_cap(소형주)
         const SECTOR_CATEGORY_STYLE = {
             large_cap: { icon: '🎯', accent: '#a5b4fc', label: '대형주' },
-            value:     { icon: '💎', accent: '#60a5fa', label: '가치주' },
-            momentum:  { icon: '🔥', accent: '#ef4444', label: '상승주' },
+            mid_cap:   { icon: '💎', accent: '#60a5fa', label: '중형주' },
+            small_cap: { icon: '🔥', accent: '#ef4444', label: '소형주' },
             scale:     { icon: '📊', accent: '#fbbf24', label: '규모' },
             growth:    { icon: '🚀', accent: '#34d399', label: '성장' },
             other:     { icon: '',   accent: '#64748b', label: '' },
@@ -5386,11 +5386,11 @@
             if (!container) return;
             currentTopSectors = topSectors;
 
-            const allTabs = ['대형주 TOP 10', '가치주 TOP 10', '상승주 TOP 10'];
+            const allTabs = ['대형주 TOP 10', '중형주 TOP 10', '소형주 TOP 10'];
 
             container.innerHTML = allTabs.map((sectorName, index) => {
                 const isActive = (currentRecType === sectorName);
-                const category = sectorName === '대형주 TOP 10' ? 'large_cap' : (sectorName === '가치주 TOP 10' ? 'value' : (sectorName === '상승주 TOP 10' ? 'momentum' : (sectorName === '기타' ? 'other' : (currentSectorCategories[sectorName] || 'scale'))));
+                const category = sectorName === '대형주 TOP 10' ? 'large_cap' : (sectorName === '중형주 TOP 10' ? 'mid_cap' : (sectorName === '소형주 TOP 10' ? 'small_cap' : (currentSectorCategories[sectorName] || 'scale')));
                 const style = SECTOR_CATEGORY_STYLE[category];
 
                 const bgStyle = isActive ? 'rgba(99, 102, 241, 0.2)' : 'transparent';
@@ -5417,10 +5417,10 @@
             let filtered;
             if (currentRecType === '대형주 TOP 10') {
                 filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'large_cap');
-            } else if (currentRecType === '가치주 TOP 10') {
-                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'value');
-            } else if (currentRecType === '상승주 TOP 10') {
-                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'momentum');
+            } else if (currentRecType === '중형주 TOP 10') {
+                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'mid_cap');
+            } else if (currentRecType === '소형주 TOP 10') {
+                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'small_cap');
             } else {
                 filtered = currentPoolStocks.filter(s => {
                     return s.mapped_sector === currentRecType;
@@ -5574,14 +5574,30 @@
                                     <div style="font-size:15px;font-weight:900;color:${scoreColor};">${score}</div>
                                 </div>
                             </div>
-                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;">
                                 <div style="padding:10px 14px;background:rgba(251,191,36,0.06);border-radius:12px;border:1px solid rgba(251,191,36,0.15);">
                                     <div style="font-size:10px;color:#fbbf24;margin-bottom:3px;">목표주가</div>
                                     <div style="font-size:15px;font-weight:900;color:#fbbf24;font-family:'Outfit',sans-serif;">${s.target_price > 0 ? s.target_price.toLocaleString()+'원' : '-'}</div>
                                 </div>
                                 <div style="padding:10px 14px;background:rgba(99,102,241,0.06);border-radius:12px;border:1px solid rgba(99,102,241,0.15);">
                                     <div style="font-size:10px;color:#818cf8;margin-bottom:3px;">재무 기본점수</div>
-                                    <div style="font-size:20px;font-weight:900;color:#818cf8;font-family:'Outfit',sans-serif;">${(s.pool_score||0).toFixed(1)}</div>
+                                    <div style="font-size:15px;font-weight:900;color:#818cf8;font-family:'Outfit',sans-serif;">${(s.pool_score||0).toFixed(1)}</div>
+                                </div>
+                                <div style="padding:10px 14px;background:rgba(244,63,94,0.06);border-radius:12px;border:1px solid rgba(244,63,94,0.15);">
+                                    <div style="font-size:10px;color:#f43f5e;margin-bottom:3px;">PBR</div>
+                                    <div style="font-size:15px;font-weight:900;color:#f43f5e;font-family:'Outfit',sans-serif;">${s.pbr !== undefined && s.pbr !== null ? s.pbr.toFixed(2) : '-'}</div>
+                                </div>
+                                <div style="padding:10px 14px;background:rgba(56,189,248,0.06);border-radius:12px;border:1px solid rgba(56,189,248,0.15);">
+                                    <div style="font-size:10px;color:#38bdf8;margin-bottom:3px;">영업이익 규모</div>
+                                    <div style="font-size:15px;font-weight:900;color:#38bdf8;font-family:'Outfit',sans-serif;">${s.op_profit !== undefined && s.op_profit !== null ? (s.op_profit >= 1000000000000 ? (s.op_profit/1000000000000).toFixed(1)+'조원' : (s.op_profit >= 100000000 ? (s.op_profit/100000000).toFixed(0)+'억원' : s.op_profit.toLocaleString()+'원')) : '-'}</div>
+                                </div>
+                                <div style="padding:10px 14px;background:rgba(16,185,129,0.06);border-radius:12px;border:1px solid rgba(16,185,129,0.15);">
+                                    <div style="font-size:10px;color:#10b981;margin-bottom:3px;">매출액 성장률</div>
+                                    <div style="font-size:15px;font-weight:900;color:#10b981;font-family:'Outfit',sans-serif;">${s.revenue_growth !== undefined && s.revenue_growth !== null ? (s.revenue_growth > 0 ? '+' : '') + s.revenue_growth.toFixed(1)+'%' : '-'}</div>
+                                </div>
+                                <div style="padding:10px 14px;background:rgba(16,185,129,0.06);border-radius:12px;border:1px solid rgba(16,185,129,0.15);">
+                                    <div style="font-size:10px;color:#10b981;margin-bottom:3px;">영업익 성장률</div>
+                                    <div style="font-size:15px;font-weight:900;color:#10b981;font-family:'Outfit',sans-serif;">${s.operating_growth !== undefined && s.operating_growth !== null ? (s.operating_growth > 0 ? '+' : '') + s.operating_growth.toFixed(1)+'%' : '-'}</div>
                                 </div>
                             </div>
                             ${summary ? `<div style="padding:12px 14px;background:rgba(16,185,129,0.05);border-radius:12px;border:1px solid rgba(16,185,129,0.1);font-size:12px;color:#94a3b8;line-height:1.6;"><span style="color:#10b981;font-weight:700;">분석 요약 </span>${summary}</div>` : ''}

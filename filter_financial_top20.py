@@ -118,49 +118,21 @@ def main():
     print(f"[*] After Debt Ratio filtering (<=150% except Finance/Shipbuilding/Defense): {before_debt} -> {len(df)} stocks remaining")
 
     # 6. 스코어링 계산
-    # (a) 대형주 (Large Cap) 스코어 계산 (규모 60% + ROE 30% + 부채비율 10%, PBR은 완전히 배제하여 가치주와 차별화)
-    # 규모(Size)는 자산총계/매출액/시가총액 백분위의 결합 지표로 산출
-    is_mc_valid = (df[df['종목명'].isin(['삼성전자', 'SK하이닉스'])]['시가총액_fill'] > 0).any()
-    
-    asset_pct = df['자산총계_fill'].rank(pct=True) if (df['자산총계_fill'] > 0).any() else df['매출액_fill'].rank(pct=True)
-    rev_pct = df['매출액_fill'].rank(pct=True)
-    mc_pct = df['시가총액_fill'].rank(pct=True)
-    
-    if is_mc_valid:
-        size_pct = (asset_pct * 0.4 + rev_pct * 0.3 + mc_pct * 0.3)
-    else:
-        size_pct = (asset_pct * 0.6 + rev_pct * 0.4)
-
+    # 단일 공통 스코어 (Unified Score) 계산 (영업이익 규모 25% + ROE 20% + 영업이익률 15% + 부채비율 안정도 10% + PBR 저평가도 10% + 영업이익 성장률 20%)
+    op_profit_pct = df['영업이익_fill'].rank(pct=True)
     roe_pct = df['ROE_fill'].rank(pct=True)
-    valuation_pct = 1 - df['PBR_fill'].rank(pct=True)
-    health_pct = 1 - df['부채비율_fill'].rank(pct=True)
-
-    df['large_cap_score'] = (
-        size_pct * 0.60 +
-        roe_pct * 0.30 +
-        health_pct * 0.10
-    ) * 100
-
-    # (b) 가치주 (Value) 스코어 계산 (저평가/PBR 위주)
-    df['value_score'] = (
-        valuation_pct * 0.45 +
-        roe_pct * 0.30 +
-        size_pct * 0.15 +
-        health_pct * 0.10
-    ) * 100
-
-    # (c) 상승주 (Momentum) 스코어 계산 (Rule of 40 스코어링 가중 30% 반영)
-    df['rule_of_40'] = df['매출액증가율_fill'] + df['영업이익률_fill']
-    rule_of_40_pct = df['rule_of_40'].rank(pct=True)
-    
-    op_growth_pct = df['영업이익증가율_fill'].rank(pct=True)
     op_margin_pct = df['영업이익률_fill'].rank(pct=True)
-    
-    df['momentum_score'] = (
-        rule_of_40_pct * 0.30 +
-        op_growth_pct * 0.30 +
-        op_margin_pct * 0.20 +
-        roe_pct * 0.20
+    health_pct = 1 - df['부채비율_fill'].rank(pct=True)
+    valuation_pct = 1 - df['PBR_fill'].rank(pct=True)
+    op_growth_pct = df['영업이익증가율_fill'].rank(pct=True)
+
+    df['unified_score'] = (
+        op_profit_pct * 0.25 +
+        roe_pct * 0.20 +
+        op_margin_pct * 0.15 +
+        health_pct * 0.10 +
+        valuation_pct * 0.10 +
+        op_growth_pct * 0.20
     ) * 100
 
     # 7. 상위 20개 종목 추출
@@ -174,7 +146,7 @@ def main():
     df = df[~df['종목명'].astype(str).str.endswith(('우', '우B', '우C', '우(전환)', '3우B'))]
     df = df[~df['종목명'].astype(str).str.contains('리츠|ETN|ETF|스팩|레버리지|선물|인버스|Koosec', na=False)]
 
-    # 대형주(Large Cap) 풀: 자산총계 2조 원 또는 매출액 2조 원 이상의 대기업군 결합 필터링
+    # 대형주(Large Cap) 풀: 자산총계 2조 원 이상 (폴백: 매출액 2조 원 이상)
     if (df['자산총계_fill'] > 0).any():
         print("[*] 대형주 선별 기준: 자산총계 2조 원 또는 매출액 2조 원 이상 기업 적용")
         large_cap_pool = df[(df['자산총계_fill'] >= 2000000000000.0) | (df['매출액_fill'] >= 2000000000000.0)]
@@ -182,25 +154,31 @@ def main():
         print("[*] 대형주 선별 기준: 매출액 2조 원 이상 (자산총계 누락으로 폴백 적용)")
         large_cap_pool = df[df['매출액_fill'] >= 2000000000000.0]
     
-    # 가치주(Value) 풀: 자산총계 5천억 원 또는 매출액 5천억 원 이상의 중견/대기업군 결합 필터링
+    # 중형주(Mid Cap) 풀: 자산총계 5천억 원 이상 ~ 2조 원 미만 (폴백: 매출액 5천억 원 이상 ~ 2조 원 미만)
     if (df['자산총계_fill'] > 0).any():
-        print("[*] 가치주 선별 기준: 자산총계 5천억 원 또는 매출액 5천억 원 이상 기업 적용")
-        value_pool = df[(df['자산총계_fill'] >= 500000000000.0) | (df['매출액_fill'] >= 500000000000.0)]
+        print("[*] 중형주 선별 기준: 자산총계 5천억 원 이상 ~ 2조 원 미만 기업 적용")
+        mid_cap_pool = df[
+            ((df['자산총계_fill'] >= 500000000000.0) & (df['자산총계_fill'] < 2000000000000.0)) |
+            (((df['자산총계_fill'] == 0) | df['자산총계_fill'].isna()) & (df['매출액_fill'] >= 500000000000.0) & (df['매출액_fill'] < 2000000000000.0))
+        ]
     else:
-        print("[*] 가치주 선별 기준: 매출액 5천억 원 이상 (자산총계 누락으로 폴백 적용)")
-        value_pool = df[df['매출액_fill'] >= 500000000000.0]
+        print("[*] 중형주 선별 기준: 매출액 5천억 원 이상 ~ 2조 원 미만 (자산총계 누락으로 폴백 적용)")
+        mid_cap_pool = df[(df['매출액_fill'] >= 500000000000.0) & (df['매출액_fill'] < 2000000000000.0)]
     
-    # 상승주(Momentum) 풀: 자산총계 1천억 원 또는 매출액 1천억 원 이상 & Rule of 40 >= 30% 결합 필터링
+    # 소형주(Small Cap) 풀: 자산총계 1천억 원 이상 ~ 5천억 원 미만 (폴백: 매출액 1천억 원 이상 ~ 5천억 원 미만)
     if (df['자산총계_fill'] > 0).any():
-        print("[*] 상승주 선별 기준: 자산총계/매출액 1천억 원 이상 & Rule of 40 >= 30% 적용")
-        momentum_pool = df[((df['자산총계_fill'] >= 100000000000.0) | (df['매출액_fill'] >= 100000000000.0)) & (df['rule_of_40'] >= 30.0)]
+        print("[*] 소형주 선별 기준: 자산총계 1천억 원 이상 ~ 5천억 원 미만 기업 적용")
+        small_cap_pool = df[
+            ((df['자산총계_fill'] >= 100000000000.0) & (df['자산총계_fill'] < 500000000000.0)) |
+            (((df['자산총계_fill'] == 0) | df['자산총계_fill'].isna()) & (df['매출액_fill'] >= 100000000000.0) & (df['매출액_fill'] < 500000000000.0))
+        ]
     else:
-        print("[*] 상승주 선별 기준: 매출액 1천억 원 이상 & Rule of 40 >= 30% (자산총계 누락으로 폴백 적용)")
-        momentum_pool = df[(df['매출액_fill'] >= 100000000000.0) & (df['rule_of_40'] >= 30.0)]
+        print("[*] 소형주 선별 기준: 매출액 1천억 원 이상 ~ 5천억 원 미만 (자산총계 누락으로 폴백 적용)")
+        small_cap_pool = df[(df['매출액_fill'] >= 100000000000.0) & (df['매출액_fill'] < 500000000000.0)]
     
-    top_large_cap = large_cap_pool.sort_values(by='large_cap_score', ascending=False).head(20).copy()
-    top_value = value_pool.sort_values(by='value_score', ascending=False).head(20).copy()
-    top_momentum = momentum_pool.sort_values(by='momentum_score', ascending=False).head(20).copy()
+    top_large_cap = large_cap_pool.sort_values(by='unified_score', ascending=False).head(20).copy()
+    top_mid_cap = mid_cap_pool.sort_values(by='unified_score', ascending=False).head(20).copy()
+    top_small_cap = small_cap_pool.sort_values(by='unified_score', ascending=False).head(20).copy()
 
     def to_dict_list(target_df, score_col):
         result = []
@@ -216,6 +194,9 @@ def main():
                 "pbr": float(r['PBR_fill']),
                 "per": float(r['PER']) if pd.notna(r['PER']) else 0.0,
                 "debt": float(r['부채비율_fill']),
+                "op_profit": float(r['영업이익_fill']) if pd.notna(r['영업이익_fill']) else 0.0,
+                "op_growth": float(r['영업이익증가율_fill']) if pd.notna(r['영업이익증가율_fill']) else 0.0,
+                "rev_growth": float(r['매출액증가율(%)']) if pd.notna(r['매출액증가율(%)']) else 0.0,
                 "score": float(r[score_col]),
                 "market_cap": float(r['시가총액_fill']),
                 "source_file": args.source_file,
@@ -223,29 +204,29 @@ def main():
             })
         return result
 
-    large_cap_results = to_dict_list(top_large_cap, 'large_cap_score')
-    value_results = to_dict_list(top_value, 'value_score')
-    momentum_results = to_dict_list(top_momentum, 'momentum_score')
+    large_cap_results = to_dict_list(top_large_cap, 'unified_score')
+    mid_cap_results = to_dict_list(top_mid_cap, 'unified_score')
+    small_cap_results = to_dict_list(top_small_cap, 'unified_score')
 
     results_dir = os.path.join(PROJECT_ROOT, 'trade', 'results')
     os.makedirs(results_dir, exist_ok=True)
 
     large_cap_file = os.path.join(results_dir, 'financial_large_cap_top20.json')
-    value_file = os.path.join(results_dir, 'financial_value_top20.json')
-    momentum_file = os.path.join(results_dir, 'financial_momentum_top20.json')
+    mid_cap_file = os.path.join(results_dir, 'financial_mid_cap_top20.json')
+    small_cap_file = os.path.join(results_dir, 'financial_small_cap_top20.json')
 
     with open(large_cap_file, 'w', encoding='utf-8') as f:
         json.dump(large_cap_results, f, ensure_ascii=False, indent=2)
 
-    with open(value_file, 'w', encoding='utf-8') as f:
-        json.dump(value_results, f, ensure_ascii=False, indent=2)
+    with open(mid_cap_file, 'w', encoding='utf-8') as f:
+        json.dump(mid_cap_results, f, ensure_ascii=False, indent=2)
 
-    with open(momentum_file, 'w', encoding='utf-8') as f:
-        json.dump(momentum_results, f, ensure_ascii=False, indent=2)
+    with open(small_cap_file, 'w', encoding='utf-8') as f:
+        json.dump(small_cap_results, f, ensure_ascii=False, indent=2)
 
     print(f"[+] Step 1 Completed. Large-caps saved to: {large_cap_file}")
-    print(f"[+] Step 1 Completed. Value-stocks saved to: {value_file}")
-    print(f"[+] Step 1 Completed. Rising-stocks saved to: {momentum_file}")
+    print(f"[+] Step 1 Completed. Mid-caps saved to: {mid_cap_file}")
+    print(f"[+] Step 1 Completed. Small-caps saved to: {small_cap_file}")
 
 if __name__ == '__main__':
     main()

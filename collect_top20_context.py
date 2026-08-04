@@ -100,6 +100,9 @@ def collect_stock_context(cand, rec_type):
         'pbr': cand['pbr'],
         'per': cand['per'],
         'debt': cand['debt'],
+        'op_profit': cand.get('op_profit', 0.0),
+        'op_growth': cand.get('op_growth', 0.0),
+        'rev_growth': cand.get('rev_growth', 0.0),
         'score': cand['score'],  # 1단계 정량 스코어
         'ma5_diff': round(ma5_diff, 2),
         'ma20_diff': round(ma20_diff, 2),
@@ -116,19 +119,19 @@ def main():
     print("[*] Starting Step 2 Context Collection...")
     results_dir = TRADE_DIR / 'results'
     large_cap_file = results_dir / 'financial_large_cap_top20.json'
-    value_file = results_dir / 'financial_value_top20.json'
-    momentum_file = results_dir / 'financial_momentum_top20.json'
+    mid_cap_file = results_dir / 'financial_mid_cap_top20.json'
+    small_cap_file = results_dir / 'financial_small_cap_top20.json'
 
-    if not large_cap_file.exists() or not value_file.exists() or not momentum_file.exists():
+    if not large_cap_file.exists() or not mid_cap_file.exists() or not small_cap_file.exists():
         print("[오류] 1단계 결과 파일 중 누락된 것이 있습니다.")
         sys.exit(1)
 
     with open(large_cap_file, 'r', encoding='utf-8') as f:
         large_cap_candidates = json.load(f)
-    with open(value_file, 'r', encoding='utf-8') as f:
-        value_candidates = json.load(f)
-    with open(momentum_file, 'r', encoding='utf-8') as f:
-        momentum_candidates = json.load(f)
+    with open(mid_cap_file, 'r', encoding='utf-8') as f:
+        mid_cap_candidates = json.load(f)
+    with open(small_cap_file, 'r', encoding='utf-8') as f:
+        small_cap_candidates = json.load(f)
 
     all_candidates = []
     
@@ -140,17 +143,17 @@ def main():
             if res:
                 all_candidates.append(res)
 
-    print("[*] Collecting data for Value-stocks...")
+    print("[*] Collecting data for Mid-caps...")
     with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(collect_stock_context, cand, 'value'): cand for cand in value_candidates}
+        futures = {executor.submit(collect_stock_context, cand, 'mid_cap'): cand for cand in mid_cap_candidates}
         for future in as_completed(futures):
             res = future.result()
             if res:
                 all_candidates.append(res)
 
-    print("[*] Collecting data for Rising-stocks...")
+    print("[*] Collecting data for Small-caps...")
     with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(collect_stock_context, cand, 'momentum'): cand for cand in momentum_candidates}
+        futures = {executor.submit(collect_stock_context, cand, 'small_cap'): cand for cand in small_cap_candidates}
         for future in as_completed(futures):
             res = future.result()
             if res:

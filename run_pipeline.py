@@ -26,25 +26,40 @@ def run_script(cmd_list):
 def main():
     sys.stdout.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description="내일의 공략주 3대 트랙 전체 분석 파이프라인 마스터 실행기")
-    parser.add_argument('--source_file', type=str, required=True, help="1차 선별 대상 엑셀 파일 경로 (예: results/kospi,kosdaq_all_xxx.xlsx)")
+    parser.add_argument('--source_file', type=str, required=False, help="1차 선별 대상 엑셀 파일 경로 (예: results/kospi,kosdaq_all_xxx.xlsx)")
+    parser.add_argument('--id', type=str, required=False, help="Google Drive Spreadsheet ID")
     args = parser.parse_args()
 
-    excel_file = Path(args.source_file)
-    if not excel_file.exists():
-        # 상대경로 대비 체크
-        excel_file = PROJECT_ROOT / args.source_file
+    if not args.source_file and not args.id:
+        print("[오류] --source_file 또는 --id 중 최소 하나는 반드시 지정해야 합니다.")
+        sys.exit(1)
+
+    source_desc = ""
+    cmd_step1 = [VENV_PYTHON, PROJECT_ROOT / 'filter_financial_top20.py']
+
+    if args.id:
+        source_desc = f"구글 드라이브 ID: {args.id}"
+        cmd_step1.extend(['--id', args.id])
+        cmd_step1.extend(['--source_file', args.source_file or 'drive_downloaded.xlsx'])
+    else:
+        excel_file = Path(args.source_file)
         if not excel_file.exists():
-            print(f"[오류] 지정한 엑셀 파일이 존재하지 않습니다: {args.source_file}")
-            sys.exit(1)
+            # 상대경로 대비 체크
+            excel_file = PROJECT_ROOT / args.source_file
+            if not excel_file.exists():
+                print(f"[오류] 지정한 엑셀 파일이 존재하지 않습니다: {args.source_file}")
+                sys.exit(1)
+        source_desc = str(excel_file.resolve())
+        cmd_step1.extend(['--source_file', source_desc])
 
     print("====================================================================")
     print("      🚀 [내일의 공략주] 3대 트랙 통합 분석 파이프라인 시작")
-    print(f"      - 대상 파일: {excel_file.resolve()}")
+    print(f"      - 분석 소스: {source_desc}")
     print("====================================================================")
 
-    # 1단계: 정량 선별 (대형주, 가치주, 상승주 후보군 20개씩 추출)
+    # 1단계: 정량 선별 (대형주, 중형주, 소형주 후보군 20개씩 추출)
     print("\n[Step 1] 1차 재무 정량 필터링 및 20위 후보군 선출 진행...")
-    run_script([VENV_PYTHON, PROJECT_ROOT / 'filter_financial_top20.py', '--source_file', excel_file.resolve()])
+    run_script(cmd_step1)
 
     # 2단계: 실시간 뉴스 및 공시 데이터 수집
     print("\n[Step 2] 선출 후보 60개 종목에 대한 실시간 뉴스 및 DART 공시 통합 수집 진행...")
