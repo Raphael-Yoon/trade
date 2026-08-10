@@ -1961,7 +1961,7 @@ def get_my_stocks():
     try:
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner FROM tr_my_stocks WHERE type = 'portfolio' ORDER BY added_at DESC")
+        cursor.execute("SELECT code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, target_buy_price FROM tr_my_stocks WHERE type = 'portfolio' ORDER BY added_at DESC")
         stocks = [dict(row) for row in cursor.fetchall()]
         return jsonify(stocks)
     except Exception as e:
@@ -2276,7 +2276,7 @@ def get_my_stocks_status():
         audit_data = load_financial_health()
         
         # 보유 종목 + 관심 종목 통합 조회
-        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, added_at, type FROM tr_my_stocks")
+        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, added_at, type, target_buy_price FROM tr_my_stocks")
         all_rows = [dict(row) for row in cursor.fetchall()]
         portfolio_stocks = [s for s in all_rows if s.get('type') == 'portfolio']
         watchlist_stocks = [s for s in all_rows if s.get('type') == 'watchlist']
@@ -2334,6 +2334,7 @@ def get_my_stocks_status():
                 'purchase_price': purchase_price,
                 'quantity': qty,
                 'stop_loss_ratio': stock.get('stop_loss_ratio', 0),
+                'target_buy_price': stock.get('target_buy_price') or 0,
                 'sl_diagnosis': sl_diagnosis, # 손절 진단 추가
                 'profit': profit,
                 'profit_rate': round(profit_rate, 2),
@@ -2390,29 +2391,30 @@ def add_my_stock():
     quantity = data.get('quantity', 0)
     stop_loss_ratio = data.get('stop_loss_ratio', 0)
     owner = data.get('owner', '나')
+    target_buy_price = data.get('target_buy_price', 0)
     if not code:
         return jsonify({'success': False, 'message': '종목 코드가 필요합니다.'}), 400
     try:
         db = get_db()
         cursor = db.cursor()
         _sql = ("""
-            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
+            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type, target_buy_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio', ?)
             ON CONFLICT (code) DO UPDATE SET
                 name=EXCLUDED.name, added_at=EXCLUDED.added_at,
                 purchase_price=EXCLUDED.purchase_price, quantity=EXCLUDED.quantity,
                 stop_loss_ratio=EXCLUDED.stop_loss_ratio, owner=EXCLUDED.owner,
-                type='portfolio'
+                type='portfolio', target_buy_price=EXCLUDED.target_buy_price
         """ if _IS_POSTGRES else """
-            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
+            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type, target_buy_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio', ?)
             ON DUPLICATE KEY UPDATE
                 name=VALUES(name), added_at=VALUES(added_at),
                 purchase_price=VALUES(purchase_price), quantity=VALUES(quantity),
                 stop_loss_ratio=VALUES(stop_loss_ratio), owner=VALUES(owner),
-                type='portfolio'
+                type='portfolio', target_buy_price=VALUES(target_buy_price)
         """)
-        cursor.execute(_sql, (code, name, datetime.now().isoformat(), purchase_price, quantity, stop_loss_ratio, owner))
+        cursor.execute(_sql, (code, name, datetime.now().isoformat(), purchase_price, quantity, stop_loss_ratio, owner, target_buy_price))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -2487,11 +2489,12 @@ def update_my_stock(code_val):
     quantity = data.get('quantity')
     stop_loss_ratio = data.get('stop_loss_ratio')
     owner = data.get('owner')
-    
+    target_buy_price = data.get('target_buy_price')
+
     try:
         db = get_db()
         cursor = db.cursor()
-        
+
         updates = []
         params = []
         if purchase_price is not None:
@@ -2506,6 +2509,9 @@ def update_my_stock(code_val):
         if owner is not None:
             updates.append("owner = ?")
             params.append(owner)
+        if target_buy_price is not None:
+            updates.append("target_buy_price = ?")
+            params.append(target_buy_price)
 
         if not updates:
             return jsonify({'success': False, 'message': '수정할 데이터가 없습니다.'}), 400
@@ -2982,7 +2988,7 @@ def get_watchlist():
         db = get_db()
         cursor = db.cursor()
         cursor.execute("""
-            SELECT m.code, m.name, m.added_at, m.owner
+            SELECT m.code, m.name, m.added_at, m.owner, m.target_buy_price
             FROM tr_my_stocks m
             WHERE m.type = 'watchlist'
             ORDER BY m.added_at DESC
@@ -3000,19 +3006,20 @@ def add_to_watchlist():
         code = data.get('code')
         name = data.get('name', '')
         owner = data.get('owner', '나')
+        target_buy_price = data.get('target_buy_price', 0)
         if not code:
             return jsonify({'success': False, 'message': '코드가 누락되었습니다.'}), 400
 
         db = get_db()
         cursor = db.cursor()
         _watch_sql = (
-            "INSERT INTO tr_my_stocks (code, name, added_at, type, owner, purchase_price, quantity, stop_loss_ratio) "
-            "VALUES (?, ?, ?, 'watchlist', ?, 0, 0, 0) ON CONFLICT (code) DO NOTHING"
+            "INSERT INTO tr_my_stocks (code, name, added_at, type, owner, purchase_price, quantity, stop_loss_ratio, target_buy_price) "
+            "VALUES (?, ?, ?, 'watchlist', ?, 0, 0, 0, ?) ON CONFLICT (code) DO NOTHING"
             if _IS_POSTGRES else
-            "INSERT IGNORE INTO tr_my_stocks (code, name, added_at, type, owner, purchase_price, quantity, stop_loss_ratio) "
-            "VALUES (?, ?, ?, 'watchlist', ?, 0, 0, 0)"
+            "INSERT IGNORE INTO tr_my_stocks (code, name, added_at, type, owner, purchase_price, quantity, stop_loss_ratio, target_buy_price) "
+            "VALUES (?, ?, ?, 'watchlist', ?, 0, 0, 0, ?)"
         )
-        cursor.execute(_watch_sql, (code, name, datetime.now().isoformat(), owner))
+        cursor.execute(_watch_sql, (code, name, datetime.now().isoformat(), owner, target_buy_price))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -3041,25 +3048,35 @@ def promote_to_portfolio():
         qty = data.get('quantity', 0)
         stop_loss = data.get('stop_loss_ratio', 0)
         owner = data.get('owner', '나')
+        target_buy_price = data.get('target_buy_price')
 
         db = get_db()
         cursor = db.cursor()
+
+        # target_buy_price가 별도로 전달되지 않으면 관심종목 시절 설정값을 그대로 승계
+        if target_buy_price is None:
+            cursor.execute("SELECT target_buy_price FROM tr_my_stocks WHERE code = ?", (code,))
+            row = cursor.fetchone()
+            target_buy_price = (row['target_buy_price'] if row else 0) or 0
+
         _move_sql = ("""
-            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
+            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type, target_buy_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio', ?)
             ON CONFLICT (code) DO UPDATE SET
                 type='portfolio', added_at=EXCLUDED.added_at,
                 purchase_price=EXCLUDED.purchase_price, quantity=EXCLUDED.quantity,
-                stop_loss_ratio=EXCLUDED.stop_loss_ratio, owner=EXCLUDED.owner
+                stop_loss_ratio=EXCLUDED.stop_loss_ratio, owner=EXCLUDED.owner,
+                target_buy_price=EXCLUDED.target_buy_price
         """ if _IS_POSTGRES else """
-            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio')
+            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type, target_buy_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio', ?)
             ON DUPLICATE KEY UPDATE
                 type='portfolio', added_at=VALUES(added_at),
                 purchase_price=VALUES(purchase_price), quantity=VALUES(quantity),
-                stop_loss_ratio=VALUES(stop_loss_ratio), owner=VALUES(owner)
+                stop_loss_ratio=VALUES(stop_loss_ratio), owner=VALUES(owner),
+                target_buy_price=VALUES(target_buy_price)
         """)
-        cursor.execute(_move_sql, (code, name, datetime.now().isoformat(), price, qty, stop_loss, owner))
+        cursor.execute(_move_sql, (code, name, datetime.now().isoformat(), price, qty, stop_loss, owner, target_buy_price))
         db.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -3097,7 +3114,7 @@ def get_realtime_prices():
         cursor = db.cursor()
 
         # [김선화] 효율적 실시간 모니터링을 위해 손절 설정치, 소유주, 추가일자 조회
-        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, owner, added_at, type FROM tr_my_stocks")
+        cursor.execute("SELECT code, name, purchase_price, quantity, stop_loss_ratio, owner, added_at, type, target_buy_price FROM tr_my_stocks")
         all_stocks = [dict(s) for s in cursor.fetchall()]
         if not all_stocks:
             return jsonify([])
@@ -3112,7 +3129,9 @@ def get_realtime_prices():
                 purchase_price = stock['purchase_price']
                 quantity = stock.get('quantity', 0)
                 stop_loss_ratio = stock.get('stop_loss_ratio', 0)
-                
+                target_buy_price = stock.get('target_buy_price') or 0
+                is_target_reached = target_buy_price > 0 and current_price > 0 and current_price >= target_buy_price
+
                 profit_rate = 0
                 profit = 0
                 is_stop_loss = False
@@ -3185,6 +3204,8 @@ def get_realtime_prices():
                     'profit_rate': profit_rate,
                     'profit': profit,
                     'stop_loss_ratio': stop_loss_ratio,
+                    'target_buy_price': target_buy_price,
+                    'is_target_reached': is_target_reached,
                     'owner': stock.get('owner', '나'),
                     'is_stop_loss': is_stop_loss,
                     'type': stock['type'],
@@ -3207,6 +3228,8 @@ def get_realtime_prices():
                     'profit_rate': 0,
                     'profit': 0,
                     'stop_loss_ratio': stock.get('stop_loss_ratio', 0),
+                    'target_buy_price': stock.get('target_buy_price') or 0,
+                    'is_target_reached': False,
                     'owner': stock.get('owner', '나'),
                     'is_stop_loss': False,
                     'type': stock['type'],
@@ -3237,6 +3260,8 @@ def get_realtime_prices():
                         'profit_rate': 0,
                         'profit': 0,
                         'stop_loss_ratio': stock.get('stop_loss_ratio', 0),
+                        'target_buy_price': stock.get('target_buy_price') or 0,
+                        'is_target_reached': False,
                         'owner': stock.get('owner', '나'),
                         'is_stop_loss': False,
                         'type': stock['type'],

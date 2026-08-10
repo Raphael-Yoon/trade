@@ -31,7 +31,8 @@ def _init_sqlite():
             is_favorite INTEGER DEFAULT 0,
             peak_price REAL DEFAULT 0,
             owner TEXT DEFAULT '나',
-            type TEXT DEFAULT 'portfolio'
+            type TEXT DEFAULT 'portfolio',
+            target_buy_price REAL DEFAULT 0
         )
     ''')
     for col_name, col_def in [
@@ -42,6 +43,7 @@ def _init_sqlite():
         ('peak_price', 'REAL DEFAULT 0'),
         ('owner', "TEXT DEFAULT '나'"),
         ('type', "TEXT DEFAULT 'portfolio'"),
+        ('target_buy_price', 'REAL DEFAULT 0'),
     ]:
         try:
             cursor.execute(f"ALTER TABLE tr_my_stocks ADD COLUMN {col_name} {col_def}")
@@ -251,7 +253,8 @@ def _init_mysql():
             is_favorite INT DEFAULT 0,
             peak_price DOUBLE DEFAULT 0,
             owner VARCHAR(50) DEFAULT '나',
-            type VARCHAR(50) DEFAULT 'portfolio'
+            type VARCHAR(50) DEFAULT 'portfolio',
+            target_buy_price DOUBLE DEFAULT 0
         )
     ''')
     for col_name, col_def in [
@@ -262,6 +265,7 @@ def _init_mysql():
         ('peak_price', 'DOUBLE DEFAULT 0'),
         ('owner', "VARCHAR(50) DEFAULT '나'"),
         ('type', "VARCHAR(50) DEFAULT 'portfolio'"),
+        ('target_buy_price', 'DOUBLE DEFAULT 0'),
     ]:
         add_column_if_not_exists("tr_my_stocks", col_name, col_def)
 

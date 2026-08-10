@@ -1046,6 +1046,9 @@
                         style="flex: 1; min-width: 100px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 16px; text-align: right;">
                     <input type="number" id="myStockStopLoss" placeholder="손절비율(%)" step="0.1"
                         style="flex: 1; min-width: 110px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #f87171; font-size: 16px; text-align: right; font-weight: 700;">
+                    <input type="text" id="myStockTargetPrice" placeholder="매수 목표가"
+                        oninput="this.value = formatNumber(this.value)"
+                        style="flex: 1; min-width: 120px; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #34d399; font-size: 16px; text-align: right; font-weight: 700;">
                     <div id="myStockOwnerContainer" style="flex: 1; min-width: 100px;">
                         <select id="myStockOwner" style="width: 100%; padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fbbf24; font-size: 16px; font-weight: 700; cursor: pointer;">
                             <option value="나">👤 나</option>
@@ -3060,8 +3063,8 @@
                         card.id = `rt-card-${stock.code}`;
                         card.className = 'result-card';
                         card.style.padding = '24px';
-                        card.style.background = stock.is_stop_loss ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255,255,255,0.05)';
-                        card.style.border = stock.is_stop_loss ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid transparent';
+                        card.style.background = stock.is_stop_loss ? 'rgba(239, 68, 68, 0.1)' : (stock.is_target_reached ? 'rgba(52, 211, 153, 0.1)' : 'rgba(255,255,255,0.05)');
+                        card.style.border = stock.is_stop_loss ? '1px solid rgba(239, 68, 68, 0.3)' : (stock.is_target_reached ? '1px solid rgba(52, 211, 153, 0.35)' : '1px solid transparent');
                         card.style.borderRadius = '20px';
                         card.style.transition = 'all 0.3s ease';
 
@@ -3125,7 +3128,7 @@
                                     </div>` : ''}
                                     <div style="min-width: 0; flex: 1;">
                                         <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 1px; font-weight: 500;">
-                                            ${stock.code} ${stock.is_stop_loss ? '<span style="color:#ef4444; font-weight:800; font-size:10px; background:rgba(239,68,68,0.1); padding:1px 4px; border-radius:4px;">STOP-LOSS</span>' : ''}
+                                            ${stock.code} ${stock.is_stop_loss ? '<span style="color:#ef4444; font-weight:800; font-size:10px; background:rgba(239,68,68,0.1); padding:1px 4px; border-radius:4px;">STOP-LOSS</span>' : ''} ${stock.is_target_reached ? '<span style="color:#34d399; font-weight:800; font-size:10px; background:rgba(52,211,153,0.12); padding:1px 4px; border-radius:4px;">🎯 목표가 도달</span>' : ''}
                                         </div>
                                         <div style="font-size: 19px; font-weight: 800; color: white; font-family: 'Outfit', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${stock.name}">${stock.name}</div>
                                     </div>
@@ -3165,6 +3168,7 @@
                                         </div>
                                     </span>` : ''}
                                     ${stock.type === 'portfolio' ? `<span style="color:#ef4444; white-space:nowrap;">최고 ${stock.holding_high ? stock.holding_high.toLocaleString() : '-'}</span>` : ''}
+                                    ${stock.target_buy_price > 0 ? `<span style="color:${stock.is_target_reached ? '#34d399' : '#6ee7b7'}; white-space:nowrap;">${stock.is_target_reached ? '✅' : '🎯'} 목표 ${stock.target_buy_price.toLocaleString()}</span>` : ''}
                                     <span style="color:var(--text-muted); font-weight:600; white-space:nowrap;">어제 ${prevClose.toLocaleString()}</span>
                                 </div>
                             </div>
@@ -3310,6 +3314,13 @@
                                 <span style="color: var(--text-muted); font-weight: 600;">증권사 목표가</span>
                                 <span id="analyst-target-${stock.code}" style="color: #fbbf24; font-weight: 700;">조회 중...</span>
                             </div>
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px;">
+                                <span style="color: var(--text-muted); font-weight: 600; white-space: nowrap;">매수 목표가</span>
+                                <input type="text" value="${(stock.target_buy_price || 0).toLocaleString()}"
+                                    oninput="this.value = formatNumber(this.value)"
+                                    onchange="updateStockDetail('${stock.code}', 'target_price', this.value)"
+                                    style="width: 110px; background: rgba(52,211,153,0.05); border: 1px solid rgba(52,211,153,0.2); border-radius: 8px; color: #34d399; font-weight: 700; padding: 4px 6px; font-size: 12px; text-align: right;">
+                            </div>
                             <div style="display: flex; gap: 8px; margin-top: 12px;">
                                 <button class="btn" onclick="promoteStockUI('${stock.code}', '${stock.name}')"
                                     style="flex: 1; padding: 8px; font-size: 13px; height: auto; border-radius: 12px; background: rgba(168, 85, 247, 0.2); box-shadow: none;">👛 매수</button>
@@ -3372,6 +3383,8 @@
             const nameInput = document.getElementById('myStockName');
             const code = codeInput.value.trim();
             const name = nameInput.value.trim();
+            const targetPriceInput = document.getElementById('myStockTargetPrice');
+            const target_buy_price = parseFloat(unformatNumber(targetPriceInput.value)) || 0;
             if (!code) {
                 showToast('종목을 선택해주세요.', 'error');
                 return;
@@ -3379,12 +3392,13 @@
             fetch('/api/watchlist', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code, name })
+                body: JSON.stringify({ code, name, target_buy_price })
             })
                 .then(res => res.json())
                 .then(data => {
                     if (data.success) {
                         showToast('관심 종목에 추가되었습니다.');
+                        targetPriceInput.value = '';
                         switchSubTab('watchlist');
                         loadWatchlist();
                     } else {
@@ -3717,17 +3731,17 @@
                             
                             ${realtimeHtml}
                             
-                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 14px; margin-top: 4px;">
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 14px; margin-top: 4px;">
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <span style="font-size: 10px; color: var(--text-muted); white-space: nowrap;">평단(원)</span>
-                                    <input type="text" value="${(stock.purchase_price || 0).toLocaleString()}" 
+                                    <input type="text" value="${(stock.purchase_price || 0).toLocaleString()}"
                                         oninput="this.value = formatNumber(this.value)"
                                         onchange="updateStockDetail('${stock.code}', 'price', this.value)"
                                         style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #94a3b8; font-weight: 600; padding: 4px 6px; font-size: 12px; text-align: right;">
                                 </div>
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <span style="font-size: 10px; color: var(--text-muted); white-space: nowrap;">수량(주)</span>
-                                    <input type="number" value="${stock.quantity || 0}" 
+                                    <input type="number" value="${stock.quantity || 0}"
                                         onchange="updateStockDetail('${stock.code}', 'qty', this.value)"
                                         style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #94a3b8; font-weight: 600; padding: 4px 6px; font-size: 12px; text-align: right;">
                                 </div>
@@ -3736,6 +3750,13 @@
                                     <input type="number" value="${stock.stop_loss_ratio || 0}" step="0.1"
                                         onchange="updateStockDetail('${stock.code}', 'stop_loss', this.value)"
                                         style="width: 100%; background: rgba(248,113,113,0.05); border: 1px solid rgba(248,113,113,0.2); border-radius: 8px; color: #f87171; font-weight: 700; padding: 4px 6px; font-size: 12px; text-align: right;">
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <span style="font-size: 10px; color: var(--text-muted); white-space: nowrap;">매수 목표가</span>
+                                    <input type="text" value="${(stock.target_buy_price || 0).toLocaleString()}"
+                                        oninput="this.value = formatNumber(this.value)"
+                                        onchange="updateStockDetail('${stock.code}', 'target_price', this.value)"
+                                        style="width: 100%; background: rgba(52,211,153,0.05); border: 1px solid rgba(52,211,153,0.2); border-radius: 8px; color: #34d399; font-weight: 700; padding: 4px 6px; font-size: 12px; text-align: right;">
                                 </div>
                             </div>
                             <!-- [김선화] 보유 종목 매도 버튼 -->
@@ -4182,6 +4203,8 @@
             const qty = parseInt(qtyInput.value) || 0;
             const stop_loss = parseFloat(slInput.value) || 0;
             const owner = document.getElementById('myStockOwner').value;
+            const targetPriceInput = document.getElementById('myStockTargetPrice');
+            const target_buy_price = parseFloat(unformatNumber(targetPriceInput.value)) || 0;
             if (!code) {
                 showToast('종목을 선택하거나 코드를 입력해주세요.', 'error');
                 return;
@@ -4189,7 +4212,7 @@
             fetch('/api/my_stocks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code, name, purchase_price: price, quantity: qty, stop_loss_ratio: stop_loss, owner: owner })
+                body: JSON.stringify({ code, name, purchase_price: price, quantity: qty, stop_loss_ratio: stop_loss, owner: owner, target_buy_price: target_buy_price })
             })
                 .then(response => response.json())
                 .then(data => {
@@ -4200,6 +4223,7 @@
                         priceInput.value = '';
                         qtyInput.value = '';
                         slInput.value = '';
+                        targetPriceInput.value = '';
                         loadMyStocks();
                     } else {
                         showToast(data.message, 'error');
@@ -4297,6 +4321,7 @@
             if (type === 'price') payload.purchase_price = parseFloat(unformatNumber(value)) || 0;
             if (type === 'qty') payload.quantity = parseInt(value) || 0;
             if (type === 'stop_loss') payload.stop_loss_ratio = parseFloat(value) || 0;
+            if (type === 'target_price') payload.target_buy_price = parseFloat(unformatNumber(value)) || 0;
 
             fetch(`/api/my_stocks/${code}`, {
                 method: 'PATCH',
@@ -4312,6 +4337,7 @@
                             if (type === 'price') stock.purchase_price = payload.purchase_price;
                             if (type === 'qty') stock.quantity = payload.quantity;
                             if (type === 'stop_loss') stock.stop_loss_ratio = payload.stop_loss_ratio;
+                            if (type === 'target_price') stock.target_buy_price = payload.target_buy_price;
                         }
                     } else {
                         showToast('업데이트 실패: ' + data.message, 'error');
