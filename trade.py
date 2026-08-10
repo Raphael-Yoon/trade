@@ -3130,7 +3130,9 @@ def get_realtime_prices():
                 quantity = stock.get('quantity', 0)
                 stop_loss_ratio = stock.get('stop_loss_ratio', 0)
                 target_buy_price = stock.get('target_buy_price') or 0
-                is_target_reached = target_buy_price > 0 and current_price > 0 and current_price >= target_buy_price
+                # [김선화] 매수 목표가는 "이 가격까지 떨어지면 매수" 기준이므로,
+                # 현재가가 목표가 이하로 하락했을 때 도달로 판정한다.
+                is_target_reached = target_buy_price > 0 and current_price > 0 and current_price <= target_buy_price
 
                 profit_rate = 0
                 profit = 0
