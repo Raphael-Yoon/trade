@@ -1,12 +1,15 @@
 #!/bin/bash
 
-# 0. 깃허브 최신 소스코드 강제 동기화 (origin/master 기준)
-echo "Resetting local code to match GitHub origin/master..."
-git fetch origin
-git reset --hard origin/master
+# 0. 깃허브 최신 소스코드 강제 동기화 (주석 처리)
+# echo "Resetting local code to match GitHub origin/master..."
+# git fetch origin
+# git reset --hard origin/master
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_DIR="$(dirname "$SCRIPT_DIR")"
 
 # 1. 기존에 돌고 있는 trade 관련 Gunicorn 프로세스만 종료 (PID 파일 활용)
-PID_FILE="/home/raphael/Dev/pythons/trade/coffee_house.pid"
+PID_FILE="$SCRIPT_DIR/coffee_house.pid"
 if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")
     if ps -p $PID > /dev/null 2>&1; then
@@ -24,10 +27,10 @@ sleep 1
 
 # 2.5 DB 마이그레이션 실행 (신규 테이블 및 컬럼 자동 반영)
 echo "Running DB Migration..."
-/home/raphael/Dev/pythons/.venv/bin/python db_init.py
+"$WORKSPACE_DIR/.venv/bin/python" db_init.py
 
 # 3. 127.0.0.1:5000번 포트로 백그라운드 구동 (PID 파일 지정)
-/home/raphael/Dev/pythons/.venv/bin/gunicorn --daemon --workers 2 --bind 127.0.0.1:5000 --pid "$PID_FILE" --access-logfile flask.log --error-logfile flask.log trade:app
+"$WORKSPACE_DIR/.venv/bin/gunicorn" --daemon --workers 2 --bind 127.0.0.1:5000 --pid "$PID_FILE" --access-logfile flask.log --error-logfile flask.log trade:app
 
 # 4. 결과 출력
 echo "------------------------------------------------"

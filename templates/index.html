@@ -44,6 +44,15 @@
             .owner-cards-scroll { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
 
+        .investor-stat-box {
+            cursor: default;
+            transition: all 0.2s ease;
+        }
+        .investor-stat-box:hover {
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateY(-1px);
+        }
+
         /* Mobile Web Responsive Optimization */
         @media (max-width: 768px) {
             /* Hide analysis and myStocks tabs */
@@ -2923,11 +2932,21 @@
             }
         }
 
+        let clientInvestorHistory = {};
+
         function formatInvestorVal(val) {
             if (val === null || val === undefined) return '-';
             const sign = val >= 0 ? '+' : '';
             if (Math.abs(val) >= 10000) return sign + (val / 10000).toFixed(1) + '조';
             return sign + val.toLocaleString() + '억';
+        }
+
+        function formatInvestorDiff(val) {
+            if (val === null || val === undefined || val === 0) return '';
+            const sign = val > 0 ? '▲ +' : '▼ ';
+            const absVal = Math.abs(val);
+            const text = absVal >= 10000 ? (absVal / 10000).toFixed(1) + '조' : absVal.toLocaleString() + '억';
+            return sign + text;
         }
 
         function loadMarketIndices() {
@@ -2942,18 +2961,53 @@
                         const sign = idx.change > 0 ? '▲' : (idx.change < 0 ? '▼' : '');
 
                         const inv = idx.investor || {};
+                        const diffObj = inv.diff || {};
+                        const historyList = inv.history || [];
+
                         const invItems = [
-                            { label: '외국인', val: inv.foreign },
-                            { label: '기관', val: inv.institution },
-                            { label: '개인', val: inv.individual },
+                            { key: 'foreign', label: '외국인', val: inv.foreign },
+                            { key: 'institution', label: '기관', val: inv.institution },
+                            { key: 'individual', label: '개인', val: inv.individual },
                         ].map(item => {
                             const formatted = formatInvestorVal(item.val);
                             const c = item.val === null ? 'var(--text-muted)' : (item.val > 0 ? '#ef4444' : (item.val < 0 ? '#3b82f6' : 'var(--text-muted)'));
-                            return `<div style="flex:1;text-align:center;">
-                                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">${item.label}</div>
-                                <div style="font-size:12px;font-weight:700;color:${c};font-family:'Outfit',sans-serif;">${formatted}</div>
+
+                            // diff 값 추출 (서버 diff 우선, 없으면 직전 클라이언트 캐시와 비교)
+                            let dVal = diffObj[item.key];
+                            if ((dVal === undefined || dVal === 0) && clientInvestorHistory[idx.code] && clientInvestorHistory[idx.code][item.key] !== undefined && item.val !== null) {
+                                const prevClientVal = clientInvestorHistory[idx.code][item.key];
+                                if (prevClientVal !== item.val) {
+                                    dVal = item.val - prevClientVal;
+                                }
+                            }
+
+                            const diffFormatted = formatInvestorDiff(dVal);
+                            let diffBadge = `<span style="color: rgba(255,255,255,0.25); font-size: 10px; font-weight: 500;">-</span>`;
+                            if (dVal > 0) {
+                                diffBadge = `<span style="display: inline-flex; align-items: center; gap: 2px; font-size: 10px; font-weight: 700; color: #ef4444; background: rgba(239, 68, 68, 0.15); padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.3); letter-spacing: -0.2px;">${diffFormatted}</span>`;
+                            } else if (dVal < 0) {
+                                diffBadge = `<span style="display: inline-flex; align-items: center; gap: 2px; font-size: 10px; font-weight: 700; color: #3b82f6; background: rgba(59, 130, 246, 0.15); padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.3); letter-spacing: -0.2px;">${diffFormatted}</span>`;
+                            }
+
+                            // 툴팁 텍스트 (최근 타임라인)
+                            let tooltip = `${idx.name} ${item.label}: 현재 누적 ${formatted}`;
+                            if (historyList && historyList.length > 1) {
+                                const histSeq = historyList.map(h => `${h.time} (${formatInvestorVal(h[item.key])})`).join(' ➔ ');
+                                tooltip += `\n[최근 수급 변화]\n${histSeq}`;
+                            }
+
+                            return `<div style="flex:1;text-align:center;padding:4px 2px;border-radius:10px;transition:background 0.2s;" title="${tooltip}" class="investor-stat-box">
+                                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;font-weight:600;">${item.label}</div>
+                                <div style="font-size:13px;font-weight:800;color:${c};font-family:'Outfit',sans-serif;letter-spacing:-0.3px;">${formatted}</div>
+                                <div style="margin-top:3px;min-height:16px;display:flex;align-items:center;justify-content:center;">${diffBadge}</div>
                             </div>`;
                         }).join('');
+
+                        // 클라이언트 직전 값 캐시 갱신
+                        if (!clientInvestorHistory[idx.code]) clientInvestorHistory[idx.code] = {};
+                        if (inv.foreign !== null && inv.foreign !== undefined) clientInvestorHistory[idx.code].foreign = inv.foreign;
+                        if (inv.institution !== null && inv.institution !== undefined) clientInvestorHistory[idx.code].institution = inv.institution;
+                        if (inv.individual !== null && inv.individual !== undefined) clientInvestorHistory[idx.code].individual = inv.individual;
 
                         return `
                             <div class="result-card" style="flex: 1 1 280px; min-width: 0; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 20px; display: flex; flex-direction: column; gap: 12px;">

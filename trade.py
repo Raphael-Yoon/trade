@@ -466,8 +466,10 @@ daily_prices_cache = {}
 # [김정음] KOSPI 일별 시세 캐시 — 30분 TTL
 kospi_daily_cache = {'data': [], 'ts': 0.0}
 
-# [김정음] 투자자별 순매수 캐시 — 60초 TTL
+# [김정음] 투자자별 순매수 캐시 및 히스토리 관리
 investor_trend_cache = {}
+market_investor_history = {}
+market_investor_prev = {}
 
 def load_financial_health(force=False):
     """[김선화] 감사팀의 재무 보고서(Excel)를 구글 드라이브 또는 로컬에서 로드하여 주요 지표를 캐싱합니다."""
@@ -1888,12 +1890,16 @@ def get_market_index(ticker):
     return {'name': ticker, 'code': ticker, 'price': 0, 'change': 0, 'rate': 0}
 
 def get_market_investor_trend(ticker):
-    """[김정음] 네이버 모바일 API에서 투자자별 순매수를 가져옵니다. (단위: 억원)"""
-    global investor_trend_cache
+    """[김정음] 네이버 모바일 API에서 투자자별 순매수 및 추세(이전 대비 증감, 시계열)를 가져옵니다. (단위: 억원)"""
+    global investor_trend_cache, market_investor_history, market_investor_prev
     entry = investor_trend_cache.get(ticker)
-    if entry and time.time() - entry['ts'] < 60:
+    if entry and time.time() - entry['ts'] < 10:
         return entry['data']
-    empty = {'foreign': None, 'institution': None, 'individual': None}
+    empty = {
+        'foreign': None, 'institution': None, 'individual': None,
+        'diff': {'foreign': 0, 'institution': 0, 'individual': 0},
+        'history': []
+    }
     try:
         url = f"https://m.stock.naver.com/api/index/{ticker}/trend"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
@@ -1903,15 +1909,58 @@ def get_market_investor_trend(ticker):
                 return int(str(s).replace(',', '').replace('+', ''))
             except Exception:
                 return None
+        
+        curr_foreign = _parse(d.get('foreignValue'))
+        curr_inst = _parse(d.get('institutionalValue'))
+        curr_indiv = _parse(d.get('personalValue'))
+        
+        if ticker not in market_investor_history:
+            market_investor_history[ticker] = []
+        if ticker not in market_investor_prev:
+            market_investor_prev[ticker] = {}
+
+        hist = market_investor_history[ticker]
+        now_str = datetime.now().strftime('%H:%M')
+        
+        if curr_foreign is not None or curr_inst is not None or curr_indiv is not None:
+            # 히스토리가 비어있거나 수급 데이터에 변화가 생긴 경우
+            if not hist or (hist[-1].get('foreign') != curr_foreign or hist[-1].get('institution') != curr_inst or hist[-1].get('individual') != curr_indiv):
+                if hist:
+                    market_investor_prev[ticker] = {
+                        'foreign': hist[-1].get('foreign'),
+                        'institution': hist[-1].get('institution'),
+                        'individual': hist[-1].get('individual')
+                    }
+                hist.append({
+                    'time': now_str,
+                    'foreign': curr_foreign,
+                    'institution': curr_inst,
+                    'individual': curr_indiv
+                })
+                if len(hist) > 15:
+                    hist.pop(0)
+
+        # 직전 값과의 차이 계산
+        p = market_investor_prev.get(ticker, {})
+        diff = {
+            'foreign': (curr_foreign - p.get('foreign')) if (curr_foreign is not None and p.get('foreign') is not None) else 0,
+            'institution': (curr_inst - p.get('institution')) if (curr_inst is not None and p.get('institution') is not None) else 0,
+            'individual': (curr_indiv - p.get('individual')) if (curr_indiv is not None and p.get('individual') is not None) else 0
+        }
+
         result = {
-            'foreign':     _parse(d.get('foreignValue')),
-            'institution': _parse(d.get('institutionalValue')),
-            'individual':  _parse(d.get('personalValue')),
+            'foreign': curr_foreign,
+            'institution': curr_inst,
+            'individual': curr_indiv,
+            'diff': diff,
+            'history': hist[-10:]
         }
         investor_trend_cache[ticker] = {'data': result, 'ts': time.time()}
         return result
     except Exception as e:
         print(f"Error fetching investor trend {ticker}: {e}")
+        if ticker in investor_trend_cache:
+            return investor_trend_cache[ticker]['data']
     return empty
 
 def get_stock_investor_trend(ticker):
