@@ -2949,6 +2949,44 @@
             return sign + text;
         }
 
+        function generateSparklineSvg(dataPoints, color = '#ef4444', width = 64, height = 18) {
+            if (!dataPoints || dataPoints.length < 2) {
+                return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="overflow:visible;display:block;margin:3px auto 0;">
+                    <line x1="4" y1="${height/2}" x2="${width-4}" y2="${height/2}" stroke="rgba(255,255,255,0.15)" stroke-dasharray="2,2" stroke-width="1"/>
+                    <circle cx="${width/2}" cy="${height/2}" r="2" fill="${color}"/>
+                </svg>`;
+            }
+
+            const padX = 4;
+            const padY = 3;
+            const minVal = Math.min(...dataPoints);
+            const maxVal = Math.max(...dataPoints);
+            const range = (maxVal - minVal) === 0 ? 1 : (maxVal - minVal);
+
+            const pts = dataPoints.map((v, i) => {
+                const x = padX + (i / (dataPoints.length - 1)) * (width - 2 * padX);
+                const y = (height - padY) - ((v - minVal) / range) * (height - 2 * padY);
+                return { x, y, v };
+            });
+
+            const pathD = pts.reduce((acc, p, i) => i === 0 ? `M ${p.x.toFixed(1)} ${p.y.toFixed(1)}` : `${acc} L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`, '');
+            const lastPt = pts[pts.length - 1];
+            const areaD = `${pathD} L ${lastPt.x.toFixed(1)} ${height} L ${pts[0].x.toFixed(1)} ${height} Z`;
+            const gradId = `spk_${Math.random().toString(36).substr(2, 6)}`;
+
+            return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="overflow:visible;display:block;margin:3px auto 0;">
+                <defs>
+                    <linearGradient id="${gradId}" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stop-color="${color}" stop-opacity="0.3"/>
+                        <stop offset="100%" stop-color="${color}" stop-opacity="0.0"/>
+                    </linearGradient>
+                </defs>
+                <path d="${areaD}" fill="url(#${gradId})" />
+                <path d="${pathD}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="${lastPt.x.toFixed(1)}" cy="${lastPt.y.toFixed(1)}" r="2.2" fill="#0f172a" stroke="${color}" stroke-width="1.5"/>
+            </svg>`;
+        }
+
         function loadMarketIndices() {
             fetch('/api/market/indices')
                 .then(res => res.json())
@@ -2989,17 +3027,38 @@
                                 diffBadge = `<span style="display: inline-flex; align-items: center; gap: 2px; font-size: 10px; font-weight: 700; color: #3b82f6; background: rgba(59, 130, 246, 0.15); padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.3); letter-spacing: -0.2px;">${diffFormatted}</span>`;
                             }
 
-                            // 툴팁 텍스트 (최근 타임라인)
-                            let tooltip = `${idx.name} ${item.label}: 현재 누적 ${formatted}`;
+                            // 누적 시계열 데이터 추출 및 미니 스파크라인 생성
+                            const seriesPoints = historyList.map(h => h[item.key]).filter(v => v !== null && v !== undefined);
+                            if (item.val !== null && item.val !== undefined && (seriesPoints.length === 0 || seriesPoints[seriesPoints.length - 1] !== item.val)) {
+                                seriesPoints.push(item.val);
+                            }
+                            const sparklineHtml = generateSparklineSvg(seriesPoints, c, 64, 18);
+
+                            // 툴팁 텍스트 (그때그때의 구간 변동치 및 유입/유출 추이)
+                            let tooltip = `${idx.name} ${item.label} (현재 누적: ${formatted})`;
                             if (historyList && historyList.length > 1) {
-                                const histSeq = historyList.map(h => `${h.time} (${formatInvestorVal(h[item.key])})`).join(' ➔ ');
-                                tooltip += `\n[최근 수급 변화]\n${histSeq}`;
+                                const stepDeltas = [];
+                                for (let i = 1; i < historyList.length; i++) {
+                                    const prevVal = historyList[i - 1][item.key];
+                                    const currVal = historyList[i][item.key];
+                                    if (currVal !== null && prevVal !== null) {
+                                        const stepDiff = currVal - prevVal;
+                                        const diffText = formatInvestorDiff(stepDiff) || '0억';
+                                        stepDeltas.push(`${historyList[i].time} (${diffText})`);
+                                    }
+                                }
+                                if (stepDeltas.length > 0) {
+                                    tooltip += `\n[시간대별 수급 유입/유출량]\n` + stepDeltas.join(' ➔ ');
+                                }
+                            } else if (dVal !== 0 && diffFormatted) {
+                                tooltip += `\n[직전 대비 변동]: ${diffFormatted}`;
                             }
 
                             return `<div style="flex:1;text-align:center;padding:4px 2px;border-radius:10px;transition:background 0.2s;" title="${tooltip}" class="investor-stat-box">
                                 <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;font-weight:600;">${item.label}</div>
                                 <div style="font-size:13px;font-weight:800;color:${c};font-family:'Outfit',sans-serif;letter-spacing:-0.3px;">${formatted}</div>
-                                <div style="margin-top:3px;min-height:16px;display:flex;align-items:center;justify-content:center;">${diffBadge}</div>
+                                <div style="margin-top:2px;min-height:15px;display:flex;align-items:center;justify-content:center;">${diffBadge}</div>
+                                ${sparklineHtml}
                             </div>`;
                         }).join('');
 

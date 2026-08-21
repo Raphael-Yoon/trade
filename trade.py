@@ -1937,7 +1937,7 @@ def get_market_investor_trend(ticker):
                     'institution': curr_inst,
                     'individual': curr_indiv
                 })
-                if len(hist) > 15:
+                if len(hist) > 60:
                     hist.pop(0)
 
         # 직전 값과의 차이 계산
@@ -1953,7 +1953,7 @@ def get_market_investor_trend(ticker):
             'institution': curr_inst,
             'individual': curr_indiv,
             'diff': diff,
-            'history': hist[-10:]
+            'history': hist[-30:]
         }
         investor_trend_cache[ticker] = {'data': result, 'ts': time.time()}
         return result
