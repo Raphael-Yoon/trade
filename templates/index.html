@@ -292,7 +292,7 @@
                 font-size: 20px !important;
             }
 
-            /* Market indices responsive sizing */
+            /* Market indices responsive sizing (Mobile 1-Column Full-Width Card) */
             .market-indices-sticky {
                 position: relative !important;
                 top: 0 !important;
@@ -300,18 +300,37 @@
             }
             #marketIndices {
                 padding: 0 !important;
-                display: grid !important;
-                grid-template-columns: 1fr 1fr !important;
-                gap: 10px !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 14px !important;
             }
             #marketIndices .result-card {
-                padding: 12px !important;
-                border-radius: 12px !important;
+                padding: 18px 16px !important;
+                border-radius: 20px !important;
                 min-width: 0 !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
                 flex: none !important;
             }
+            #marketIndices .index-chart-box {
+                width: 120px !important;
+                height: 70px !important;
+                flex-shrink: 0 !important;
+                border-radius: 8px !important;
+            }
             #marketIndices .result-card img {
-                display: none !important;
+                display: block !important;
+                width: 100% !important;
+                height: 100% !important;
+            }
+            .investor-stats-row {
+                display: grid !important;
+                grid-template-columns: repeat(3, 1fr) !important;
+                gap: 8px !important;
+                padding-top: 12px !important;
+            }
+            .investor-stat-box {
+                padding: 6px 4px !important;
             }
 
             /* Adjust summary table grid for small screens */
@@ -2951,7 +2970,7 @@
 
         function generateSparklineSvg(dataPoints, color = '#ef4444', width = 64, height = 18) {
             if (!dataPoints || dataPoints.length < 2) {
-                return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="overflow:visible;display:block;margin:3px auto 0;">
+                return `<svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" style="max-width:${width}px;overflow:visible;display:block;margin:3px auto 0;">
                     <line x1="4" y1="${height/2}" x2="${width-4}" y2="${height/2}" stroke="rgba(255,255,255,0.15)" stroke-dasharray="2,2" stroke-width="1"/>
                     <circle cx="${width/2}" cy="${height/2}" r="2" fill="${color}"/>
                 </svg>`;
@@ -2974,7 +2993,7 @@
             const areaD = `${pathD} L ${lastPt.x.toFixed(1)} ${height} L ${pts[0].x.toFixed(1)} ${height} Z`;
             const gradId = `spk_${Math.random().toString(36).substr(2, 6)}`;
 
-            return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="overflow:visible;display:block;margin:3px auto 0;">
+            return `<svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" style="max-width:${width}px;overflow:visible;display:block;margin:3px auto 0;">
                 <defs>
                     <linearGradient id="${gradId}" x1="0%" y1="0%" x2="0%" y2="100%">
                         <stop offset="0%" stop-color="${color}" stop-opacity="0.3"/>
@@ -3054,10 +3073,10 @@
                                 tooltip += `\n[직전 대비 변동]: ${diffFormatted}`;
                             }
 
-                            return `<div style="flex:1;text-align:center;padding:4px 2px;border-radius:10px;transition:background 0.2s;" title="${tooltip}" class="investor-stat-box">
-                                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;font-weight:600;">${item.label}</div>
-                                <div style="font-size:13px;font-weight:800;color:${c};font-family:'Outfit',sans-serif;letter-spacing:-0.3px;">${formatted}</div>
-                                <div style="margin-top:2px;min-height:15px;display:flex;align-items:center;justify-content:center;">${diffBadge}</div>
+                            return `<div style="min-width:0;text-align:center;padding:6px 2px;border-radius:10px;background:rgba(255,255,255,0.02);transition:background 0.2s;" title="${tooltip}" class="investor-stat-box">
+                                <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;font-weight:600;">${item.label}</div>
+                                <div style="font-size:14px;font-weight:800;color:${c};font-family:'Outfit',sans-serif;letter-spacing:-0.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${formatted}</div>
+                                <div style="margin-top:2px;min-height:16px;display:flex;align-items:center;justify-content:center;">${diffBadge}</div>
                                 ${sparklineHtml}
                             </div>`;
                         }).join('');
@@ -3070,21 +3089,21 @@
 
                         return `
                             <div class="result-card" style="flex: 1 1 280px; min-width: 0; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 20px; display: flex; flex-direction: column; gap: 12px;">
-                                <div style="display:flex;align-items:center;gap:16px;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
                                     <div style="flex: 1; min-width: 0;">
                                         <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600;">${idx.name}</div>
-                                        <div style="font-size: 24px; font-weight: 900; color: white; font-family: 'Outfit', sans-serif;">${idx.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                        <div style="font-size: 24px; font-weight: 900; color: white; font-family: 'Outfit', sans-serif; letter-spacing: -0.5px;">${idx.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                         <div style="font-size: 13px; font-weight: 700; color: ${color}; margin-top: 4px; font-family: 'Outfit', sans-serif;">
                                             ${sign} ${Math.abs(idx.change).toFixed(2)} (${idx.rate > 0 ? '+' : ''}${idx.rate}%)
                                         </div>
                                     </div>
-                                    <div style="width:min(220px, 35%);height:100px;background:rgba(0,0,0,0.2);border-radius:8px;overflow:hidden;cursor:pointer;" onclick="openChartModal('${idx.code}', '${idx.name}')">
+                                    <div class="index-chart-box" style="width:min(220px, 35%);height:90px;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.05);border-radius:10px;overflow:hidden;cursor:pointer;flex-shrink:0;" onclick="openChartModal('${idx.code}', '${idx.name}')">
                                         <img src="https://ssl.pstatic.net/imgfinance/chart/main/${idx.code}.png?sid=${Date.now()}"
                                              style="width:100%;height:100%;object-fit:cover;filter:invert(0.9) hue-rotate(180deg) brightness(1.3) contrast(1.3);mix-blend-mode:lighten;"
                                              title="클릭하여 차트 확대">
                                     </div>
                                 </div>
-                                <div style="display:flex;gap:4px;border-top:1px solid rgba(255,255,255,0.07);padding-top:10px;">
+                                <div class="investor-stats-row" style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;border-top:1px solid rgba(255,255,255,0.07);padding-top:10px;">
                                     ${invItems}
                                 </div>
                             </div>

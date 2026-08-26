@@ -18,6 +18,7 @@ trade.db
 trade.db-shm
 trade.db-wal
 recommendations.json
-/logo.png
+.DS_Store
+*.bak
 
 
