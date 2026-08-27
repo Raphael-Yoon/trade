@@ -3087,8 +3087,23 @@
                         if (inv.institution !== null && inv.institution !== undefined) clientInvestorHistory[idx.code].institution = inv.institution;
                         if (inv.individual !== null && inv.individual !== undefined) clientInvestorHistory[idx.code].individual = inv.individual;
 
+                        // 기타법인 수급 포맷팅
+                        const etcVal = inv.etc;
+                        const etcFormatted = formatInvestorVal(etcVal);
+                        const etcColor = etcVal === null ? 'var(--text-muted)' : (etcVal > 0 ? '#ef4444' : (etcVal < 0 ? '#3b82f6' : 'var(--text-muted)'));
+                        const etcHtml = (etcVal !== null && etcVal !== undefined) ? `
+                            <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.03);padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.05);margin-top:2px;" title="기타법인: 자사주 취득/처분 및 일반 비금융법인의 지분 매매 (외국인+기관+개인+기타법인 = 0 합산 검증)">
+                                <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;">
+                                    🏢 기타법인 <span style="font-size:10px;opacity:0.75;">(자사주·일반)</span>
+                                </span>
+                                <span style="font-size:12px;font-weight:700;color:${etcColor};font-family:'Outfit',sans-serif;letter-spacing:-0.2px;">
+                                    ${etcFormatted}
+                                </span>
+                            </div>
+                        ` : '';
+
                         return `
-                            <div class="result-card" style="flex: 1 1 280px; min-width: 0; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 20px; display: flex; flex-direction: column; gap: 12px;">
+                            <div class="result-card" style="flex: 1 1 280px; min-width: 0; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 20px; display: flex; flex-direction: column; gap: 10px;">
                                 <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
                                     <div style="flex: 1; min-width: 0;">
                                         <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600;">${idx.name}</div>
@@ -3106,6 +3121,7 @@
                                 <div class="investor-stats-row" style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;border-top:1px solid rgba(255,255,255,0.07);padding-top:10px;">
                                     ${invItems}
                                 </div>
+                                ${etcHtml}
                             </div>
                         `;
                     }).join('');

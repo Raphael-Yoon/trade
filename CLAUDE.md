@@ -1,7 +1,7 @@
 # Jonathan's Coffee House — 기술 명세 (Technical Specs)
 
 > [!IMPORTANT]
-> 에이전트 페르소나, 직급 체계 및 전사 운영 규칙은 루트의 [CLAUDE.md](file:///CLAUDE.md) 및 [.agents/AGENT.md](file:///.agents/AGENT.md)를 준수한다. 본 파일은 프로젝트별 기술 명령어 및 파일 참조용으로만 활용한다.
+> 에이전트 페르소나, 직급 체계 및 전사 운영 규칙은 루트의 [CLAUDE.md](file:///c:/Pythons/CLAUDE.md) 및 [.agents/AGENTS.md](file:///c:/Pythons/.agents/AGENTS.md)를 준수한다. 본 파일은 프로젝트별 기술 명령어 및 파일 참조용으로만 활용한다.
 
 ## 1. 빌드 및 실행 명령어 (Build & Run)
 
