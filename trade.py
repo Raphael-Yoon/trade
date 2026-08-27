@@ -1911,11 +1911,13 @@ def get_market_investor_trend(ticker):
                 return None
         
         curr_foreign = _parse(d.get('foreignValue'))
-        curr_inst = _parse(d.get('institutionalValue'))
+        curr_inst_pure = _parse(d.get('institutionalValue'))
         curr_indiv = _parse(d.get('personalValue'))
         curr_etc = None
-        if curr_foreign is not None or curr_inst is not None or curr_indiv is not None:
-            curr_etc = -((curr_foreign or 0) + (curr_inst or 0) + (curr_indiv or 0))
+        curr_inst_total = curr_inst_pure
+        if curr_foreign is not None or curr_inst_pure is not None or curr_indiv is not None:
+            curr_etc = -((curr_foreign or 0) + (curr_inst_pure or 0) + (curr_indiv or 0))
+            curr_inst_total = (curr_inst_pure or 0) + curr_etc
         
         if ticker not in market_investor_history:
             market_investor_history[ticker] = []
@@ -1925,20 +1927,22 @@ def get_market_investor_trend(ticker):
         hist = market_investor_history[ticker]
         now_str = datetime.now().strftime('%H:%M')
         
-        if curr_foreign is not None or curr_inst is not None or curr_indiv is not None:
+        if curr_foreign is not None or curr_inst_pure is not None or curr_indiv is not None:
             # 히스토리가 비어있거나 수급 데이터에 변화가 생긴 경우
-            if not hist or (hist[-1].get('foreign') != curr_foreign or hist[-1].get('institution') != curr_inst or hist[-1].get('individual') != curr_indiv):
+            if not hist or (hist[-1].get('foreign') != curr_foreign or hist[-1].get('institution') != curr_inst_total or hist[-1].get('individual') != curr_indiv):
                 if hist:
                     market_investor_prev[ticker] = {
                         'foreign': hist[-1].get('foreign'),
                         'institution': hist[-1].get('institution'),
+                        'institution_pure': hist[-1].get('institution_pure'),
                         'individual': hist[-1].get('individual'),
                         'etc': hist[-1].get('etc')
                     }
                 hist.append({
                     'time': now_str,
                     'foreign': curr_foreign,
-                    'institution': curr_inst,
+                    'institution': curr_inst_total,
+                    'institution_pure': curr_inst_pure,
                     'individual': curr_indiv,
                     'etc': curr_etc
                 })
@@ -1949,14 +1953,15 @@ def get_market_investor_trend(ticker):
         p = market_investor_prev.get(ticker, {})
         diff = {
             'foreign': (curr_foreign - p.get('foreign')) if (curr_foreign is not None and p.get('foreign') is not None) else 0,
-            'institution': (curr_inst - p.get('institution')) if (curr_inst is not None and p.get('institution') is not None) else 0,
+            'institution': (curr_inst_total - p.get('institution')) if (curr_inst_total is not None and p.get('institution') is not None) else 0,
             'individual': (curr_indiv - p.get('individual')) if (curr_indiv is not None and p.get('individual') is not None) else 0,
             'etc': (curr_etc - p.get('etc')) if (curr_etc is not None and p.get('etc') is not None) else 0
         }
 
         result = {
             'foreign': curr_foreign,
-            'institution': curr_inst,
+            'institution': curr_inst_total,
+            'institution_pure': curr_inst_pure,
             'individual': curr_indiv,
             'etc': curr_etc,
             'diff': diff,
