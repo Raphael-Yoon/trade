@@ -470,6 +470,7 @@ kospi_daily_cache = {'data': [], 'ts': 0.0}
 investor_trend_cache = {}
 market_investor_history = {}
 market_investor_prev = {}
+market_investor_date = {}
 
 def load_financial_health(force=False):
     """[김선화] 감사팀의 재무 보고서(Excel)를 구글 드라이브 또는 로컬에서 로드하여 주요 지표를 캐싱합니다."""
@@ -1891,19 +1892,31 @@ def get_market_index(ticker):
 
 def get_market_investor_trend(ticker):
     """[김정음] 네이버 모바일 API에서 투자자별 순매수 및 추세(이전 대비 증감, 시계열)를 가져옵니다. (단위: 억원)"""
-    global investor_trend_cache, market_investor_history, market_investor_prev
+    global investor_trend_cache, market_investor_history, market_investor_prev, market_investor_date
     entry = investor_trend_cache.get(ticker)
     if entry and time.time() - entry['ts'] < 10:
         return entry['data']
     empty = {
+        'bizdate': None,
+        'is_pre_market': True,
         'foreign': None, 'institution': None, 'individual': None,
-        'diff': {'foreign': 0, 'institution': 0, 'individual': 0},
+        'diff': {'foreign': 0, 'institution': 0, 'individual': 0, 'etc': 0},
         'history': []
     }
     try:
         url = f"https://m.stock.naver.com/api/index/{ticker}/trend"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         d = res.json()
+        bizdate = d.get('bizdate')
+
+        # [김정음] 영업일자(bizdate) 변경 감지 시 전일 수급 히스토리 및 직전값 캐시 즉시 리셋
+        if bizdate:
+            prev_date = market_investor_date.get(ticker)
+            if prev_date and prev_date != bizdate:
+                market_investor_history[ticker] = []
+                market_investor_prev[ticker] = {}
+            market_investor_date[ticker] = bizdate
+
         def _parse(s):
             try:
                 return int(str(s).replace(',', '').replace('+', ''))
@@ -1924,41 +1937,60 @@ def get_market_investor_trend(ticker):
         if ticker not in market_investor_prev:
             market_investor_prev[ticker] = {}
 
-        hist = market_investor_history[ticker]
-        now_str = datetime.now().strftime('%H:%M')
-        
-        if curr_foreign is not None or curr_inst_pure is not None or curr_indiv is not None:
-            # 히스토리가 비어있거나 수급 데이터에 변화가 생긴 경우
-            if not hist or (hist[-1].get('foreign') != curr_foreign or hist[-1].get('institution') != curr_inst_total or hist[-1].get('individual') != curr_indiv):
-                if hist:
-                    market_investor_prev[ticker] = {
-                        'foreign': hist[-1].get('foreign'),
-                        'institution': hist[-1].get('institution'),
-                        'institution_pure': hist[-1].get('institution_pure'),
-                        'individual': hist[-1].get('individual'),
-                        'etc': hist[-1].get('etc')
-                    }
-                hist.append({
-                    'time': now_str,
-                    'foreign': curr_foreign,
-                    'institution': curr_inst_total,
-                    'institution_pure': curr_inst_pure,
-                    'individual': curr_indiv,
-                    'etc': curr_etc
-                })
-                if len(hist) > 60:
-                    hist.pop(0)
+        now_dt = datetime.now()
+        now_str = now_dt.strftime('%H:%M')
+        # [김정음] 장 개장 전(09:00 이전 또는 당일 수급 수치가 모두 0인 상태) 판정
+        is_pre_market = (now_dt.hour < 9) or (curr_foreign == 0 and curr_inst_pure == 0 and curr_indiv == 0)
 
-        # 직전 값과의 차이 계산
-        p = market_investor_prev.get(ticker, {})
-        diff = {
-            'foreign': (curr_foreign - p.get('foreign')) if (curr_foreign is not None and p.get('foreign') is not None) else 0,
-            'institution': (curr_inst_total - p.get('institution')) if (curr_inst_total is not None and p.get('institution') is not None) else 0,
-            'individual': (curr_indiv - p.get('individual')) if (curr_indiv is not None and p.get('individual') is not None) else 0,
-            'etc': (curr_etc - p.get('etc')) if (curr_etc is not None and p.get('etc') is not None) else 0
-        }
+        if is_pre_market:
+            # 장 개장 전에는 전일 잔상과의 차감 계산을 방지하여 0/빈값으로 유지
+            market_investor_history[ticker] = [{
+                'time': now_str,
+                'foreign': curr_foreign or 0,
+                'institution': curr_inst_total or 0,
+                'institution_pure': curr_inst_pure or 0,
+                'individual': curr_indiv or 0,
+                'etc': curr_etc or 0
+            }]
+            market_investor_prev[ticker] = {}
+            diff = {'foreign': 0, 'institution': 0, 'individual': 0, 'etc': 0}
+            hist = market_investor_history[ticker]
+        else:
+            hist = market_investor_history[ticker]
+            if curr_foreign is not None or curr_inst_pure is not None or curr_indiv is not None:
+                # 히스토리가 비어있거나 수급 데이터에 변화가 생긴 경우
+                if not hist or (hist[-1].get('foreign') != curr_foreign or hist[-1].get('institution') != curr_inst_total or hist[-1].get('individual') != curr_indiv):
+                    if hist:
+                        market_investor_prev[ticker] = {
+                            'foreign': hist[-1].get('foreign'),
+                            'institution': hist[-1].get('institution'),
+                            'institution_pure': hist[-1].get('institution_pure'),
+                            'individual': hist[-1].get('individual'),
+                            'etc': hist[-1].get('etc')
+                        }
+                    hist.append({
+                        'time': now_str,
+                        'foreign': curr_foreign,
+                        'institution': curr_inst_total,
+                        'institution_pure': curr_inst_pure,
+                        'individual': curr_indiv,
+                        'etc': curr_etc
+                    })
+                    if len(hist) > 60:
+                        hist.pop(0)
+
+            # 직전 값과의 차이 계산
+            p = market_investor_prev.get(ticker, {})
+            diff = {
+                'foreign': (curr_foreign - p.get('foreign')) if (curr_foreign is not None and p.get('foreign') is not None) else 0,
+                'institution': (curr_inst_total - p.get('institution')) if (curr_inst_total is not None and p.get('institution') is not None) else 0,
+                'individual': (curr_indiv - p.get('individual')) if (curr_indiv is not None and p.get('individual') is not None) else 0,
+                'etc': (curr_etc - p.get('etc')) if (curr_etc is not None and p.get('etc') is not None) else 0
+            }
 
         result = {
+            'bizdate': bizdate,
+            'is_pre_market': is_pre_market,
             'foreign': curr_foreign,
             'institution': curr_inst_total,
             'institution_pure': curr_inst_pure,

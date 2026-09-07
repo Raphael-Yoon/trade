@@ -3020,6 +3020,16 @@
                         const inv = idx.investor || {};
                         const diffObj = inv.diff || {};
                         const historyList = inv.history || [];
+                        const isPreMarket = inv.is_pre_market || (inv.foreign === 0 && inv.institution === 0 && inv.individual === 0);
+
+                        // 날짜 변경 감지 시 클라이언트 캐시 초기화
+                        if (inv.bizdate) {
+                            if (!window.clientInvestorBizDate) window.clientInvestorBizDate = {};
+                            if (window.clientInvestorBizDate[idx.code] && window.clientInvestorBizDate[idx.code] !== inv.bizdate) {
+                                if (clientInvestorHistory[idx.code]) clientInvestorHistory[idx.code] = {};
+                            }
+                            window.clientInvestorBizDate[idx.code] = inv.bizdate;
+                        }
 
                         const invItems = [
                             { key: 'foreign', label: '외국인', val: inv.foreign },
@@ -3029,9 +3039,9 @@
                             const formatted = formatInvestorVal(item.val);
                             const c = item.val === null ? 'var(--text-muted)' : (item.val > 0 ? '#ef4444' : (item.val < 0 ? '#3b82f6' : 'var(--text-muted)'));
 
-                            // diff 값 추출 (서버 diff 우선, 없으면 직전 클라이언트 캐시와 비교)
-                            let dVal = diffObj[item.key];
-                            if ((dVal === undefined || dVal === 0) && clientInvestorHistory[idx.code] && clientInvestorHistory[idx.code][item.key] !== undefined && item.val !== null) {
+                            // diff 값 추출: 장 개장 전이면 변동치 없으므로 0, 장 중에는 서버 diff 우선
+                            let dVal = isPreMarket ? 0 : (diffObj[item.key] || 0);
+                            if (!isPreMarket && dVal === 0 && diffObj[item.key] === undefined && clientInvestorHistory[idx.code] && clientInvestorHistory[idx.code][item.key] !== undefined && item.val !== null) {
                                 const prevClientVal = clientInvestorHistory[idx.code][item.key];
                                 if (prevClientVal !== item.val) {
                                     dVal = item.val - prevClientVal;
@@ -3040,16 +3050,19 @@
 
                             const diffFormatted = formatInvestorDiff(dVal);
                             let diffBadge = `<span style="color: rgba(255,255,255,0.25); font-size: 10px; font-weight: 500;">-</span>`;
-                            if (dVal > 0) {
+                            if (!isPreMarket && dVal > 0) {
                                 diffBadge = `<span style="display: inline-flex; align-items: center; gap: 2px; font-size: 10px; font-weight: 700; color: #ef4444; background: rgba(239, 68, 68, 0.15); padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.3); letter-spacing: -0.2px;">${diffFormatted}</span>`;
-                            } else if (dVal < 0) {
+                            } else if (!isPreMarket && dVal < 0) {
                                 diffBadge = `<span style="display: inline-flex; align-items: center; gap: 2px; font-size: 10px; font-weight: 700; color: #3b82f6; background: rgba(59, 130, 246, 0.15); padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.3); letter-spacing: -0.2px;">${diffFormatted}</span>`;
                             }
 
-                            // 누적 시계열 데이터 추출 및 미니 스파크라인 생성
-                            const seriesPoints = historyList.map(h => h[item.key]).filter(v => v !== null && v !== undefined);
-                            if (item.val !== null && item.val !== undefined && (seriesPoints.length === 0 || seriesPoints[seriesPoints.length - 1] !== item.val)) {
-                                seriesPoints.push(item.val);
+                            // 누적 시계열 데이터 추출 및 미니 스파크라인 생성 (개장 전에는 평탄한 점선 표시)
+                            let seriesPoints = [];
+                            if (!isPreMarket) {
+                                seriesPoints = historyList.map(h => h[item.key]).filter(v => v !== null && v !== undefined);
+                                if (item.val !== null && item.val !== undefined && (seriesPoints.length === 0 || seriesPoints[seriesPoints.length - 1] !== item.val)) {
+                                    seriesPoints.push(item.val);
+                                }
                             }
                             const sparklineHtml = generateSparklineSvg(seriesPoints, c, 64, 18);
 
