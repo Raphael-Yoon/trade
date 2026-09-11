@@ -150,13 +150,81 @@ def get_top_tickers_from_naver(session, market='KOSPI', count=100):
 
 def get_naver_financials(session, ticker):
     """네이버 금융에서 상세 데이터를 크롤링합니다."""
+    import re
+    market_cap = 0
+    price = 0
+    sector = 'N/A'
+    high_52w = 0
+    low_52w = 0
+    per = 0.0
+    pbr = 0.0
+    eps = 0
+    bps = 0
+    div_yield = 0.0
+    avg_per = 0.0
+    avg_pbr = 0.0
+    target_price_val = 0
+    next_op = 0
+    debt_ratio = 0.0
+    op_margin = 0.0
+    net_margin = 0.0
+
+    # 1. 신규 실시간 Polling API 연동
+    try:
+        p_res = session.get(f"https://polling.finance.naver.com/api/realtime/domestic/stock/{ticker}", timeout=5)
+        if p_res.status_code == 200:
+            datas = p_res.json().get('datas', [])
+            if datas:
+                d = datas[0]
+                price = int(d.get('closePriceRaw') or 0)
+                val_raw = d.get('marketValueFullRaw')
+                if val_raw:
+                    market_cap = int(val_raw) // 100_000_000
+    except Exception:
+        pass
+
+    # 2. 모바일 통합 API (목표가, 52주 고저, PER/PBR/BPS 등)
+    try:
+        i_res = session.get(f"https://m.stock.naver.com/api/stock/{ticker}/integration", timeout=5)
+        if i_res.status_code == 200:
+            id_data = i_res.json()
+            cns = id_data.get('consensusInfo')
+            if cns:
+                t_nums = re.findall(r'[\d,]+', str(cns.get('priceTargetMean', '0')))
+                if t_nums:
+                    target_price_val = int(t_nums[0].replace(',', ''))
+            for item in id_data.get('totalInfos', []):
+                c = item.get('code')
+                val = str(item.get('value', ''))
+                nums = re.findall(r'[\d.]+', val.replace(',', ''))
+                if not nums:
+                    continue
+                if c == 'highPriceOf52Weeks': high_52w = int(float(nums[0]))
+                elif c == 'lowPriceOf52Weeks': low_52w = int(float(nums[0]))
+                elif c == 'per': per = float(nums[0])
+                elif c == 'eps': eps = int(float(nums[0]))
+                elif c == 'pbr': pbr = float(nums[0])
+                elif c == 'bps': bps = int(float(nums[0]))
+                elif c == 'dividendYieldRatio': div_yield = float(nums[0])
+    except Exception:
+        pass
+
+    # 3. WiseReport WICS 업종 연동
+    try:
+        w_res = session.get(f"https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx?cmp_cd={ticker}", timeout=5)
+        soup_w = BeautifulSoup(w_res.text, 'html.parser')
+        for dt in soup_w.find_all('dt'):
+            text = dt.get_text(strip=True)
+            if 'WICS' in text and ':' in text:
+                sector = text.split(':', 1)[1].strip()
+                break
+    except Exception:
+        pass
+
     try:
         url = f"https://finance.naver.com/item/main.naver?code={ticker}"
         res = session.get(url)
         soup = BeautifulSoup(res.text, 'html.parser')
-        
-        market_cap = 0
-        price = 0
         try:
             market_cap_area = soup.select_one('#_market_sum')
             if market_cap_area:
@@ -180,15 +248,12 @@ def get_naver_financials(session, ticker):
                 price = int(price_area.text.strip().replace(',', ''))
         except: pass
 
-        sector = 'N/A'
         try:
             h4_sector = soup.select_one('.section.trade_compare h4 em a')
             if h4_sector:
                 sector = h4_sector.text.strip()
         except: pass
 
-        high_52w = 0
-        low_52w = 0
         try:
             tab_con1 = soup.select_one('#tab_con1')
             if tab_con1:
@@ -202,14 +267,6 @@ def get_naver_financials(session, ticker):
                                 low_52w = int(parts[1].strip().replace(',', ''))
         except: pass
 
-        per = 0.0
-        pbr = 0.0
-        eps = 0
-        bps = 0
-        div_yield = 0.0
-        avg_per = 0.0
-        avg_pbr = 0.0
-        
         aside = soup.find('div', {'class': 'aside_invest_info'})
         if aside:
             for th in aside.find_all('th'):
@@ -237,12 +294,6 @@ def get_naver_financials(session, ticker):
                     if nums: avg_pbr = float(nums[0])
                 elif '업종 PBR' in th_text:
                     if nums: avg_pbr = float(nums[0])
-
-        target_price_val = 0
-        next_op = 0
-        debt_ratio = 0.0
-        op_margin = 0.0
-        net_margin = 0.0
         
         try:
             for th in soup.find_all('th'):
@@ -774,12 +825,13 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
             tickers_with_names = []
             for t in tickers:
                 try:
-                    res = session.get(f"https://finance.naver.com/item/main.naver?code={t}")
-                    soup = BeautifulSoup(res.text, 'html.parser')
-                    name_area = soup.select_one('.wrap_company h2 a')
-                    name = name_area.text.strip() if name_area else t
+                    r = session.get(f"https://polling.finance.naver.com/api/realtime/domestic/stock/{t}", timeout=3)
+                    if r.status_code == 200 and r.json().get('datas'):
+                        name = r.json()['datas'][0].get('stockName', t)
+                    else:
+                        name = t
                     tickers_with_names.append((t, name))
-                except:
+                except Exception:
                     tickers_with_names.append((t, t))
         else:
             tickers_with_names = get_top_tickers_from_naver(session, market, stock_count if stock_count > 0 else 3000)

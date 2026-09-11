@@ -561,36 +561,33 @@ def get_etf_codes():
     return etf_cache['codes']
 
 def get_current_price_naver(code):
-    """네이버 금융에서 현재가 가져오기"""
+    """[김정음] 네이버 금융에서 현재가 가져오기 (실시간 Polling API 연동)"""
     try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        price_tag = soup.select_one(".no_today .blind")
-        if price_tag:
-            return int(price_tag.text.replace(',', ''))
+        d = get_detailed_price(code)
+        if d.get('current_price', 0) > 0:
+            return d['current_price']
     except Exception as e:
         print(f"가격 수집 오류 ({code}): {e}")
     return None
 
 def get_industry_naver(code):
-    """[김선화] 네이버 금융에서 해당 종목의 업종(Sector) 정보를 가져옵니다."""
+    """[김선화] WiseReport WICS 연동으로 해당 종목의 업종(Sector) 정보를 가져옵니다."""
     try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        url = f"https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx?cmp_cd={code}"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         soup = BeautifulSoup(res.text, 'html.parser')
-        
-        # 업종 정보 추출 (상세 페이지 내 '업종' 텍스트 뒤의 em 태그)
-        industry_el = soup.select_one(".description em a")
-        if not industry_el:
-            # 다른 패턴 시도
-            for th in soup.find_all("th", scope="row"):
-                if "업종" in th.text:
-                    industry_el = th.find_next("td").find("a")
-                    break
-        
-        if industry_el:
-            return industry_el.text.strip()
+        for dt in soup.find_all('dt'):
+            text = dt.get_text(strip=True)
+            if 'WICS' in text and ':' in text:
+                industry = text.split(':', 1)[1].strip()
+                if industry:
+                    return industry
+        for td in soup.find_all('td'):
+            text = td.get_text(strip=True)
+            if 'WICS :' in text:
+                m = re.search(r'WICS\s*:\s*([가-힣A-Za-z0-9\s]+)', text)
+                if m:
+                    return m.group(1).strip()
     except Exception as e:
         print(f"업종 수집 오류 ({code}): {e}")
     return "기타"
@@ -1089,17 +1086,35 @@ def get_live_prices():
         return jsonify({})
     codes = [c.strip() for c in codes_str.split(',') if c.strip()]
 
-    def fetch_one(code):
-        d = get_detailed_price(code)
-        return code, d
-
     result = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(fetch_one, code): code for code in codes}
-        for future in as_completed(futures):
-            code, d = future.result()
-            if d.get('current_price', 0) > 0:
-                result[code] = {'price': d['current_price'], 'change_rate': d['change_rate'], 'change': d['change']}
+    # 1. 일괄(Batch) Polling API 호출로 초고속 조회
+    try:
+        url = f"https://polling.finance.naver.com/api/realtime/domestic/stock/{','.join(codes)}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            datas = res.json().get('datas', [])
+            for d in datas:
+                item_code = d.get('itemCode')
+                close_raw = int(d.get('closePriceRaw') or 0)
+                diff_raw = int(d.get('compareToPreviousClosePriceRaw') or 0)
+                rate_raw = float(d.get('fluctuationsRatioRaw') or 0.0)
+                if close_raw > 0 and item_code:
+                    result[item_code] = {'price': close_raw, 'change_rate': round(rate_raw, 2), 'change': diff_raw}
+    except Exception as e:
+        print(f"Batch live-prices error: {e}")
+
+    # 2. 누락된 종목 개별 fallback
+    missing = [c for c in codes if c not in result]
+    if missing:
+        def fetch_one(code):
+            return code, get_detailed_price(code)
+        with ThreadPoolExecutor(max_workers=min(10, len(missing))) as executor:
+            futures = {executor.submit(fetch_one, code): code for code in missing}
+            for future in as_completed(futures):
+                code, d = future.result()
+                if d.get('current_price', 0) > 0:
+                    result[code] = {'price': d['current_price'], 'change_rate': d['change_rate'], 'change': d['change']}
     return jsonify(result)
 
 @app.route('/api/targets/migrate', methods=['POST'])
@@ -1718,118 +1733,96 @@ def get_portfolio_details(ticker):
 
 
 def get_detailed_price(ticker):
-    """[김정음] 네이버 금융에서 현재가, 전일종가, 등락 정보를 상세히 가져옵니다."""
+    """[김정음] 네이버 금융 실시간 Polling API에서 현재가, 전일종가, 고가, 저가, 등락 정보를 상세히 가져옵니다."""
     try:
-        url = f"https://finance.naver.com/item/main.naver?code={ticker}"
-        # Naver Finance는 EUC-KR을 사용하므로 명시적 처리
+        url = f"https://polling.finance.naver.com/api/realtime/domestic/stock/{ticker}"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': f'https://finance.naver.com/item/main.naver?code={ticker}'
+            'Referer': 'https://finance.naver.com/'
         }
         res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
-        
-        # 1. 현재가 추출
-        today_area = soup.select_one('.no_today')
-        current_price = 0
-        if today_area:
-            price_elem = today_area.select_one('.blind')
-            if price_elem:
-                current_price = int(re.sub(r'[^0-9]', '', price_elem.text))
+        if res.status_code == 200:
+            data = res.json()
+            datas = data.get('datas', [])
+            if datas:
+                d = datas[0]
+                close_raw = int(d.get('closePriceRaw') or 0)
+                diff_raw = int(d.get('compareToPreviousClosePriceRaw') or 0)
+                high_raw = int(d.get('highPriceRaw') or 0)
+                low_raw = int(d.get('lowPriceRaw') or 0)
+                rate_raw = float(d.get('fluctuationsRatioRaw') or 0.0)
+                prev_close = close_raw - diff_raw if close_raw > 0 else 0
 
-        # 2. 전일종가 추출 (다양한 패턴 대응)
-        prev_close = 0
-        
-        # 패턴 A: .no_info 테이블 (일반 주식)
-        info_area = soup.select_one('.no_info')
-        if info_area:
-            for td in info_area.select('td'):
-                if '전일' in td.text:
-                    val_elem = td.select_one('.blind')
-                    if val_elem:
-                        prev_close = int(re.sub(r'[^0-9]', '', val_elem.text))
-                        break
-        
-        # 패턴 B: .rate_info 영역 (ETF 등)
-        if prev_close == 0:
-            rate_info = soup.select_one('.rate_info')
-            if rate_info:
-                # '전일' 텍스트를 포함한 td나 th를 찾음
-                target = rate_info.find(string=re.compile('전일'))
-                if target:
-                    parent = target.find_parent(['td', 'th', 'div'])
-                    # 인접한 곳에서 숫자 추출
-                    val_elem = parent.find_next_sibling() if parent else None
-                    if not val_elem:
-                         val_elem = parent # 자기 자신일 수도 있음
-                    
-                    # blind 클래스 혹은 텍스트에서 숫자 추출
-                    text_to_search = val_elem.text if val_elem else ""
-                    nums = re.findall(r'[0-9,]+', text_to_search)
-                    if nums:
-                        prev_close = int(nums[0].replace(',', ''))
-
-        # 3. 고가/저가 추출
-        high_price = 0
-        low_price = 0
-        if info_area:
-            for td in info_area.select('td'):
-                if '고가' in td.text and '52주' not in td.text:
-                    val_elem = td.select_one('.blind')
-                    if val_elem: high_price = int(re.sub(r'[^0-9]', '', val_elem.text))
-                elif '저가' in td.text and '52주' not in td.text:
-                    val_elem = td.select_one('.blind')
-                    if val_elem: low_price = int(re.sub(r'[^0-9]', '', val_elem.text))
-
-        # 4. 등락액, 등락률 계산
-        change = current_price - prev_close if prev_close > 0 else 0
-        change_rate = (change / prev_close * 100) if prev_close > 0 else 0
-        
-        return {
-            'current_price': current_price,
-            'prev_close': prev_close,
-            'high_price': high_price,
-            'low_price': low_price,
-            'change': change,
-            'change_rate': round(change_rate, 2)
-        }
+                return {
+                    'current_price': close_raw,
+                    'prev_close': prev_close,
+                    'high_price': high_raw,
+                    'low_price': low_raw,
+                    'change': diff_raw,
+                    'change_rate': round(rate_raw, 2)
+                }
     except Exception as e:
-        print(f"Detailed scraping error for {ticker}: {e}")
-    return {'current_price': 0, 'prev_close': 0, 'change': 0, 'change_rate': 0}
+        print(f"Polling error for {ticker}: {e}")
+
+    # Fallback to mobile basic API
+    try:
+        url = f"https://m.stock.naver.com/api/stock/{ticker}/basic"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            d = res.json()
+            close_price = int(re.sub(r'[^0-9]', '', str(d.get('closePrice', '0'))))
+            diff_str = str(d.get('compareToPreviousClosePrice', '0'))
+            is_minus = '-' in diff_str
+            diff = int(re.sub(r'[^0-9]', '', diff_str)) * (-1 if is_minus else 1)
+            prev_close = close_price - diff if close_price > 0 else 0
+            rate = float(d.get('fluctuationsRatio', 0.0))
+            return {
+                'current_price': close_price,
+                'prev_close': prev_close,
+                'high_price': 0,
+                'low_price': 0,
+                'change': diff,
+                'change_rate': round(rate, 2)
+            }
+    except Exception as e:
+        print(f"Fallback mobile error for {ticker}: {e}")
+
+    return {'current_price': 0, 'prev_close': 0, 'high_price': 0, 'low_price': 0, 'change': 0, 'change_rate': 0}
 
 analyst_target_cache = {}
 
 def get_analyst_target_price(ticker):
-    """[김정음] 네이버 금융 '투자의견 정보' 표에서 증권사 목표주가를 가져옵니다."""
+    """[김정음] 네이버 모바일 통합 API에서 증권사 목표주가 및 투자의견을 가져옵니다."""
     global analyst_target_cache
     entry = analyst_target_cache.get(ticker)
     if entry and time.time() - entry['ts'] < 1800:
         return entry['data']
     result = {'target_price': 0, 'opinion': ''}
     try:
-        url = f"https://finance.naver.com/item/main.naver?code={ticker}"
-        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': url}
+        url = f"https://m.stock.naver.com/api/stock/{ticker}/integration"
+        headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
-        for table in soup.find_all('table'):
-            if '투자의견 정보' in (table.get('summary', '') or ''):
-                for row in table.find_all('tr'):
-                    th = row.find('th')
-                    td = row.find('td')
-                    if not th or not td:
-                        continue
-                    th_text = th.get_text(strip=True)
-                    if '투자의견' in th_text and '목표주가' in th_text:
-                        td_text = td.get_text(strip=True)
-                        parts = td_text.split('l')
-                        if len(parts) >= 2:
-                            opinion_match = re.search(r'[가-힣]+', parts[0])
-                            if opinion_match:
-                                result['opinion'] = opinion_match.group()
-                            target_nums = re.findall(r'[\d,]+', parts[1])
-                            if target_nums:
-                                result['target_price'] = int(target_nums[0].replace(',', ''))
-                break
+        if res.status_code == 200:
+            data = res.json()
+            cns = data.get('consensusInfo')
+            if cns:
+                target_str = str(cns.get('priceTargetMean', '0'))
+                target_nums = re.findall(r'[\d,]+', target_str)
+                if target_nums:
+                    result['target_price'] = int(target_nums[0].replace(',', ''))
+                recomm = cns.get('recommMean')
+                if recomm:
+                    try:
+                        r_score = float(recomm)
+                        if r_score >= 4.0:
+                            result['opinion'] = '매수'
+                        elif r_score >= 3.0:
+                            result['opinion'] = '중립'
+                        else:
+                            result['opinion'] = '매도'
+                    except:
+                        result['opinion'] = str(recomm)
         analyst_target_cache[ticker] = {'data': result, 'ts': time.time()}
     except Exception as e:
         print(f"Error fetching analyst target price {ticker}: {e}")
@@ -2106,60 +2099,65 @@ def parse_market_cap_to_억(text):
     return total
 
 def get_stock_market_cap_억(code):
-    """종목 시가총액(억원) 반환. 24시간 캐시."""
+    """[김정음] 종목 시가총액(억원) 반환. 24시간 캐시 (Polling API 및 Mobile Integration 연동)."""
     global market_cap_cache
     now = time.time()
     if code in market_cap_cache and now - market_cap_cache[code]['ts'] < 86400:
         return market_cap_cache[code]['cap_억']
     try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
-        }
+        url = f"https://polling.finance.naver.com/api/realtime/domestic/stock/{code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
-        table = soup.find('table', class_='tb_type1')
-        if table:
-            for tr in table.find_all('tr'):
-                th = tr.find('th')
-                if th and '시가총액' in th.get_text():
-                    td = tr.find('td')
-                    if td:
-                        cap = parse_market_cap_to_억(td.get_text(strip=True))
-                        if cap > 0:
-                            market_cap_cache[code] = {'cap_억': cap, 'ts': now}
-                            return cap
+        if res.status_code == 200:
+            data = res.json()
+            datas = data.get('datas', [])
+            if datas:
+                val_raw = datas[0].get('marketValueFullRaw')
+                if val_raw:
+                    cap = int(val_raw) // 100_000_000
+                    if cap > 0:
+                        market_cap_cache[code] = {'cap_억': cap, 'ts': now}
+                        return cap
+    except Exception:
+        pass
+    
+    # Fallback to mobile integration API
+    try:
+        url = f"https://m.stock.naver.com/api/stock/{code}/integration"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            for item in data.get('totalInfos', []):
+                if item.get('code') == 'marketValue':
+                    cap = parse_market_cap_to_억(item.get('value', ''))
+                    if cap > 0:
+                        market_cap_cache[code] = {'cap_억': cap, 'ts': now}
+                        return cap
     except Exception:
         pass
     return 0
 
 def get_kospi_total_cap_억():
-    """KOSPI 전체 시가총액(억원) 반환. 24시간 캐시."""
+    """[김정음] KOSPI 전체 시가총액(억원) 반환. 24시간 캐시."""
     global kospi_total_cap_cache
     now = time.time()
     if now - kospi_total_cap_cache['ts'] < 86400 and kospi_total_cap_cache['cap_억'] > 0:
         return kospi_total_cap_cache['cap_억']
     try:
-        url = "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://finance.naver.com/sise/sise_index.naver?code=KOSPI'
-        }
+        url = "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=100"
+        headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
-        for tr in soup.find_all('tr'):
-            th = tr.find('th')
-            if th and '시가총액' in th.get_text():
-                td = tr.find('td')
-                if td:
-                    cap = parse_market_cap_to_억(td.get_text(strip=True))
-                    if cap > 0:
-                        kospi_total_cap_cache = {'cap_억': cap, 'ts': now}
-                        return cap
+        if res.status_code == 200:
+            stocks = res.json().get('stocks', [])
+            total_top100 = sum(int(s.get('marketValueRaw', 0)) for s in stocks) // 100_000_000
+            if total_top100 > 0:
+                cap = int(total_top100 / 0.85)
+                kospi_total_cap_cache = {'cap_억': cap, 'ts': now}
+                return cap
     except Exception:
         pass
-    return 0
+    return kospi_total_cap_cache.get('cap_억', 0)
 
 def get_kospi_weight(code):
     """종목의 코스피 비중(0.0~1.0) 반환."""

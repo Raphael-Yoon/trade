@@ -104,6 +104,80 @@ def get_all_naver_data(ticker):
         'industry_name': ''    # 업종명
     }
 
+    # ===================================================================
+    # 0. [김정음] 네이버 실시간 Polling 및 모바일 Integration API 연동 (현대화)
+    # ===================================================================
+    try:
+        # 0-1. 실시간 시세 (Polling API)
+        poll_res = requests.get(f"https://polling.finance.naver.com/api/realtime/domestic/stock/{ticker}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        if poll_res.status_code == 200:
+            p_datas = poll_res.json().get('datas', [])
+            if p_datas:
+                pd = p_datas[0]
+                data['name'] = pd.get('stockName', data['name'])
+                data['current_price'] = int(pd.get('closePriceRaw') or 0)
+                diff = int(pd.get('compareToPreviousClosePriceRaw') or 0)
+                data['prev_price'] = data['current_price'] - diff if data['current_price'] > 0 else 0
+                data['open_price'] = int(pd.get('openPriceRaw') or 0)
+                data['high_price'] = int(pd.get('highPriceRaw') or 0)
+                data['low_price'] = int(pd.get('lowPriceRaw') or 0)
+                data['volume'] = int(pd.get('accumulatedTradingVolumeRaw') or 0)
+                data['trading_value'] = int(pd.get('accumulatedTradingValueRaw') or 0)
+                val_raw = pd.get('marketValueFullRaw')
+                if val_raw:
+                    data['market_cap'] = f"{int(val_raw) // 100_000_000:,}억원"
+
+        # 0-2. 모바일 통합 API (목표주가, 52주 고저, PER/PBR 등)
+        int_res = requests.get(f"https://m.stock.naver.com/api/stock/{ticker}/integration", headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        if int_res.status_code == 200:
+            id_data = int_res.json()
+            if not data['name']:
+                data['name'] = id_data.get('stockName', '')
+            if id_data.get('industryCode'):
+                data['industry_id'] = str(id_data['industryCode'])
+            cns = id_data.get('consensusInfo')
+            if cns:
+                t_nums = re.findall(r'[\d,]+', str(cns.get('priceTargetMean', '0')))
+                if t_nums:
+                    data['target_price'] = int(t_nums[0].replace(',', ''))
+                r_val = cns.get('recommMean')
+                if r_val:
+                    try:
+                        data['opinion_score'] = float(r_val)
+                        data['opinion'] = '매수' if data['opinion_score'] >= 4.0 else ('중립' if data['opinion_score'] >= 3.0 else '매도')
+                    except Exception:
+                        pass
+            for item in id_data.get('totalInfos', []):
+                code = item.get('code')
+                val = str(item.get('value', ''))
+                nums = re.findall(r'[\d.]+', val.replace(',', ''))
+                if not nums:
+                    continue
+                if code == 'highPriceOf52Weeks':
+                    data['high_52w'] = int(float(nums[0]))
+                elif code == 'lowPriceOf52Weeks':
+                    data['low_52w'] = int(float(nums[0]))
+                elif code == 'per':
+                    data['per'] = float(nums[0])
+                elif code == 'eps':
+                    data['eps'] = int(float(nums[0]))
+                elif code == 'cnsPer':
+                    data['estimated_per'] = float(nums[0])
+                elif code == 'cnsEps':
+                    data['estimated_eps'] = int(float(nums[0]))
+                elif code == 'pbr':
+                    data['pbr'] = float(nums[0])
+                elif code == 'bps':
+                    data['bps'] = int(float(nums[0]))
+                elif code == 'dividendYieldRatio':
+                    data['dividend_yield'] = float(nums[0])
+                elif code == 'foreignRate':
+                    data['foreign_exhaustion_ratio'] = float(nums[0])
+                elif code == 'marketValue' and data['market_cap'] == 'N/A':
+                    data['market_cap'] = val
+    except Exception as e:
+        print(f"신규 API 연동 오류 ({ticker}): {e}")
+
     try:
         response = requests.get(main_url, headers=headers, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
