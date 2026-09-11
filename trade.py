@@ -1848,40 +1848,72 @@ def get_analyst_target_prices():
         return jsonify({'error': str(e)}), 500
 
 def get_market_index(ticker):
-    """[김정음] 네이버 금융에서 코스피, 코스닥 지수를 가져옵니다."""
+    """[김정음] 네이버 모바일 API에서 코스피, 코스닥 지수를 가져옵니다."""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    # 1차: m.stock.naver.com 기본 지수 API
     try:
-        url = f"https://finance.naver.com/sise/sise_index.naver?code={ticker}"
-        res = requests.get(url, timeout=5)
-        soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
-        
-        now_value = soup.select_one('#now_value')
-        change_area = soup.select_one('#change_value_and_rate')
-        
-        if now_value and change_area:
-            price = float(now_value.text.replace(',', ''))
+        url = f"https://m.stock.naver.com/api/index/{ticker}/basic"
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            d = res.json()
+            price = float(str(d.get('closePrice', '0')).replace(',', ''))
+            change = float(str(d.get('compareToPreviousClosePrice', '0')).replace(',', '').replace('+', ''))
+            rate = float(str(d.get('fluctuationsRatio', '0')).replace(',', '').replace('+', '').replace('%', ''))
             
-            # 등락 및 등락률 파싱
-            change_text = change_area.text.strip()
-            # "상승 10.00 +0.40%" 형태 또는 "하락 10.00 -0.40%"
-            nums = re.findall(r'[0-9.]+', change_text)
-            
-            change = float(nums[0]) if len(nums) > 0 else 0
-            rate = float(nums[1]) if len(nums) > 1 else 0
-            
-            if '하락' in change_text or '-' in change_text:
+            dir_code = str(d.get('compareToPreviousPrice', {}).get('code', ''))
+            dir_text = d.get('compareToPreviousPrice', {}).get('text', '')
+            if (dir_code in ('4', '5') or '하락' in dir_text) and change > 0:
                 change = -change
                 rate = -rate
-                
+            elif dir_code == '3' or '보합' in dir_text:
+                change = 0.0
+                rate = 0.0
+
             return {
-                'name': '코스피' if ticker == 'KOSPI' else '코스닥',
+                'name': d.get('stockName') or ('코스피' if ticker == 'KOSPI' else '코스닥'),
                 'code': ticker,
                 'price': price,
                 'change': change,
                 'rate': rate
             }
     except Exception as e:
-        print(f"Error fetching index {ticker}: {e}")
-    return {'name': ticker, 'code': ticker, 'price': 0, 'change': 0, 'rate': 0}
+        print(f"Primary fetch failed for index {ticker}: {e}")
+
+    # 2차: polling.finance.naver.com 실시간 API (Fallback)
+    try:
+        url = f"https://polling.finance.naver.com/api/realtime/domestic/index/{ticker}"
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            d = res.json()
+            datas = d.get('datas', [])
+            if datas:
+                item = datas[0]
+                price = float(item.get('closePriceRaw') or str(item.get('closePrice', '0')).replace(',', ''))
+                change = float(item.get('compareToPreviousClosePriceRaw') or str(item.get('compareToPreviousClosePrice', '0')).replace(',', '').replace('+', ''))
+                rate = float(item.get('fluctuationsRatioRaw') or str(item.get('fluctuationsRatio', '0')).replace(',', '').replace('+', '').replace('%', ''))
+                
+                dir_code = str(item.get('compareToPreviousPrice', {}).get('code', ''))
+                dir_text = item.get('compareToPreviousPrice', {}).get('text', '')
+                if (dir_code in ('4', '5') or '하락' in dir_text) and change > 0:
+                    change = -change
+                    rate = -rate
+                elif dir_code == '3' or '보합' in dir_text:
+                    change = 0.0
+                    rate = 0.0
+
+                return {
+                    'name': item.get('stockName') or ('코스피' if ticker == 'KOSPI' else '코스닥'),
+                    'code': ticker,
+                    'price': price,
+                    'change': change,
+                    'rate': rate
+                }
+    except Exception as e:
+        print(f"Fallback fetch failed for index {ticker}: {e}")
+
+    return {'name': '코스피' if ticker == 'KOSPI' else '코스닥', 'code': ticker, 'price': 0, 'change': 0, 'rate': 0}
 
 def get_market_investor_trend(ticker):
     """[김정음] 네이버 모바일 API에서 투자자별 순매수 및 추세(이전 대비 증감, 시계열)를 가져옵니다. (단위: 억원)"""
