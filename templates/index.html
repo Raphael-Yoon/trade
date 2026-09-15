@@ -742,8 +742,11 @@
                             <p style="margin: 8px 0 0; font-size: 14px; color: var(--text-muted);">전 종목을 3분마다 스캔하여 비정상적 가격 변동을 포착합니다.</p>
                         </div>
                         <div style="display: flex; gap: 12px;">
-                            <button id="monitorToggleBtn" class="btn" style="padding: 12px 32px;" onclick="toggleMonitor()">
-                                🚀 탐지 엔진 가동
+                            <button id="monitorToggleBtn" class="btn" style="padding: 12px 24px;" onclick="toggleMonitor()">
+                                🚀 정규장 탐지 가동
+                            </button>
+                            <button id="ahMonitorBtn" class="btn" style="padding: 12px 24px; background: #8b5cf6;" onclick="toggleAHMonitor()">
+                                🌙 애프터마켓 탐지 시작
                             </button>
                         </div>
                     </div>
@@ -756,7 +759,7 @@
                             </div>
                             <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1);"></div>
                             <div id="marketTimeInfo" style="font-size: 13px; color: var(--text-muted);">
-                                장 운영 시간: 평일 09:00 - 18:00 (정규+시간외)
+                                장 운영 시간: 평일 09:00 - 20:00 (정규+애프터마켓)
                             </div>
                         </div>
                     </div>
@@ -5363,11 +5366,11 @@
                 const btn = document.getElementById('ahMonitorBtn');
                 if (btn) {
                     if (active) {
-                        btn.innerHTML = '🛑 시간외 탐지 중지';
+                        btn.innerHTML = '🛑 애프터마켓 탐지 중지';
                         btn.style.background = '#ef4444';
                     } else {
-                        btn.innerHTML = '🕒 시간외 탐지 시작';
-                        btn.style.background = '#f59e0b';
+                        btn.innerHTML = '🌙 애프터마켓 탐지 시작';
+                        btn.style.background = '#8b5cf6';
                     }
                 }
             }
@@ -5497,7 +5500,7 @@
                         <div style="flex: 1;">
                             <!-- [유병욱] 상단 뱃지 일관성 유지 (flex-nowrap 및 말줄임 처리) -->
                             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 10px; overflow: hidden; white-space: nowrap;">
-                                ${alert.type === 'after_hours' ? '<span style="flex-shrink: 0; font-size: 10px; padding: 2px 8px; background: #f59e0b; color: white; border-radius: 4px; font-weight: 700;">🕒 시간외</span>' : ''}
+                                ${alert.type === 'after_hours' ? '<span style="flex-shrink: 0; font-size: 10px; padding: 2px 8px; background: #8b5cf6; color: white; border-radius: 4px; font-weight: 700;">🌙 애프터마켓</span>' : ''}
                                 <span style="flex-shrink: 1; max-width: 100px; overflow: hidden; text-overflow: ellipsis; font-size: 10px; padding: 2px 8px; background: ${isLocked ? '#475569' : 'var(--primary)'}; color: white; border-radius: 4px; font-weight: 700;">${alert.industry || '기타'}</span>
                                 <span style="flex-shrink: 0; font-size: 10px; padding: 2px 8px; background: ${intensityColor}22; color: ${intensityColor}; border: 1px solid ${intensityColor}44; border-radius: 4px; font-weight: 700;">${intensityLabel.split(' ')[1]} ${intensity}%</span>
                                 <span style="flex-shrink: 0; font-size: 10px; padding: 2px 8px; background: rgba(255,255,255,0.05); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; font-weight: 700;">전일: ${alert.prev_change_rate ? (alert.prev_change_rate > 0 ? '+' : '') + alert.prev_change_rate.toFixed(2) : '0.00'}%</span>

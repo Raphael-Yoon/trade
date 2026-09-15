@@ -623,14 +623,71 @@ def get_industry_leaders(industry_id):
         print(f"업종 리더 수집 오류: {e}")
         return "[]"
 
+def fetch_stock_market_movers_api(is_after_hours=False, threshold=None, min_volume=None):
+    """[김선화] 네이버 신규 실시간 주식 API 기반 급등주/수급주 수집 (정규장 KRX 및 애프터마켓 NXT 지원)"""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://stock.naver.com/'
+    }
+    trade_type = 'NXT' if is_after_hours else 'KRX'
+    order_types = ['up', 'quantTop'] if is_after_hours else ['up', 'quantTop', 'marketSum']
+    
+    cur_threshold = monitor_threshold_ah if is_after_hours else monitor_threshold
+    if threshold is not None:
+        cur_threshold = threshold
+    cur_min_vol = monitor_min_volume_ah if is_after_hours else monitor_min_volume
+    if min_volume is not None:
+        cur_min_vol = min_volume
+
+    etf_codes = get_etf_codes()
+    seen_codes = set()
+    movers = []
+    
+    for ot in order_types:
+        try:
+            url = f'https://stock.naver.com/api/domestic/market/stock/default?tradeType={trade_type}&marketType=ALL&orderType={ot}&startIdx=0&pageSize=50'
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                items = res.json()
+                for s in items:
+                    code = str(s.get('itemcode', '')).zfill(6)
+                    name = s.get('itemname', '')
+                    if not code or code in seen_codes:
+                        continue
+                    if code in etf_codes or any(x in name.upper() for x in ['ETF', 'ETN', '스팩', 'SPAC']):
+                        continue
+                    try:
+                        price = int(s.get('nowPrice') or 0)
+                        change_rate = float(s.get('prevChangeRate') or 0.0)
+                        volume = int(s.get('tradeVolume') or 0)
+                        if change_rate >= cur_threshold and volume >= cur_min_vol:
+                            seen_codes.add(code)
+                            movers.append({
+                                'code': code,
+                                'name': name,
+                                'price': price,
+                                'change_rate': change_rate,
+                                'volume': volume,
+                                'type': 'after_hours' if is_after_hours else 'spike'
+                            })
+                    except (ValueError, TypeError):
+                        continue
+        except Exception as e:
+            print(f"API 수집 오류 ({trade_type}/{ot}): {e}")
+    return movers
+
 def get_market_movers():
-    """시장 전체에서 급등/급락 종목 가져오기 (네이버 금융 상위 종목)"""
+    """시장 전체에서 급등/급락 종목 가져오기 (정규장 KRX 및 16:00~20:00 애프터마켓 NXT 자동 대응)"""
+    now = datetime.now()
+    is_after_hours = now.hour >= 16 and now.hour < 20
+    api_movers = fetch_stock_market_movers_api(is_after_hours=is_after_hours)
+    if api_movers:
+        return api_movers
+
+    # Fallback to legacy scraping
     movers = []
     try:
-        # [김선화] 시간대에 따라 스캔 대상 조정 (16:00~18:00은 시간외 단일가 스캔)
-        now = datetime.now()
-        is_after_hours = now.hour >= 16 and now.hour < 18
-        
+        # [김선화] 시간대에 따라 스캔 대상 조정 (16:00~20:00 애프터마켓 스캔)
         if is_after_hours:
             targets = [f'sise_low_up.naver?menu=danjiga&sosok={sosok}' for sosok in [0, 1]]
         else:
@@ -655,15 +712,12 @@ def get_market_movers():
 
                     # [김선화] 시간대별 컬럼 인덱스 대응
                     if is_after_hours:
-                        # sise_low_up.naver?menu=danjiga 기준: 1:시간외등락률, 2:종목명, 3:시간외단가, 8:기준가(당일종가), 9:거래량
-                        # cols[1]=기준가대비 시간외 전용 등락률, cols[5]=전일대비 등락률(정규장 포함) → cols[1] 사용
                         name = cols[2].text.strip()
                         code_el = cols[2].find('a')
                         price_str = cols[3].text.strip().replace(",", "")
                         change_rate_str = cols[1].text.strip().replace("%", "").replace("+", "")
                         volume_str = cols[9].text.strip().replace(",", "") if len(cols) > 9 else "0"
                     else:
-                        # sise_quant.naver 등 일반 페이지 기준: 1:종목명, 2:현재가, 4:등락률, 5:거래량
                         name = cols[1].text.strip()
                         code_el = cols[1].find('a')
                         price_str = cols[2].text.strip().replace(",", "")
@@ -694,7 +748,7 @@ def get_market_movers():
                                 'price': price,
                                 'change_rate': change_rate,
                                 'volume': volume,
-                                'type': 'spike'
+                                'type': 'after_hours' if is_after_hours else 'spike'
                             })
                     except ValueError as e:
                         print(f"파싱 오류 ({t_url} / {name}): {e}")
@@ -707,12 +761,12 @@ def get_market_movers():
     return movers
 
 def is_market_open():
-    """장 운영 시간 확인 (정규장 09:00~15:30 + 시간외 16:00~18:00)"""
+    """장 운영 시간 확인 (정규장 09:00~15:30 + 애프터마켓 16:00~20:00)"""
     now = datetime.now()
     if now.weekday() >= 5: # 토, 일
         return False
     start_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
-    end_time = now.replace(hour=18, minute=0, second=0, microsecond=0) # [김선화] 시간외 단일가 종료까지 연장
+    end_time = now.replace(hour=20, minute=0, second=0, microsecond=0) # [김선화] 애프터마켓 종료(20:00)까지 연장
     return start_time <= now <= end_time
 
 def run_market_monitor():
@@ -808,22 +862,22 @@ def run_market_monitor():
             time.sleep(30)
 
 def run_ah_monitor():
-    """[김선화] 시간외 단일가 급등주 탐지 엔진 (16:00 - 18:00)"""
+    """[김선화] 애프터마켓 급등주 탐지 엔진 (16:00 - 20:00)"""
     global monitor_active_ah, industry_cache
-    print("🌙 시간외 단일가 탐지 엔진 가동 시작...")
+    print("🌙 애프터마켓 탐지 엔진 가동 시작...")
     
     while monitor_active_ah:
         try:
             now = datetime.now()
-            if now.hour < 16 or now.hour >= 18:
+            if now.hour < 16 or now.hour >= 20:
                 if now.minute % 10 == 0 and now.second < 10:
-                    print(f"💤 시간외 운영 시간이 아닙니다. (현재 {now.strftime('%H:%M')})")
+                    print(f"💤 애프터마켓 운영 시간이 아닙니다. (현재 {now.strftime('%H:%M')})")
                 time.sleep(10)
                 continue
 
-            print(f"🔍 [SCAN] 시간외 시장 스캔 시작... ({now.strftime('%H:%M:%S')})")
+            print(f"🔍 [SCAN] 애프터마켓 시장 스캔 시작... ({now.strftime('%H:%M:%S')})")
 
-            # 1. 시간외 급등주 스캔
+            # 1. 시간외/애프터마켓 급등주 스캔
             movers = get_market_movers_filtered(is_after_hours=True)
             mover_codes = {m['code'] for m in movers}
 
@@ -891,14 +945,19 @@ def run_ah_monitor():
                         'recommend_score': recommend_score, 'prev_change_rate': item['prev_change_rate'],
                         'foreign_net_buy': f_buy, 'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     }
-            print(f"✅ [DONE] 시간외 업데이트 완료. 3분 뒤 재스캔합니다.")
+            print(f"✅ [DONE] 애프터마켓 업데이트 완료. 3분 뒤 재스캔합니다.")
             time.sleep(180)
         except Exception as e:
-            print(f"시간외 모니터링 오류: {e}")
+            print(f"애프터마켓 모니터링 오류: {e}")
             time.sleep(30)
 
 def get_market_movers_filtered(is_after_hours=False):
-    """[김선화] 조건에 맞는 시장 급등주 목록 수집"""
+    """[김선화] 조건에 맞는 시장 급등주 목록 수집 (정규장 KRX 및 16:00~20:00 애프터마켓 NXT 자동 대응)"""
+    api_movers = fetch_stock_market_movers_api(is_after_hours=is_after_hours)
+    if api_movers:
+        return api_movers
+
+    # Fallback to legacy scraping
     movers = []
     try:
         if is_after_hours:
@@ -945,7 +1004,7 @@ def get_market_movers_filtered(is_after_hours=False):
                         min_vol = monitor_min_volume_ah if is_after_hours else monitor_min_volume
 
                         if change_rate >= threshold and volume >= min_vol:
-                            movers.append({'code': code, 'name': name, 'price': price, 'change_rate': change_rate, 'volume': volume})
+                            movers.append({'code': code, 'name': name, 'price': price, 'change_rate': change_rate, 'volume': volume, 'type': 'after_hours' if is_after_hours else 'spike'})
                     except ValueError as e:
                         print(f"파싱 오류 ({t_url} / {name}): {e}")
                         continue
@@ -983,7 +1042,7 @@ def api_monitor_status():
     now = datetime.now()
     is_weekday = now.weekday() < 5
     market_open = is_weekday and now.replace(hour=9, minute=0, second=0, microsecond=0) <= now <= now.replace(hour=15, minute=30, second=0, microsecond=0)
-    ah_open = is_weekday and now.replace(hour=16, minute=0, second=0, microsecond=0) <= now <= now.replace(hour=18, minute=0, second=0, microsecond=0)
+    ah_open = is_weekday and now.replace(hour=16, minute=0, second=0, microsecond=0) <= now <= now.replace(hour=20, minute=0, second=0, microsecond=0)
 
     market_alive = monitor_active_market and (monitor_thread_market is not None) and monitor_thread_market.is_alive()
     ah_alive = monitor_active_ah and (monitor_thread_ah is not None) and monitor_thread_ah.is_alive()
@@ -1040,7 +1099,7 @@ def get_alerts():
     sort_by = request.args.get('sort', 'change_rate')
     try:
         now = datetime.now()
-        is_after_hours = now.hour >= 16 and now.hour < 18
+        is_after_hours = now.hour >= 16 and now.hour < 20
         current_threshold = float(monitor_threshold_ah if is_after_hours else monitor_threshold)
         current_min_volume = int(monitor_min_volume_ah if is_after_hours else monitor_min_volume)
 
