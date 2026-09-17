@@ -3893,14 +3893,14 @@ def sync_data():
         return jsonify({'success': False, 'message': str(e)}), 500 
 
 def auto_snapshot_scheduler():
-    """[김선화] 매일 장 마감(15:40) 후 자동 스냅샷 기록 스케줄러"""
-    print("[김선화] 자동 스냅샷 스케줄러 가동 중 (평일 15:40 예정)")
+    """[김선화] 매일 애프터마켓 마감 후(20:10) 자동 스냅샷 기록 스케줄러"""
+    print("[김선화] 자동 스냅샷 스케줄러 가동 중 (평일 20:10 예정)")
     while True:
         try:
             now = datetime.now()
-            # 평일(0-4: 월-금)이고 15:40분인 경우 실행
-            if now.weekday() < 5 and now.hour == 15 and now.minute == 40:
-                print(f"[김선화] {now.strftime('%Y-%m-%d')} 장 마감 자동 스냅샷 실행 중...")
+            # 평일(0-4: 월-금)이고 20:10분인 경우 실행 (애프터마켓 최종가 반영)
+            if now.weekday() < 5 and now.hour == 20 and now.minute == 10:
+                print(f"[김선화] {now.strftime('%Y-%m-%d')} 애프터마켓 마감 자동 스냅샷 실행 중...")
                 with app.app_context():
                     # 내부 함수 호출 (API 로직 재사용)
                     try:
