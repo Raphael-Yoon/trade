@@ -571,8 +571,8 @@
             </div>
             <div class="modal-footer">
                 <button id="aiSaveDriveBtn" class="btn" style="display: none; gap: 8px; align-items: center; height: auto; padding: 12px 24px; font-size: 15px;"
-                    onclick="savePortfolioReportToDrive()">
-                    <span id="saveDriveBtnText">📁 구글 드라이브에 저장</span>
+                    onclick="savePortfolioReport()">
+                    <span id="saveDriveBtnText">💾 리포트 로컬 저장</span>
                 </button>
                 <button class="modal-btn-cancel" style="height: auto; padding: 12px 28px; font-size: 15px; flex: none; width: auto;"
                     onclick="closeAiModal()">닫기</button>
@@ -4620,22 +4620,12 @@
             }
         }
 
-        function showDownload(filename, driveLink = null) {
+        function showDownload(filename) {
             const downloadSection = document.getElementById('downloadSection');
             const downloadLink = document.getElementById('downloadLink');
             downloadLink.href = `/api/download/${filename}`;
             const existingDriveLink = document.getElementById('driveDownloadLink');
             if (existingDriveLink) existingDriveLink.remove();
-            if (driveLink) {
-                const driveBtn = document.createElement('a');
-                driveBtn.id = 'driveDownloadLink';
-                driveBtn.href = driveLink;
-                driveBtn.target = '_blank';
-                driveBtn.className = 'download-btn';
-                driveBtn.style.background = '#4285F4';
-                driveBtn.textContent = '📂 구글 드라이브에서 보기';
-                downloadLink.parentNode.appendChild(driveBtn);
-            }
             downloadSection.classList.add('active');
         }
 
@@ -5187,8 +5177,9 @@
             }
         }
 
-        function savePortfolioReportToDrive() {
-            const filename = prompt('구글 드라이브에 저장할 파일명을 입력하세요:', '포트폴리오 분석 리포트');
+        function savePortfolioReport() {
+            const defaultName = '포트폴리오_분석_리포트_' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const filename = prompt('로컬에 저장할 파일명을 입력하세요:', defaultName);
             if (!filename || !filename.trim()) return;
 
             const saveBtn = document.getElementById('aiSaveDriveBtn');
@@ -5199,7 +5190,7 @@
 
             const content = document.getElementById('aiResultContent').innerHTML;
 
-            fetch('/api/save_report_to_drive', {
+            fetch('/api/save_report_to_local', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: filename.trim(), content: content })
@@ -5208,9 +5199,9 @@
                 .then(data => {
                     saveBtn.disabled = false;
                     saveBtn.style.opacity = '1';
-                    saveBtnText.innerHTML = '📁 구글 드라이브에 저장';
+                    saveBtnText.innerHTML = '💾 리포트 로컬 저장';
                     if (data.success) {
-                        showToast('구글 드라이브에 저장되었습니다.');
+                        showToast(data.message || '로컬 Report 폴더에 저장되었습니다.', 'success');
                     } else {
                         showToast('저장 실패: ' + data.message, 'error');
                     }
@@ -5218,10 +5209,11 @@
                 .catch(err => {
                     saveBtn.disabled = false;
                     saveBtn.style.opacity = '1';
-                    saveBtnText.innerHTML = '📁 구글 드라이브에 저장';
+                    saveBtnText.innerHTML = '💾 리포트 로컬 저장';
                     showToast('저장 중 오류 발생: ' + err, 'error');
                 });
         }
+        window.savePortfolioReportToDrive = savePortfolioReport;
 
         // --- 내일의 공략주 실시간가 폴링 ---
         let targetLivePriceTimer = null;

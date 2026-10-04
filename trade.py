@@ -100,7 +100,7 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 SQLITE_PATH = os.path.join(os.path.dirname(__file__), 'trade.db')
 app.secret_key = os.getenv('SECRET_KEY', 'fallback-secret-key')
 app.permanent_session_lifetime = timedelta(hours=12)
-APP_PASSWORD = os.getenv('APP_PASSWORD', '')
+APP_PASSWORD = os.getenv('APP_PASSWORD', '150606')
 
 # [김선화] PostgreSQL 또는 SQLite일 경우 ON CONFLICT 구문을 사용하도록 처리
 _IS_POSTGRES = not (DATABASE_URL and DATABASE_URL.startswith('mysql'))
@@ -480,52 +480,27 @@ def load_financial_health(force=False):
     # [김선화] 강제 로드 시 기존 캐시 초기화
     if force: financial_cache = {}
     
-    # 1. 구글 드라이브에서 최신 데이터 시도 (gspread 직접 읽기)
+    # 1. 로컬 데이터 우선 로드 (results 및 Report 폴더의 최신 엑셀 탐색)
     try:
-        from drive_sync import list_files_in_folder, read_sheet_as_df
-        import re, pandas as pd
-
-        print("🔍 구글 드라이브에서 최신 재무 데이터 검색 중...")
-        files = list_files_in_folder("Stock_Analysis_Results")
-        sheets = [f for f in files if f['mimeType'] == 'application/vnd.google-apps.spreadsheet']
-        if sheets:
-            def _ts(f):
-                m = re.search(r'(\d{8}_\d{6})', f['name'])
-                if m: return m.group(1)
-                m = re.search(r'(\d{8})', f['name'])
-                if m: return m.group(1) + '_000000'
-                return '00000000_000000'
-            latest_file = max(sheets, key=_ts)
-            print(f"📥 구글 드라이브 최신 파일 발견: {latest_file['name']}")
-            df = read_sheet_as_df(latest_file['id'])
-            df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
-            for _, row in df.iterrows():
-                code = row['종목코드']
-                financial_cache[code] = {
-                    'audit': str(row.get('회계감사의견', 'N/A')),
-                    'internal': str(row.get('내부통제의견', 'N/A')),
-                    'roe': float(row.get('ROE', 0)),
-                    'debt_ratio': float(row.get('부채비율', 0))
-                }
-            print(f"✅ 구글 드라이브 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
-            return financial_cache
-    except Exception as e:
-        print(f"⚠️ 구글 드라이브 데이터 로드 실패: {e}. 로컬 데이터로 전환합니다.")
-
-    # 2. 로컬 데이터 폴백 (가장 최신 파일 탐색)
-    try:
-        # [김선화] Linux/Windows 호환 경로 설정
+        import pandas as pd
+        candidate_files = []
         base_dir = os.path.dirname(__file__)
-        report_dir = os.path.join(base_dir, 'Report')
+        search_dirs = [RESULTS_DIR, os.path.join(base_dir, 'Report')]
         
-        if os.path.exists(report_dir):
-            local_files = [os.path.join(report_dir, f) for f in os.listdir(report_dir) if f.endswith('.xlsx')]
-            if local_files:
-                local_files.sort(key=os.path.getmtime, reverse=True)
-                file_path = local_files[0]
-                print(f"📂 로컬 최신 데이터 사용: {file_path}")
-                
-                df = pd.read_excel(file_path)
+        for s_dir in search_dirs:
+            if os.path.exists(s_dir):
+                for f in os.listdir(s_dir):
+                    if f.endswith('.xlsx') and not f.startswith('~$'):
+                        f_path = os.path.join(s_dir, f)
+                        candidate_files.append((os.path.getmtime(f_path), f_path))
+                        
+        if candidate_files:
+            candidate_files.sort(key=lambda x: x[0], reverse=True)
+            latest_file = candidate_files[0][1]
+            print(f"📂 로컬 최신 재무 데이터 로드: {latest_file}")
+            
+            df = pd.read_excel(latest_file)
+            if '종목코드' in df.columns:
                 df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
                 for _, row in df.iterrows():
                     code = row['종목코드']
@@ -535,15 +510,12 @@ def load_financial_health(force=False):
                         'roe': float(row.get('ROE', 0)),
                         'debt_ratio': float(row.get('부채비율', 0))
                     }
-                
                 print(f"✅ 로컬 재무 데이터 로드 완료 ({len(financial_cache)} 종목)")
                 return financial_cache
-            else:
-                print(f"⚠️ {report_dir} 폴더에 Excel 파일이 없습니다.")
-        else:
-            print(f"⚠️ 로컬 보고서 경로가 존재하지 않습니다: {report_dir}")
     except Exception as e:
-        print(f"⚠️ 로컬 데이터 로드 실패: {e}")
+        print(f"⚠️ 로컬 재무 데이터 로드 중 오류: {e}")
+
+    print("ℹ️ 로컬 재무 데이터 파일(results/ 또는 Report/ 내 .xlsx)이 없어 기본 캐시를 반환합니다.")
     return financial_cache
 
 def get_etf_codes():
@@ -1525,25 +1497,23 @@ def run_data_collection(task_id, stock_count=100, fields=None, market='KOSPI', y
             if os.path.exists(result_path):
                 tasks[task_id]['status'] = 'completed'
                 tasks[task_id]['progress'] = 100
-                tasks[task_id]['message'] = '데이터 수집 완료!'
+                tasks[task_id]['message'] = f'데이터 수집 완료! (로컬 저장: {result_filename})'
                 tasks[task_id]['result_file'] = result_filename
                 
+                # 메타데이터 JSON 로컬 저장
                 try:
-                    from drive_sync import upload_to_drive
-                    drive_data = upload_to_drive(result_path)
-                    if drive_data:
-                        tasks[task_id]['message'] += f' (구글 드라이브 업로드 완료)'
-                        tasks[task_id]['drive_link'] = drive_data['link']
-                        # Drive-Native: 업로드 완료 후 로컬 파일 즉시 삭제, DB 저장 없음
-                        if os.path.exists(result_path):
-                            os.remove(result_path)
-                        json_path = result_path.replace('.xlsx', '.json')
-                        if os.path.exists(json_path):
-                            os.remove(json_path)
-                except Exception as drive_err:
-                    print(f"드라이브 업로드 실패: {drive_err}")
-                
-                cleanup_old_results()
+                    meta_path = result_path.replace('.xlsx', '.json')
+                    meta_data = {
+                        'filename': result_filename,
+                        'market': market,
+                        'stock_count': stock_count,
+                        'created_at': datetime.now().isoformat(),
+                        'size': os.path.getsize(result_path)
+                    }
+                    with open(meta_path, 'w', encoding='utf-8') as f:
+                        json.dump(meta_data, f, ensure_ascii=False, indent=2)
+                except Exception as meta_err:
+                    print(f"메타데이터 저장 오류: {meta_err}")
             else:
                 tasks[task_id]['status'] = 'error'
                 tasks[task_id]['message'] = '결과 파일을 찾을 수 없습니다.'
@@ -1617,8 +1587,12 @@ def run_calibrate_and_rebuild(task_id, filename):
         tasks[task_id]['progress'] = 20
         
         # 1. 시가총액 보정 실행
+        base_trade_dir = os.path.dirname(os.path.abspath(__file__))
         py_exe = sys.executable
-        res = subprocess.run([py_exe, 'calibrate_market_cap.py', '--source_file', file_path], capture_output=True, text=True, encoding='utf-8')
+        res = subprocess.run(
+            [py_exe, os.path.join(base_trade_dir, 'calibrate_market_cap.py'), '--source_file', file_path],
+            capture_output=True, text=True, encoding='utf-8', cwd=base_trade_dir
+        )
         if res.returncode != 0:
             tasks[task_id]['status'] = 'failed'
             tasks[task_id]['message'] = f"시가총액 보정 실패: {res.stderr or res.stdout}"
@@ -1628,7 +1602,10 @@ def run_calibrate_and_rebuild(task_id, filename):
         tasks[task_id]['message'] = '3대 트랙 정량 필터링 및 파이프라인 분석 가동 중...'
         
         # 2. 통합 파이프라인 실행
-        res = subprocess.run([py_exe, 'run_pipeline.py', '--source_file', file_path], capture_output=True, text=True, encoding='utf-8')
+        res = subprocess.run(
+            [py_exe, os.path.join(base_trade_dir, 'run_pipeline.py'), '--source_file', file_path],
+            capture_output=True, text=True, encoding='utf-8', cwd=base_trade_dir
+        )
         if res.returncode != 0:
             tasks[task_id]['status'] = 'failed'
             tasks[task_id]['message'] = f"파이프라인 실행 실패: {res.stderr or res.stdout}"
@@ -1638,7 +1615,10 @@ def run_calibrate_and_rebuild(task_id, filename):
         tasks[task_id]['message'] = '정성적 분석 코멘트(One-liner/Reason) 적재 중...'
         
         # 3. 정성 요약 적재 실행
-        res = subprocess.run([py_exe, 'enrich_recommendations.py'], capture_output=True, text=True, encoding='utf-8')
+        res = subprocess.run(
+            [py_exe, os.path.join(base_trade_dir, 'enrich_recommendations.py')],
+            capture_output=True, text=True, encoding='utf-8', cwd=base_trade_dir
+        )
         if res.returncode != 0:
             tasks[task_id]['status'] = 'failed'
             tasks[task_id]['message'] = f"코멘트 적재 실패: {res.stderr or res.stdout}"
@@ -2791,9 +2771,6 @@ def update_master():
 @app.route('/api/results', methods=['GET'])
 def get_results():
     try:
-        from drive_sync import list_files_in_folder
-        drive_files = list_files_in_folder()
-        
         # SQLite에서 이미 Pool 구성 완료된 소스 파일 목록 조회
         composed_files = set()
         try:
@@ -2806,95 +2783,84 @@ def get_results():
             print(f"Error checking composed pools: {db_err}")
 
         results = []
-        for df in drive_files:
-            if df.get('mimeType') == 'application/vnd.google-apps.spreadsheet':
-                name = df['name']
-                # .xlsx 확장자 보정
-                if not name.endswith('.xlsx'):
-                    name += '.xlsx'
-                
-                # 파일명에서 시장 및 종목수 파싱
-                parts = name.replace('.xlsx', '').split('_')
-                market_val = parts[0].upper() if len(parts) > 0 else 'UNKNOWN'
-                count_val = parts[1] if len(parts) > 1 else '0'
-                
-                # filename 또는 Google Drive에 저장된 본래 name이 DB의 source_file 컬럼에 있는지 확인
-                has_pool = (name in composed_files) or (df['name'] in composed_files)
+        # 1. 로컬 RESULTS_DIR 파일 목록 조회 (우선)
+        if os.path.exists(RESULTS_DIR):
+            for name in os.listdir(RESULTS_DIR):
+                if name.endswith('.xlsx') and not name.startswith('~$'):
+                    file_path = os.path.join(RESULTS_DIR, name)
+                    try:
+                        mtime = os.path.getmtime(file_path)
+                        created_time_str = datetime.fromtimestamp(mtime).isoformat()
+                        file_size = os.path.getsize(file_path)
+                    except OSError:
+                        created_time_str = datetime.now().isoformat()
+                        file_size = 0
 
-                results.append({
-                    'filename': name,
-                    'market': market_val,
-                    'stock_count': count_val,
-                    'created_at': df.get('createdTime'),
-                    'size': int(df.get('size', 0)) if df.get('size') else 0,
-                    'spreadsheet_id': df['id'],
-                    'drive_link': df.get('webViewLink'),
-                    'ai_result': None, # 실시간 조회시 AI 결과는 별도 API로 처리
-                    'has_pool': has_pool
-                })
+                    # 메타데이터 JSON이 있으면 우선 활용
+                    json_path = os.path.join(RESULTS_DIR, name.replace('.xlsx', '.json'))
+                    meta_market = None
+                    meta_count = None
+                    if os.path.exists(json_path):
+                        try:
+                            with open(json_path, 'r', encoding='utf-8') as jf:
+                                meta = json.load(jf)
+                                meta_market = meta.get('market')
+                                meta_count = str(meta.get('stock_count', ''))
+                        except:
+                            pass
+
+                    parts = name.replace('.xlsx', '').split('_')
+                    market_raw = meta_market or (parts[0].upper() if len(parts) > 0 else 'UNKNOWN')
+                    if 'KOSPI' in market_raw and 'KOSDAQ' in market_raw:
+                        market_val = 'ALL'
+                    else:
+                        market_val = market_raw
+                    count_val = meta_count or (parts[1] if len(parts) > 1 else '0')
+
+                    has_pool = (name in composed_files)
+
+                    results.append({
+                        'filename': name,
+                        'market': market_val,
+                        'stock_count': count_val,
+                        'created_at': created_time_str,
+                        'size': file_size,
+                        'spreadsheet_id': None,
+                        'drive_link': None,
+                        'ai_result': None,
+                        'has_pool': has_pool
+                    })
+
+        # 최신 생성일자 순 정렬
+        results.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         return jsonify(results)
     except Exception as e:
-        return jsonify({'error': '구글 드라이브 연결에 실패했습니다.'}), 503
+        print(f"로컬 결과 목록 조회 중 오류: {e}")
+        return jsonify({'error': f'결과 조회 실패: {str(e)}'}), 500
 
 @app.route('/api/download/<filename>')
 def download_file(filename):
-    # 1. 로컬에 있으면 로컬 파일 제공
+    # 1. 로컬 results 폴더 확인
     file_path = os.path.join(RESULTS_DIR, filename)
     if os.path.exists(file_path):
         return send_file(file_path, as_attachment=True)
     
-    # 2. 로컬에 없으면 드라이브에서 실시간 다운로드
-    try:
-        from drive_sync import list_files_in_folder, download_from_drive
-        drive_files = list_files_in_folder()
-        spreadsheet_id = None
-        
-        # 파일명으로 ID 찾기
-        target_name = filename.replace('.xlsx', '')
-        for df in drive_files:
-            if df['name'] == target_name or df['name'] == filename:
-                spreadsheet_id = df['id']
-                break
-        
-        if spreadsheet_id:
-            content = download_from_drive(spreadsheet_id)
-            if content:
-                import io
-                return send_file(io.BytesIO(content), as_attachment=True, download_name=filename)
-    except Exception as e:
-        print(f"드라이브 다운로드 중 오류: {e}")
+    # 2. 로컬 프로젝트 루트 확인
+    root_path = os.path.join(os.path.dirname(__file__), filename)
+    if os.path.exists(root_path):
+        return send_file(root_path, as_attachment=True)
         
     return jsonify({'error': '파일을 찾을 수 없습니다.'}), 404
 
 @app.route('/api/delete/<filename>', methods=['DELETE'])
 def delete_result(filename):
     try:
-        from drive_sync import delete_from_drive, list_files_in_folder, find_ai_report
-        
-        # 1. 드라이브에서 파일 ID 조회
-        drive_files = list_files_in_folder()
-        spreadsheet_id = None
         target_name_base = filename.replace('.xlsx', '')
-        
-        for df in drive_files:
-            if df['name'] == target_name_base or df['name'] == filename:
-                spreadsheet_id = df['id']
-                break
-        
-        # 2. 구글 드라이브 파일 삭제
-        if spreadsheet_id:
-            delete_from_drive(spreadsheet_id)
-            
-        # 3. 연관된 AI 리포트 문서 삭제
-        existing_report = find_ai_report(target_name_base)
-        if existing_report:
-            delete_from_drive(existing_report['id'])
-            
+        # 로컬 파일 삭제 (.xlsx, .json)
         for ext in ['.xlsx', '.json']:
             path = os.path.join(RESULTS_DIR, target_name_base + ext)
             if os.path.exists(path):
                 os.remove(path)
-            
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2908,8 +2874,8 @@ def collect_pool_from_result():
     spreadsheet_id = data.get('spreadsheet_id')
     filename = data.get('filename')
 
-    if not spreadsheet_id and not filename:
-        return jsonify({'success': False, 'message': 'Spreadsheet ID 또는 파일명이 누락되었습니다.'}), 400
+    if not filename and not spreadsheet_id:
+        return jsonify({'success': False, 'message': '파일명이 누락되었습니다.'}), 400
 
     script_path = os.path.join(os.path.dirname(__file__), 'pool_collect.py')
     python_cmd = sys.executable
@@ -2921,57 +2887,21 @@ def collect_pool_from_result():
     if filename:
         cmd.extend(['--source_file', filename])
 
-    # 1. 드라이브 ID가 있는 경우 직접 드라이브에서 데이터 로드
-    if spreadsheet_id:
-        cmd.extend(['--id', spreadsheet_id])
-        try:
-            process = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8',
-                cwd=os.path.dirname(__file__)
-            )
-            if process.returncode == 0:
-                return jsonify({
-                    'success': True,
-                    'message': '감사 Pool 구성이 성공적으로 완료되었습니다. (SQLite 적재 완료)',
-                    'output': process.stdout
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'message': f'Pool 구성 중 오류 발생: {process.stderr}',
-                    'output': process.stdout
-                }), 500
-        except Exception as e:
-            return jsonify({'success': False, 'message': str(e)}), 500
+    # 로컬 파일 우선 탐색
+    file_path = os.path.join(RESULTS_DIR, filename) if filename else None
+    if file_path and not os.path.exists(file_path):
+        alt_path = os.path.join(os.path.dirname(__file__), filename)
+        if os.path.exists(alt_path):
+            file_path = alt_path
 
-    # 2. 로컬 파일로 폴백 진행
-    file_path = os.path.join(RESULTS_DIR, filename)
-    downloaded_temp = False
-    try:
-        # 로컬에 없으면 드라이브에서 다운로드 시도
-        if not os.path.exists(file_path):
-            from drive_sync import list_files_in_folder, download_from_drive
-            drive_files = list_files_in_folder()
-            target_name_base = filename.replace('.xlsx', '')
-            for df in drive_files:
-                if df['name'] == target_name_base or df['name'] == filename:
-                    spreadsheet_id = df['id']
-                    break
-            if spreadsheet_id:
-                content = download_from_drive(spreadsheet_id)
-                if content:
-                    with open(file_path, 'wb') as f:
-                        f.write(content)
-                    downloaded_temp = True
-            
-        if not os.path.exists(file_path):
-            return jsonify({'success': False, 'message': '엑셀 파일을 찾을 수 없습니다.'}), 404
-
+    if file_path and os.path.exists(file_path):
         cmd.extend(['--file', file_path])
+    elif spreadsheet_id:
+        cmd.extend(['--id', spreadsheet_id])
+    else:
+        return jsonify({'success': False, 'message': '엑셀 파일을 찾을 수 없습니다.'}), 404
+
+    try:
         process = subprocess.run(
             cmd,
             stdout=subprocess.PIPE,
@@ -2980,10 +2910,6 @@ def collect_pool_from_result():
             encoding='utf-8',
             cwd=os.path.dirname(__file__)
         )
-
-        if downloaded_temp and os.path.exists(file_path):
-            os.remove(file_path)
-
         if process.returncode == 0:
             return jsonify({
                 'success': True,
@@ -2996,69 +2922,103 @@ def collect_pool_from_result():
                 'message': f'Pool 구성 중 오류 발생: {process.stderr}',
                 'output': process.stdout
             }), 500
-
     except Exception as e:
-        if downloaded_temp and os.path.exists(file_path):
-            os.remove(file_path)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/ai_report_check/<filename>', methods=['GET'])
 def ai_report_check(filename):
-    """기존 AI 리포트가 있는지 확인만 (캐시 체크용)"""
+    """로컬에 저장된 기존 AI 리포트가 있는지 확인 (캐시 체크용)"""
     try:
-        from drive_sync import find_ai_report, get_doc_content
         base_name = os.path.splitext(filename)[0]
-        existing_report = find_ai_report(base_name)
-        if existing_report:
-            cached_content = get_doc_content(existing_report['id'])
-            if cached_content and len(cached_content.strip()) > 100:
-                return jsonify({'success': True, 'result': cached_content, 'cached': True})
+        base_dir = os.path.dirname(__file__)
+        search_dirs = [os.path.join(base_dir, 'Report'), RESULTS_DIR]
+        for s_dir in search_dirs:
+            if not os.path.exists(s_dir):
+                continue
+            for prefix in [f"AI 분석 리포트 - {base_name}", base_name]:
+                for ext in ['.html', '.md', '.txt']:
+                    target = os.path.join(s_dir, prefix + ext)
+                    if os.path.exists(target):
+                        with open(target, 'r', encoding='utf-8') as f:
+                            cached_content = f.read()
+                        if cached_content and len(cached_content.strip()) > 50:
+                            return jsonify({'success': True, 'result': cached_content, 'cached': True})
         return jsonify({'success': True, 'cached': False})
     except Exception as e:
         return jsonify({'success': False, 'cached': False, 'message': str(e)})
 
+@app.route('/api/save_report_to_local', methods=['POST'])
 @app.route('/api/save_report_to_drive', methods=['POST'])
-def save_report_to_drive():
-    """포트폴리오 분석 리포트를 구글 드라이브에 저장"""
+def save_report_to_local():
+    """포트폴리오 분석 리포트를 로컬 Report 폴더에 HTML 파일로 저장"""
     try:
-        from drive_sync import create_google_doc
-
-        data = request.get_json()
-        filename = data.get('filename', '').strip()
+        data = request.get_json() or {}
+        raw_filename = data.get('filename', '').strip()
         content = data.get('content', '')
 
-        if not filename:
+        if not raw_filename:
             return jsonify({'success': False, 'message': '파일명이 필요합니다.'})
         if not content:
             return jsonify({'success': False, 'message': '저장할 내용이 없습니다.'})
 
-        # 구글 드라이브에 문서 저장 (Portfolio_Reports 폴더에 저장)
-        result = create_google_doc(filename, content, folder_name="Portfolio_Reports")
+        safe_name = re.sub(r'[\\/*?:"<>|]', '_', raw_filename)
+        if not safe_name.endswith('.html') and not safe_name.endswith('.md'):
+            safe_name += '.html'
 
-        if result:
-            return jsonify({'success': True, 'link': result.get('link')})
+        report_dir = os.path.join(os.path.dirname(__file__), 'Report')
+        os.makedirs(report_dir, exist_ok=True)
+        save_path = os.path.join(report_dir, safe_name)
+
+        if safe_name.endswith('.html') and '<html' not in content.lower():
+            wrapped = f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <title>{raw_filename}</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; max-width: 900px; margin: 30px auto; padding: 20px; color: #1e293b; background: #fff; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
+        th, td {{ border: 1px solid #cbd5e1; padding: 10px; text-align: left; }}
+        th {{ background: #f1f5f9; font-weight: 600; }}
+    </style>
+</head>
+<body>
+{content}
+</body>
+</html>"""
         else:
-            return jsonify({'success': False, 'message': '구글 드라이브 저장 실패'})
+            wrapped = content
+
+        with open(save_path, 'w', encoding='utf-8') as f:
+            f.write(wrapped)
+
+        return jsonify({
+            'success': True,
+            'message': f'로컬 저장 완료: Report/{safe_name}',
+            'filename': safe_name
+        })
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/ai_analyze/<filename>', methods=['POST'])
 def ai_analyze(filename):
     try:
-        from drive_sync import find_ai_report, get_doc_content, create_google_doc, list_files_in_folder, read_sheet_as_df
-
-        # 파일명에서 확장자 제거 (AI 리포트 검색용)
         base_name = os.path.splitext(filename)[0]
+        base_dir = os.path.dirname(__file__)
+        search_dirs = [os.path.join(base_dir, 'Report'), RESULTS_DIR]
+        for s_dir in search_dirs:
+            if not os.path.exists(s_dir):
+                continue
+            for prefix in [f"AI 분석 리포트 - {base_name}", base_name]:
+                for ext in ['.html', '.md', '.txt']:
+                    target = os.path.join(s_dir, prefix + ext)
+                    if os.path.exists(target):
+                        with open(target, 'r', encoding='utf-8') as f:
+                            cached_content = f.read()
+                        if cached_content and len(cached_content.strip()) > 50:
+                            return jsonify({'success': True, 'result': cached_content, 'cached': True})
 
-        # 1. 구글 드라이브에서 기존 AI 리포트 확인 (신규 생성 없이 과거 캐시만 조회)
-        existing_report = find_ai_report(base_name)
-        if existing_report:
-            cached_content = get_doc_content(existing_report['id'])
-            if cached_content and len(cached_content.strip()) > 100:
-                return jsonify({'success': True, 'result': cached_content, 'cached': True})
-
-        # AI API 직접 호출 기능은 앱에서 제거되었습니다. 신규 분석은 별도 프롬프트를 통해 진행합니다.
-        return jsonify({'success': False, 'message': 'AI 분석 기능은 더 이상 앱 내에서 제공되지 않습니다. 기존 캐시된 리포트가 없습니다.'}), 404
+        return jsonify({'success': False, 'message': '로컬에 캐시된 리포트가 없습니다. AI 분석은 별도 프롬프트를 통해 진행됩니다.'}), 404
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -3884,11 +3844,9 @@ def get_latest_week_key():
 @app.route('/api/sync', methods=['POST'])
 def sync_data():
     try:
-        from drive_sync import sync_results_with_drive
-        added, removed = sync_results_with_drive(RESULTS_DIR)
-        # DB 동기화 로직 (단순화)
+        # 로컬 DB 스키마 초기화 및 무결성 보장
         init_db() 
-        return jsonify({'success': True, 'added': added, 'removed': removed})
+        return jsonify({'success': True, 'added': 0, 'removed': 0, 'message': '로컬 데이터베이스 동기화 완료'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500 
 

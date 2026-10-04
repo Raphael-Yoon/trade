@@ -52,13 +52,19 @@ def main():
         else:
             print(f"[!] Local file not found: {args.file}")
             
-    # 폴백: 로컬 trade 폴더에서 검색
+    # 폴백: 로컬 results 및 trade 폴더에서 검색
     if df is None:
-        local_path = os.path.join(PROJECT_ROOT, 'trade', args.source_file)
-        if os.path.exists(local_path):
-            print(f"[*] Loading from fallback local path: {local_path}...")
-            df = pd.read_excel(local_path)
-            print("[+] Successfully loaded from fallback path.")
+        possible_paths = [
+            os.path.join(PROJECT_ROOT, 'trade', 'results', args.source_file),
+            os.path.join(PROJECT_ROOT, 'trade', args.source_file),
+            args.source_file
+        ]
+        for p in possible_paths:
+            if os.path.exists(p):
+                print(f"[*] Loading from fallback local path: {p}...")
+                df = pd.read_excel(p)
+                print("[+] Successfully loaded from fallback path.")
+                break
             
     if df is None:
         print("[ERROR] Failed to load any data.")

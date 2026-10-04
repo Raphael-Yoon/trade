@@ -73,6 +73,21 @@ def main():
         else:
             print(f"[!] Local file not found: {args.file}")
             
+    # 로컬 fallback 탐색
+    if df is None and args.source_file:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        possible_paths = [
+            os.path.join(base_dir, 'results', args.source_file),
+            os.path.join(base_dir, args.source_file),
+            args.source_file
+        ]
+        for p in possible_paths:
+            if os.path.exists(p):
+                print(f"[*] Loading from fallback local path: {p}...")
+                df = pd.read_excel(p)
+                print("[+] Successfully loaded from fallback path.")
+                break
+
     if df is None:
         print("[ERROR] Failed to load any data.")
         sys.exit(1)

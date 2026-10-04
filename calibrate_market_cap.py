@@ -46,6 +46,18 @@ def main():
     
     excel_path = args.source_file
     if not os.path.exists(excel_path):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        alt_paths = [
+            os.path.join(base_dir, excel_path),
+            os.path.join(base_dir, 'results', excel_path),
+            os.path.join(base_dir, 'results', os.path.basename(excel_path))
+        ]
+        for ap in alt_paths:
+            if os.path.exists(ap):
+                excel_path = ap
+                break
+
+    if not os.path.exists(excel_path):
         print(f"[오류] 엑셀 파일이 존재하지 않습니다: {excel_path}")
         sys.exit(1)
         

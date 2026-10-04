@@ -10,9 +10,9 @@ import subprocess
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-VENV_PYTHON = PROJECT_ROOT.parent / '.venv' / 'Scripts' / 'python.exe'
-
-# 만약 가상환경 python이 없으면 시스템 python 사용
+VENV_PYTHON = PROJECT_ROOT.parent / '.venv' / 'bin' / 'python'
+if not VENV_PYTHON.exists():
+    VENV_PYTHON = PROJECT_ROOT.parent / '.venv' / 'Scripts' / 'python.exe'
 if not VENV_PYTHON.exists():
     VENV_PYTHON = Path(sys.executable)
 
