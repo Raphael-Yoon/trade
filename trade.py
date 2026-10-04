@@ -2789,14 +2789,18 @@ def get_results():
                 if name.endswith('.xlsx') and not name.startswith('~$'):
                     file_path = os.path.join(RESULTS_DIR, name)
                     try:
-                        mtime = os.path.getmtime(file_path)
-                        created_time_str = datetime.fromtimestamp(mtime).isoformat()
                         file_size = os.path.getsize(file_path)
                     except OSError:
-                        created_time_str = datetime.now().isoformat()
                         file_size = 0
 
-                    # 메타데이터 JSON이 있으면 우선 활용
+                    # 1. 파일명에서 수집 일시(YYYYMMDD_HHMMSS) 추출 (최우선)
+                    created_time_str = None
+                    dt_match = re.search(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})', name)
+                    if dt_match:
+                        y, m, d, hh, mm, ss = dt_match.groups()
+                        created_time_str = f"{y}-{m}-{d}T{hh}:{mm}:{ss}"
+
+                    # 2. 메타데이터 JSON이 있으면 우선 활용
                     json_path = os.path.join(RESULTS_DIR, name.replace('.xlsx', '.json'))
                     meta_market = None
                     meta_count = None
@@ -2806,8 +2810,18 @@ def get_results():
                                 meta = json.load(jf)
                                 meta_market = meta.get('market')
                                 meta_count = str(meta.get('stock_count', ''))
+                                if not created_time_str and meta.get('created_at'):
+                                    created_time_str = meta.get('created_at')
                         except:
                             pass
+
+                    # 3. 파일 수정일시로 폴백
+                    if not created_time_str:
+                        try:
+                            mtime = os.path.getmtime(file_path)
+                            created_time_str = datetime.fromtimestamp(mtime).isoformat()
+                        except OSError:
+                            created_time_str = datetime.now().isoformat()
 
                     parts = name.replace('.xlsx', '').split('_')
                     market_raw = meta_market or (parts[0].upper() if len(parts) > 0 else 'UNKNOWN')
