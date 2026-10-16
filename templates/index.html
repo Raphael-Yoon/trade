@@ -3311,9 +3311,9 @@
                                                 <span class="sl-label">기본 손절가</span>&nbsp;&nbsp;<span style="color:#94a3b8;">${stock.holding_high.toLocaleString()} × (1 − ${stock.stop_loss_ratio}%)</span>
                                             </div>
                                             <div style="color:#94a3b8; font-weight:700; margin-bottom:6px;">= ${stock.original_stop_loss_price.toLocaleString()}원</div>
-                                            <div><span class="sl-label">코스피 보정</span>&nbsp;&nbsp;${stock.kospi_drop_pct >= 0 ? '+' : ''}${stock.kospi_drop_pct}%${stock.kospi_weight_pct > 0 ? ` <span style="color:#475569;">(비중 ${stock.kospi_weight_pct}% 차감)</span>` : ''}</div>
+                                            <div><span class="sl-label">${stock.market === 'KOSDAQ' ? '코스닥' : '코스피'} 등락</span>&nbsp;&nbsp;${stock.kospi_drop_pct >= 0 ? '+' : ''}${stock.kospi_drop_pct}%${stock.kospi_weight_pct >= 1 ? ` <span style="color:#475569;">(비중 ${stock.kospi_weight_pct}% 보정)</span>` : ''}</div>
                                             <div style="border-top:1px solid rgba(255,255,255,0.08); margin-top:5px; padding-top:5px;">
-                                                <span class="sl-label">보정 손절가</span>&nbsp;&nbsp;<span style="color:#475569;">${stock.holding_high.toLocaleString()} × (1 − ${stock.stop_loss_ratio}% + ${stock.kospi_drop_pct >= 0 ? '+' : ''}${stock.kospi_drop_pct}%)</span>
+                                                <span class="sl-label">시장 연동 손절가</span>&nbsp;&nbsp;<span style="color:#475569;">${stock.holding_high.toLocaleString()} × (1 ${stock.kospi_drop_pct >= 0 ? '+' : '−'} ${Math.abs(stock.kospi_drop_pct)}% − ${stock.stop_loss_ratio}%${stock.kospi_weight_pct >= 1 ? ` × (1−${stock.kospi_weight_pct}%)` : ''})</span>
                                             </div>
                                             <div class="sl-formula-result">= ${stock.effective_stop_loss_price.toLocaleString()}원</div>
                                         </div>
