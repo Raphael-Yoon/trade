@@ -2128,36 +2128,38 @@ def get_my_stocks():
         return jsonify({'error': str(e)}), 500
 
 def get_daily_prices(code, pages=3):
-    """네이버 금융에서 일별 시세를 가져옵니다. (고가 정보 포함)"""
+    """[김선화] 네이버 모바일 API에서 일별 시세를 가져옵니다. (고가 정보 포함, 410 오류 방지)"""
     global daily_prices_cache
     cache_key = f"{code}_{pages}"
     entry = daily_prices_cache.get(cache_key)
     if entry and time.time() - entry['ts'] < 3600:
         return entry['data']
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': f'https://finance.naver.com/item/main.naver?code={code}'
-    }
+    headers = {'User-Agent': 'Mozilla/5.0'}
     prices = []
     try:
         for page in range(1, pages + 1):
-            url = f"https://finance.naver.com/item/sise_day.naver?code={code}&page={page}"
+            url = f"https://m.stock.naver.com/api/stock/{code}/price?pageSize=60&page={page}"
             res = requests.get(url, headers=headers, timeout=5)
-            soup = BeautifulSoup(res.text, 'html.parser')
-            rows = soup.select('tr[onmouseover]')
-            for row in rows:
-                tds = row.find_all('td')
-                if len(tds) >= 7:
-                    try:
-                        date = tds[0].get_text(strip=True).replace('.', '-')
-                        close = int(tds[1].get_text(strip=True).replace(',', ''))
-                        high = int(tds[4].get_text(strip=True).replace(',', ''))
-                        prices.append({'date': date, 'close': close, 'high': high})
-                    except: continue
-        daily_prices_cache[cache_key] = {'data': prices, 'ts': time.time()}
+            if res.status_code == 200:
+                items = res.json()
+                if not items:
+                    break
+                for it in items:
+                    dt = it.get('localTradedAt')
+                    close_str = it.get('closePrice', '0').replace(',', '')
+                    high_str = it.get('highPrice', '0').replace(',', '')
+                    if dt and close_str:
+                        prices.append({
+                            'date': dt,
+                            'close': int(close_str),
+                            'high': int(high_str) if high_str else int(close_str)
+                        })
+        if prices:
+            daily_prices_cache[cache_key] = {'data': prices, 'ts': time.time()}
         return prices
-    except:
+    except Exception as e:
+        print(f"[시세조회] {code} 일별 시세 수집 오류: {e}")
         return []
 
 def parse_market_cap_to_억(text):
@@ -2303,63 +2305,79 @@ def evaluate_stop_loss(base_price, current_price, sl_ratio, market_ret, weight):
         'is_stop': stock_ret <= threshold,
     }
 
+def save_holding_high_cache():
+    try:
+        with open(holding_high_cache_file, 'w', encoding='utf-8') as f:
+            json.dump(holding_high_cache, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[손절] holding_high_cache 저장 실패: {e}")
+
+def get_market_index_at_date(market, target_date, market_data=None):
+    """[김선화] 특정 일자(target_date) 또는 그 직전 거래일의 시장 지수를 반환합니다."""
+    if not target_date:
+        return 0.0
+    data = market_data if market_data else get_market_daily(market, pages=5)
+    if not data:
+        return 0.0
+    t_date = target_date[:10]
+    for item in data:
+        if item['date'] <= t_date:
+            return item['index']
+    return data[-1]['index'] if data else 0.0
+
 def get_holding_high(code, added_at, current_price, purchase_price, kospi_data=None):
-    """[김선화] 보유 시점(added_at) 이후의 최고 종가와 해당 시점 코스피를 계산하거나 캐시에서 가져옵니다."""
+    """[김선화] 보유 시점(added_at) 이후의 최고 종가와 해당 시점 시장 지수(KOSPI/KOSDAQ)를 계산하거나 캐시에서 가져옵니다."""
     global holding_high_cache
 
     today_str = datetime.now().strftime('%Y-%m-%d')
-    
-    # 1. 오늘 이미 캐시가 최신화되었다면 바로 반환
-    if code in holding_high_cache and holding_high_cache[code]['date'] == today_str:
-        return holding_high_cache[code]
+    stock_market = get_stock_market(code)
+    m_data = kospi_data if kospi_data else get_market_daily(stock_market, pages=5)
+    kospi_current = m_data[0]['index'] if m_data else 0.0
 
-    kospi_current = kospi_data[0]['index'] if kospi_data else 0
-
-    # 2. 오늘 날짜가 아니지만 기존 캐시가 있는 경우: 과거 최고가와 오늘 현재가를 비교하여 갱신 (네트워크 요청 제거)
+    # 1. 오늘 이미 캐시가 최신화되어 있고 high_kospi가 정상(>0)인 경우 반환
     if code in holding_high_cache:
         cached = holding_high_cache[code]
-        max_price = max(cached['high'], current_price)
-        max_date = today_str if current_price > cached['high'] else cached['high_date']
-        
-        # 코스피 정보 업데이트
+        if cached.get('date') == today_str and cached.get('high_kospi', 0) > 0 and cached.get('high', 0) >= current_price:
+            return cached
+
+    # 2. 기존 캐시가 있는 경우: 최고가 갱신 검사 및 high_kospi 누락 보정
+    if code in holding_high_cache:
+        cached = holding_high_cache[code]
+        max_price = cached.get('high', 0)
+        max_date = cached.get('high_date', '')
         high_kospi = cached.get('high_kospi', 0)
-        if current_price > cached['high'] and kospi_current > 0:
+
+        if current_price > max_price:
+            max_price = current_price
+            max_date = today_str
             high_kospi = kospi_current
-            
+        elif high_kospi <= 0 and max_date:
+            high_kospi = get_market_index_at_date(stock_market, max_date, m_data)
+
         holding_high_cache[code] = {
             'high': max_price,
             'high_date': max_date,
             'high_kospi': high_kospi,
             'date': today_str
         }
-        
-        try:
-            with open(holding_high_cache_file, 'w', encoding='utf-8') as f:
-                json.dump(holding_high_cache, f, ensure_ascii=False, indent=2)
-        except:
-            pass
-            
+        save_holding_high_cache()
         return holding_high_cache[code]
 
     # 3. 오늘 등록된 종목인 경우: 네트워크 요청 없이 바로 캐시 생성
-    added_date = added_at[:10]
-    if added_date >= today_str:
+    added_date = (added_at or '')[:10]
+    if not added_date or added_date >= today_str:
         holding_high_cache[code] = {
             'high': max(purchase_price, current_price),
             'high_date': today_str,
             'high_kospi': kospi_current,
             'date': today_str
         }
-        try:
-            with open(holding_high_cache_file, 'w', encoding='utf-8') as f:
-                json.dump(holding_high_cache, f, ensure_ascii=False, indent=2)
-        except:
-            pass
+        save_holding_high_cache()
         return holding_high_cache[code]
 
-    # 4. 과거에 등록되었으나 캐시가 아예 없는 경우: 최초 1회만 일별 시세 조회
-    daily_prices = get_daily_prices(code, pages=3)
-    relevant = [(p['close'], p['date']) for p in daily_prices if added_date <= p['date'] < today_str]
+    # 4. 과거에 등록되었으나 캐시가 아예 없는 경우: 일별 시세 조회 (모바일 API 4페이지 = 240거래일)
+    daily_prices = get_daily_prices(code, pages=4)
+    relevant = [(p['close'], p['date']) for p in daily_prices if added_date <= p['date'] <= today_str]
 
     if relevant:
         max_close, max_date = max(relevant, key=lambda x: x[0])
@@ -2373,13 +2391,7 @@ def get_holding_high(code, added_at, current_price, purchase_price, kospi_data=N
     else:
         max_price = max_close
 
-    # 최고가 시점 코스피 탐색
-    high_kospi = 0
-    if kospi_data:
-        for k in kospi_data:
-            if k['date'] <= max_date:
-                high_kospi = k['index']
-                break
+    high_kospi = get_market_index_at_date(stock_market, max_date, m_data)
 
     holding_high_cache[code] = {
         'high': max(max_price, current_price),
@@ -2387,38 +2399,30 @@ def get_holding_high(code, added_at, current_price, purchase_price, kospi_data=N
         'high_kospi': kospi_current if current_price > max_price else high_kospi,
         'date': today_str
     }
-    
-    try:
-        with open(holding_high_cache_file, 'w', encoding='utf-8') as f:
-            json.dump(holding_high_cache, f, ensure_ascii=False, indent=2)
-    except:
-        pass
-        
+    save_holding_high_cache()
     return holding_high_cache[code]
 
-def get_market_daily(market='KOSPI', pages=2):
-    """네이버 금융에서 시장(KOSPI/KOSDAQ) 지수 일별 시세를 가져옵니다. (최신순)"""
+def get_market_daily(market='KOSPI', pages=5):
+    """[김선화] 네이버 모바일 API에서 시장(KOSPI/KOSDAQ) 지수 일별 시세를 가져옵니다. (최신순, 410 오류 방지)"""
     cached = market_daily_cache.get(market)
     if cached and time.time() - cached['ts'] < 1800 and cached['data']:
         return cached['data']
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': f'https://finance.naver.com/sise/sise_index.naver?code={market}'
-    }
+    headers = {'User-Agent': 'Mozilla/5.0'}
     data = []
     try:
         for page in range(1, pages + 1):
-            url = f"https://finance.naver.com/sise/sise_index_day.naver?code={market}&page={page}"
+            url = f"https://m.stock.naver.com/api/index/{market}/price?pageSize=60&page={page}"
             res = requests.get(url, headers=headers, timeout=5)
-            soup = BeautifulSoup(res.text, 'html.parser')
-            for row in soup.find_all('tr'):
-                date_td = row.find('td', class_='date')
-                price_td = row.find('td', class_='number_1')
-                if date_td and price_td:
-                    date = date_td.get_text(strip=True).replace('.', '-')
-                    price = float(price_td.get_text(strip=True).replace(',', ''))
-                    data.append({'date': date, 'index': price})
+            if res.status_code == 200:
+                items = res.json()
+                if not items:
+                    break
+                for it in items:
+                    dt = it.get('localTradedAt')
+                    idx_str = it.get('closePrice', '0').replace(',', '')
+                    if dt and idx_str:
+                        data.append({'date': dt, 'index': float(idx_str)})
         if data:
             market_daily_cache[market] = {'data': data, 'ts': time.time()}
         else:
@@ -2428,11 +2432,11 @@ def get_market_daily(market='KOSPI', pages=2):
         print(f"[손절] {market} 지수 일별 시세 수집 실패: {e}")
         return cached['data'] if cached else []
 
-def get_kospi_daily(pages=2):
+def get_kospi_daily(pages=5):
     return get_market_daily('KOSPI', pages)
 
 def calculate_stop_loss_status(stock, current_price, daily_prices, market_data, market_current=None):
-    """시장 연동 손절 진단. 취득가 기준과 보유 기간 최고가 기준 모두
+    """[김선화] 시장 연동 손절 진단. 취득가 기준과 보유 기간 최고가 기준 모두
     종목이 속한 시장(KOSPI/KOSDAQ)의 등락과 대형주 비중을 반영해 판정한다."""
     sl_ratio = (stock.get('stop_loss_ratio', 0) or 0) / 100
     if sl_ratio <= 0 or current_price <= 0:
@@ -2453,28 +2457,25 @@ def calculate_stop_loss_status(stock, current_price, daily_prices, market_data, 
 
     signals = []
 
-    # 1. 취득가 기준
-    if purchase_price > 0:
+    # [김선화] 최고가를 경신했던 종목(holding_high > purchase_price)은 트레일링 스탑 기준만 평가하고,
+    # 그렇지 않은 종목은 취득가 기준을 평가하여 화면 표기 손절선과 1:1 일치 보장
+    high_info = get_holding_high(stock['code'], stock.get('added_at', ''), current_price, purchase_price, market_data)
+    if high_info and high_info.get('high', 0) > purchase_price:
+        max_price = high_info['high']
+        high_kospi = high_info.get('high_kospi', 0)
+        cur_idx = market_current if market_current else (market_data[0]['index'] if market_data else 0)
+        if high_kospi > 0 and cur_idx > 0:
+            m_ret = (cur_idx - high_kospi) / high_kospi
+        else:
+            m_ret = market_return_since(market_data, high_info.get('high_date') or added_at, cur_idx)
+        ev = evaluate_stop_loss(max_price, current_price, sl_ratio, m_ret, weight)
+        if ev and ev['is_stop']:
+            signals.append(describe("최근 최고가", max_price, ev))
+    elif purchase_price > 0:
         m_ret = market_return_since(market_data, added_at, market_current)
         ev = evaluate_stop_loss(purchase_price, current_price, sl_ratio, m_ret, weight)
         if ev and ev['is_stop']:
             signals.append(describe("취득가", purchase_price, ev))
-
-    # 2. 보유 기간 최고가 기준 (Trailing)
-    if daily_prices:
-        relevant = [(p['close'], p['date']) for p in daily_prices if p['date'] >= added_at]
-        if not relevant:
-            relevant = [(p['close'], p['date']) for p in daily_prices]
-        max_close, max_date = max(relevant, key=lambda x: x[0])
-        if purchase_price >= max_close:
-            max_price, max_date = purchase_price, added_at
-        else:
-            max_price = max_close
-        if max_price > purchase_price:   # 취득가와 같으면 1번과 중복
-            m_ret = market_return_since(market_data, max_date, market_current)
-            ev = evaluate_stop_loss(max_price, current_price, sl_ratio, m_ret, weight)
-            if ev and ev['is_stop']:
-                signals.append(describe("최근 최고가", max_price, ev))
 
     if signals:
         return {'signal': 'SELL', 'reasons': signals}
@@ -2498,8 +2499,8 @@ def get_my_stocks_status():
         with ThreadPoolExecutor(max_workers=10) as executor:
             details = list(executor.map(lambda s: get_portfolio_details(s['code']), stocks))
         
-        # 코스피 지수 데이터 가져오기 (상대 매도 포인트 계산용)
-        market_daily = {m: get_market_daily(m, pages=3) for m in ('KOSPI', 'KOSDAQ')}
+        # 코스피 지수 데이터 가져오기 (상대 매도 포인트 계산용, 모바일 API 5페이지 = 300거래일)
+        market_daily = {m: get_market_daily(m, pages=5) for m in ('KOSPI', 'KOSDAQ')}
 
         results = []
         for i, stock in enumerate(stocks):
@@ -3307,7 +3308,7 @@ def update_stock_owner():
 def get_realtime_prices():
     """[김정음] 내 종목 및 관심 종목의 실시간 주가 정보를 상세히 반환합니다."""
     try:
-        market_daily = {m: get_market_daily(m, pages=3) for m in ('KOSPI', 'KOSDAQ')}
+        market_daily = {m: get_market_daily(m, pages=5) for m in ('KOSPI', 'KOSDAQ')}
         
         # [김선화] 스레드 간 중복 호출 방지를 위해 시장별 전체 시가총액을 미리 구하여 캐싱
         for _m in ('KOSPI', 'KOSDAQ'):
@@ -3384,14 +3385,33 @@ def get_realtime_prices():
                         kospi_weight_pct = round(kospi_weight * 100, 1)
 
                         # 최고가 기준 / 취득가 기준 모두 판정, 하나라도 해당되면 경고
-                        high_ret = market_return_since(kospi_data, high_info.get('high_date') or stock['added_at'][:10])
+                        high_kospi = high_info.get('high_kospi') or 0
+                        current_m_index = kospi_data[0]['index'] if kospi_data else 0.0
+
+                        # [김선화] 최고가 시점 지수(high_kospi)가 기록되어 있으면 다이렉트 연동 계산
+                        if high_kospi > 0 and current_m_index > 0:
+                            high_ret = (current_m_index - high_kospi) / high_kospi
+                        else:
+                            high_ret = market_return_since(kospi_data, high_info.get('high_date') or stock['added_at'][:10], current_m_index)
+
                         ev_high = evaluate_stop_loss(holding_high, current_price, sl_ratio, high_ret, kospi_weight)
-                        buy_ret = market_return_since(kospi_data, stock['added_at'][:10])
+                        buy_ret = market_return_since(kospi_data, stock['added_at'][:10], current_m_index)
                         ev_buy = evaluate_stop_loss(purchase_price, current_price, sl_ratio, buy_ret, kospi_weight)
-                        if ev_high:
+
+                        # [김선화] 최고가를 경신했던 종목(holding_high > purchase_price)은 트레일링 스탑 기준을 유효 손절선으로 적용하고,
+                        # 고점을 넘지 못한 종목은 취득가 기준을 적용하여 화면 표기 손절가와 STOP-LOSS 뱃지를 1:1 완벽 일치 보장
+                        if holding_high > purchase_price and ev_high:
                             effective_stop_loss_price = ev_high['trigger_price']
-                            kospi_drop_pct = round(ev_high['market_ret'] * 100, 2)
-                        is_stop_loss = bool((ev_high and ev_high['is_stop']) or (ev_buy and ev_buy['is_stop']))
+                            kospi_drop_pct = round((ev_high['market_ret'] or 0) * 100, 2)
+                            is_stop_loss = bool(ev_high['is_stop'])
+                        elif ev_buy:
+                            effective_stop_loss_price = ev_buy['trigger_price']
+                            kospi_drop_pct = round((ev_buy['market_ret'] or 0) * 100, 2)
+                            is_stop_loss = bool(ev_buy['is_stop'])
+                        elif ev_high:
+                            effective_stop_loss_price = ev_high['trigger_price']
+                            kospi_drop_pct = round((ev_high['market_ret'] or 0) * 100, 2)
+                            is_stop_loss = bool(ev_high['is_stop'])
 
                 return {
                     'code': stock['code'],
