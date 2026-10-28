@@ -4023,7 +4023,7 @@ def get_overseas_stocks():
                 'symbol': symbol,
                 'name': name,
                 'broker': broker,
-                'quantity': qty,
+                'quantity': int(qty) if qty.is_integer() else qty,
                 'purchase_price': purchase_price,
                 'close_price': close_price,
                 'price_change': price_change,
@@ -4082,7 +4082,7 @@ def get_overseas_stocks():
 
         stock_summaries = []
         for sym, item in symbol_summary_map.items():
-            tot_qty = round(item['total_quantity'], 4)
+            tot_qty = int(item['total_quantity']) if float(item['total_quantity']).is_integer() else round(item['total_quantity'], 4)
             tot_cost_usd = round(item['total_cost_usd'], 2)
             tot_eval_usd = round(item['total_eval_usd'], 2)
             tot_cost_krw = round(item['total_cost_krw'])

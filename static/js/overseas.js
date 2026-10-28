@@ -24,6 +24,15 @@ function ovFormatNumber(val, decimals = 2) {
     return Number(val).toLocaleString('ko-KR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
+function ovFormatQty(val) {
+    if (val === null || val === undefined || isNaN(val)) return '0';
+    const num = Number(val);
+    if (Number.isInteger(num)) {
+        return Math.round(num).toLocaleString('ko-KR');
+    }
+    return parseFloat(num.toFixed(4)).toLocaleString('ko-KR');
+}
+
 // 탭 전환 시 진입점
 function initOverseasTab() {
     loadOverseasStocks();
@@ -94,7 +103,7 @@ function renderOverseasSummaryTable(summaries) {
         const profitSign = s.total_profit_rate > 0 ? '+' : '';
 
         const brokerBadges = (s.brokers || []).map(b => 
-            `<span class="stock-broker-badge" style="display: inline-block; margin: 2px; padding: 2px 7px; font-size: 11px;">🏦 ${b.broker} <b>${ovFormatNumber(b.quantity, 2)}주</b></span>`
+            `<span class="stock-broker-badge" style="display: inline-block; margin: 2px; padding: 2px 7px; font-size: 11px;">🏦 ${b.broker} <b>${ovFormatQty(b.quantity)}주</b></span>`
         ).join('');
 
         return `
@@ -103,7 +112,7 @@ function renderOverseasSummaryTable(summaries) {
                     <div style="font-weight: 700; color: #f8fafc; font-size: 13px;">${s.name}</div>
                     <div style="font-size: 11px; color: #94a3b8; font-weight: 600;">${s.symbol}</div>
                 </td>
-                <td><b style="font-size: 13px; color: #38bdf8;">${ovFormatNumber(s.total_quantity, 4)}주</b></td>
+                <td><b style="font-size: 13px; color: #38bdf8;">${ovFormatQty(s.total_quantity)}주</b></td>
                 <td>$${ovFormatNumber(s.avg_purchase_price, 2)}</td>
                 <td>
                     <b>$${ovFormatNumber(s.close_price, 2)}</b>
@@ -238,7 +247,7 @@ function renderOverseasTable(stocks) {
                     </div>
                 </td>
                 <td style="font-weight: 700; color: #f8fafc; font-family: 'Outfit', sans-serif;">
-                    ${ovFormatNumber(s.quantity, 2)} 주
+                    ${ovFormatQty(s.quantity)}주
                 </td>
                 <td style="font-family: 'Outfit', sans-serif; color: #cbd5e1;">
                     ${s.purchase_price > 0 ? ovFormatUSD(s.purchase_price) : '-'}
@@ -569,7 +578,7 @@ function openAddDividendModal() {
     if (symSelect) {
         symSelect.innerHTML = `
             <option value="">-- 보유 종목에서 선택 --</option>
-            ${g_overseasStocks.map(s => `<option value="${s.id}">${s.name} (${s.symbol}) - 🏦 ${s.broker || '기본'} [${s.quantity}주]</option>`).join('')}
+            ${g_overseasStocks.map(s => `<option value="${s.id}">${s.name} (${s.symbol}) - 🏦 ${s.broker || '기본'} [${ovFormatQty(s.quantity)}주]</option>`).join('')}
             <option value="CUSTOM">직접 입력...</option>
         `;
     }
@@ -644,7 +653,7 @@ function applyStockToDividendModal(stock) {
     // 뱃지 업데이트
     document.getElementById('ovDivBadgeBroker').textContent = `🏦 ${stock.broker || '기본'}`;
     document.getElementById('ovDivBadgeName').textContent = `${stock.name} (${stock.symbol})`;
-    document.getElementById('ovDivBadgeQty').textContent = ovFormatNumber(stock.quantity, 2);
+    document.getElementById('ovDivBadgeQty').textContent = ovFormatQty(stock.quantity);
 
     // 날짜: 최근 배당일이 있으면 우선 채움, 없으면 오늘
     const today = new Date().toISOString().slice(0, 10);
