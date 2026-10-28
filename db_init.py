@@ -281,7 +281,35 @@ def _init_sqlite():
     except Exception:
         pass
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_dividend_date ON tr_dividend_history(payment_date)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dividend_symbol ON tr_dividend_history(symbol)")
+    # [김선화/김정음] 해외 주식 일별 스냅샷 히스토리 테이블 (SQLite)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tr_overseas_daily_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT,
+            symbol TEXT,
+            name TEXT,
+            broker TEXT DEFAULT '기본',
+            quantity REAL DEFAULT 0,
+            purchase_price REAL DEFAULT 0,
+            close_price REAL DEFAULT 0,
+            price_change REAL DEFAULT 0,
+            fluctuations_ratio REAL DEFAULT 0,
+            exchange_rate REAL DEFAULT 0,
+            currency TEXT DEFAULT 'USD',
+            day_profit_usd REAL DEFAULT 0,
+            day_profit_krw REAL DEFAULT 0,
+            cumulative_profit_usd REAL DEFAULT 0,
+            cumulative_profit_krw REAL DEFAULT 0,
+            cumulative_profit_rate REAL DEFAULT 0,
+            eval_usd REAL DEFAULT 0,
+            eval_krw REAL DEFAULT 0,
+            cost_usd REAL DEFAULT 0,
+            cost_krw REAL DEFAULT 0,
+            recorded_at TEXT
+        )
+    ''')
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ov_daily_date ON tr_overseas_daily_history(date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ov_daily_symbol_date ON tr_overseas_daily_history(symbol, date)")
 
     conn.commit()
     conn.close()
@@ -587,6 +615,36 @@ def _init_mysql():
     add_column_if_not_exists("tr_dividend_history", "broker", "VARCHAR(50) DEFAULT '기본'")
     create_index_if_not_exists("idx_dividend_date", "tr_dividend_history", "payment_date")
     create_index_if_not_exists("idx_dividend_symbol", "tr_dividend_history", "symbol")
+
+    # [김선화/김정음] 해외 주식 일별 스냅샷 히스토리 테이블 (MySQL)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tr_overseas_daily_history (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            date VARCHAR(50),
+            symbol VARCHAR(50),
+            name VARCHAR(255),
+            broker VARCHAR(50) DEFAULT '기본',
+            quantity DOUBLE DEFAULT 0,
+            purchase_price DOUBLE DEFAULT 0,
+            close_price DOUBLE DEFAULT 0,
+            price_change DOUBLE DEFAULT 0,
+            fluctuations_ratio DOUBLE DEFAULT 0,
+            exchange_rate DOUBLE DEFAULT 0,
+            currency VARCHAR(10) DEFAULT 'USD',
+            day_profit_usd DOUBLE DEFAULT 0,
+            day_profit_krw DOUBLE DEFAULT 0,
+            cumulative_profit_usd DOUBLE DEFAULT 0,
+            cumulative_profit_krw DOUBLE DEFAULT 0,
+            cumulative_profit_rate DOUBLE DEFAULT 0,
+            eval_usd DOUBLE DEFAULT 0,
+            eval_krw DOUBLE DEFAULT 0,
+            cost_usd DOUBLE DEFAULT 0,
+            cost_krw DOUBLE DEFAULT 0,
+            recorded_at VARCHAR(50)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ''')
+    create_index_if_not_exists("idx_ov_daily_date", "tr_overseas_daily_history", "date")
+    create_index_if_not_exists("idx_ov_daily_symbol_date", "tr_overseas_daily_history", "symbol, date")
 
     conn.commit()
     conn.close()

@@ -88,9 +88,36 @@
 - `notes` (TEXT): 배당 메모 (예: `'2026년 3분기 배당'`)
 - `created_at` (TEXT / VARCHAR(50)): 등록 일시
 
+### 📌 `tr_overseas_daily_history` (해외 주식 일별 스냅샷 히스토리)
+국내주식 `tr_stock_daily_history`와 동일한 수준으로 매일 아침 시세 갱신 시점의 계좌별 스냅샷과 환율을 누적 기록합니다.
+- `id` (INTEGER / INT, PK, AUTOINCREMENT): 고유 식별자
+- `date` (TEXT / VARCHAR(50)): 기준 일자 (YYYY-MM-DD)
+- `symbol` (TEXT / VARCHAR(50)): 티커 심볼
+- `name` (TEXT / VARCHAR(255)): 종목명
+- `broker` (TEXT / VARCHAR(50)): 보유 증권사
+- `quantity` (REAL / DOUBLE): 보유 수량
+- `purchase_price` (REAL / DOUBLE): 매입 단가 (USD)
+- `close_price` (REAL / DOUBLE): 당일 종가 (USD)
+- `price_change` (REAL / DOUBLE): 전일 대비 등락폭 (USD)
+- `fluctuations_ratio` (REAL / DOUBLE): 등락률 (%)
+- `exchange_rate` (REAL / DOUBLE): 당일 적용 환율 (USD/KRW)
+- `currency` (TEXT / VARCHAR(10)): 통화 (`'USD'`)
+- `day_profit_usd` (REAL / DOUBLE): 당일 평가손익 (USD, `price_change * quantity`)
+- `day_profit_krw` (REAL / DOUBLE): 당일 평가손익 (KRW)
+- `cumulative_profit_usd` (REAL / DOUBLE): 누적 평가손익 (USD, `(close_price - purchase_price) * quantity`)
+- `cumulative_profit_krw` (REAL / DOUBLE): 누적 평가손익 (KRW)
+- `cumulative_profit_rate` (REAL / DOUBLE): 누적 수익률 (%)
+- `eval_usd` (REAL / DOUBLE): 평가금액 (USD)
+- `eval_krw` (REAL / DOUBLE): 평가금액 (KRW)
+- `cost_usd` (REAL / DOUBLE): 투자원금 (USD)
+- `cost_krw` (REAL / DOUBLE): 투자원금 (KRW)
+- `recorded_at` (TEXT / VARCHAR(50)): 스냅샷 기록 일시
+
 ## 6. 주요 기능 및 아키텍처 (해외주식 & 배당)
 - **다중 증권사 분리 관리**: 동일 종목(symbol)이라도 증권사(키움, 미래에셋, 토스 등)별로 각각 다른 수량과 매입단가로 등록 가능.
 - **종목별 통합 합산 요약 (Stock Summary)**: 복수 증권사에 분산 보유된 종목을 티커 기준으로 자동 통합하여 총 보유수량, 가중평균 매입단가, 총 평가금액, 총 손익률, 총 연배당금 및 증권사별 보유 비중을 상단 요약 테이블에 일목요연하게 표시.
+- **누적 손익 및 당일 평가손익(Daily P&L) 동시 병기**: 매입가 기준의 전체 누적 손익과 오늘 하루 미국 시장 변동에 따른 당일 손익(`price_change * qty`)을 메트릭 카드 및 테이블에 동시 표기.
+- **일별 평가 스냅샷 자동 축적**: 매일 오전 08:30 스케줄러 갱신 및 시세 새로고침 시 `tr_overseas_daily_history`에 일별 평가/환율 스냅샷을 자동 적재하여 향후 기간별 리포트 기반 확보.
 - **원클릭 배당 수령 자동연산**: 종목 리스트에서 [💵 배당수령] 클릭 시 수량 및 DPS 기반으로 미국 배당소득세(15%) 자동 공제 및 환율 연동 원화 환산액 실시간 산출.
 - **일일 자동 시세 갱신**: 매일 오전 08:30(KST) 백그라운드 스케줄러가 네이버 증권 API를 통해 전 종목 종가 및 환율 최신화.
 

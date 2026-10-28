@@ -206,13 +206,83 @@ def update_all_overseas_stocks(db_conn):
 
     db_conn.commit()
     logger.info(f"[overseas_service] 해외주식 업데이트 완료: {updated_count}/{len(rows)} (환율: {rate})")
+
+    # 일별 평가 스냅샷 자동 기록 (히스토리 축적)
+    snapshot_count = save_overseas_daily_snapshot(db_conn)
+
     return {
         "updated": updated_count,
         "total": len(rows),
         "exchange_rate": rate,
         "errors": errors,
-        "updated_at": now_str
+        "updated_at": now_str,
+        "snapshot_count": snapshot_count
     }
+
+
+def save_overseas_daily_snapshot(db_conn, target_date=None):
+    """보유 해외주식의 일별 평가 스냅샷을 tr_overseas_daily_history에 저장 (국내주식 daily history와 동급)"""
+    try:
+        cursor = db_conn.cursor()
+        today = target_date or datetime.datetime.now().strftime("%Y-%m-%d")
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        cursor.execute("""
+            SELECT symbol, name, broker, quantity, purchase_price, close_price,
+                   price_change, fluctuations_ratio, exchange_rate, currency
+            FROM tr_overseas_stocks
+        """)
+        rows = cursor.fetchall()
+        if not rows:
+            return 0
+
+        # 당일 기존 스냅샷 삭제 후 재적재 (idempotent)
+        cursor.execute("DELETE FROM tr_overseas_daily_history WHERE date = ?", (today,))
+
+        inserted = 0
+        for r in rows:
+            symbol = r.get("symbol") if isinstance(r, dict) else r[0]
+            name = r.get("name") if isinstance(r, dict) else r[1]
+            broker = (r.get("broker") if isinstance(r, dict) else r[2]) or '기본'
+            qty = float((r.get("quantity") if isinstance(r, dict) else r[3]) or 0.0)
+            purchase_price = float((r.get("purchase_price") if isinstance(r, dict) else r[4]) or 0.0)
+            close_price = float((r.get("close_price") if isinstance(r, dict) else r[5]) or 0.0)
+            price_change = float((r.get("price_change") if isinstance(r, dict) else r[6]) or 0.0)
+            fluct_ratio = float((r.get("fluctuations_ratio") if isinstance(r, dict) else r[7]) or 0.0)
+            rate = float((r.get("exchange_rate") if isinstance(r, dict) else r[8]) or 1350.0)
+            currency = (r.get("currency") if isinstance(r, dict) else r[9]) or 'USD'
+
+            eval_usd = round(close_price * qty, 2)
+            eval_krw = round(eval_usd * rate)
+            cost_usd = round(purchase_price * qty, 2)
+            cost_krw = round(cost_usd * rate)
+            day_profit_usd = round(price_change * qty, 2)
+            day_profit_krw = round(day_profit_usd * rate)
+            cum_profit_usd = round(eval_usd - cost_usd, 2)
+            cum_profit_krw = round(eval_krw - cost_krw)
+            cum_profit_rate = round((cum_profit_usd / cost_usd * 100), 2) if cost_usd > 0 else 0.0
+
+            cursor.execute("""
+                INSERT INTO tr_overseas_daily_history (
+                    date, symbol, name, broker, quantity, purchase_price, close_price,
+                    price_change, fluctuations_ratio, exchange_rate, currency,
+                    day_profit_usd, day_profit_krw, cumulative_profit_usd, cumulative_profit_krw,
+                    cumulative_profit_rate, eval_usd, eval_krw, cost_usd, cost_krw, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                today, symbol, name, broker, qty, purchase_price, close_price,
+                price_change, fluct_ratio, rate, currency,
+                day_profit_usd, day_profit_krw, cum_profit_usd, cum_profit_krw,
+                cum_profit_rate, eval_usd, eval_krw, cost_usd, cost_krw, now_str
+            ))
+            inserted += 1
+
+        db_conn.commit()
+        logger.info(f"[overseas_service] 해외주식 일별 스냅샷 저장 완료: {today} ({inserted}건)")
+        return inserted
+    except Exception as e:
+        logger.error(f"[overseas_service] 해외주식 일별 스냅샷 저장 실패: {e}")
+        return 0
 
 
 def start_overseas_daily_scheduler(get_db_conn_fn):

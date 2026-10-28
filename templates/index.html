@@ -1545,6 +1545,9 @@
                         <p>보유 해외 주식의 종가 및 환율을 추적하고, 예상 연간 배당금 및 실제 배당 수령 내역을 관리합니다.</p>
                     </div>
                     <div class="overseas-actions">
+                        <div id="ovLastUpdateBadge" class="exchange-rate-badge" style="background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.3); color: #cbd5e1;" title="최근 해외주식 시세 및 환율 갱신 시각">
+                            🕒 최근 갱신 <b>-</b>
+                        </div>
                         <div id="ovExchangeRateBadge" class="exchange-rate-badge">
                             💵 USD/KRW <b>-</b>
                         </div>
@@ -6290,7 +6293,7 @@
         }, 10000); // 10초마다 갱신
 
     </script>
-    <script src="{{ url_for('static', filename='js/overseas.js') }}?v=1.04"></script>
+    <script src="{{ url_for('static', filename='js/overseas.js') }}?v=1.06"></script>
 </body>
 
 </html>

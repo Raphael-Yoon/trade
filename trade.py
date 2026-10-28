@@ -4007,6 +4007,8 @@ def get_overseas_stocks():
         total_eval_krw = 0.0
         total_cost_usd = 0.0
         total_cost_krw = 0.0
+        total_day_profit_usd = 0.0
+        total_day_profit_krw = 0.0
         total_annual_dividend_usd = 0.0
         total_annual_dividend_krw = 0.0
         broker_eval_map = {}
@@ -4025,7 +4027,7 @@ def get_overseas_stocks():
             div_yield = float(r.get('dividend_yield') or 0.0)
             stock_rate = float(r.get('exchange_rate') or current_rate or 1350.0)
             
-            # 퀀트 연산
+            # 퀀트 연산 (누적 손익 및 당일 변동 손익)
             eval_usd = round(close_price * qty, 2)
             eval_krw = round(eval_usd * stock_rate)
             cost_usd = round(purchase_price * qty, 2)
@@ -4033,6 +4035,10 @@ def get_overseas_stocks():
             profit_usd = round(eval_usd - cost_usd, 2)
             profit_krw = round(eval_krw - cost_krw)
             profit_rate = round(((close_price - purchase_price) / purchase_price * 100), 2) if purchase_price > 0 else 0.0
+            
+            day_profit_usd = round(price_change * qty, 2)
+            day_profit_krw = round(day_profit_usd * stock_rate)
+
             annual_div_usd = round(dps * qty, 2)
             annual_div_krw = round(annual_div_usd * stock_rate)
 
@@ -4040,6 +4046,8 @@ def get_overseas_stocks():
             total_eval_krw += eval_krw
             total_cost_usd += cost_usd
             total_cost_krw += cost_krw
+            total_day_profit_usd += day_profit_usd
+            total_day_profit_krw += day_profit_krw
             total_annual_dividend_usd += annual_div_usd
             total_annual_dividend_krw += annual_div_krw
 
@@ -4062,6 +4070,8 @@ def get_overseas_stocks():
                 'profit_usd': profit_usd,
                 'profit_krw': profit_krw,
                 'profit_rate': profit_rate,
+                'day_profit_usd': day_profit_usd,
+                'day_profit_krw': day_profit_krw,
                 'dividend_per_share': dps,
                 'dividend_yield': div_yield,
                 'expected_annual_dividend_usd': annual_div_usd,
@@ -4093,6 +4103,8 @@ def get_overseas_stocks():
                     'total_cost_krw': 0.0,
                     'total_eval_usd': 0.0,
                     'total_eval_krw': 0.0,
+                    'total_day_profit_usd': 0.0,
+                    'total_day_profit_krw': 0.0,
                     'total_annual_dividend_usd': 0.0,
                     'total_annual_dividend_krw': 0.0,
                     'broker_list': []
@@ -4103,6 +4115,8 @@ def get_overseas_stocks():
             item['total_cost_krw'] += s['cost_krw']
             item['total_eval_usd'] += s['eval_usd']
             item['total_eval_krw'] += s['eval_krw']
+            item['total_day_profit_usd'] += s['day_profit_usd']
+            item['total_day_profit_krw'] += s['day_profit_krw']
             item['total_annual_dividend_usd'] += s['expected_annual_dividend_usd']
             item['total_annual_dividend_krw'] += s['expected_annual_dividend_krw']
             item['broker_list'].append({'broker': s['broker'], 'quantity': s['quantity']})
@@ -4137,6 +4151,8 @@ def get_overseas_stocks():
                 'total_profit_usd': profit_usd,
                 'total_profit_krw': profit_krw,
                 'total_profit_rate': profit_rate,
+                'total_day_profit_usd': round(item['total_day_profit_usd'], 2),
+                'total_day_profit_krw': round(item['total_day_profit_krw']),
                 'total_annual_dividend_usd': round(item['total_annual_dividend_usd'], 2),
                 'total_annual_dividend_krw': round(item['total_annual_dividend_krw']),
                 'brokers': item['broker_list']
@@ -4148,7 +4164,17 @@ def get_overseas_stocks():
         total_profit_usd = round(total_eval_usd - total_cost_usd, 2)
         total_profit_krw = round(total_eval_krw - total_cost_krw)
         total_profit_rate = round((total_profit_usd / total_cost_usd * 100), 2) if total_cost_usd > 0 else 0.0
+        
+        prev_eval_usd = total_eval_usd - total_day_profit_usd
+        total_day_profit_rate = round((total_day_profit_usd / prev_eval_usd * 100), 2) if prev_eval_usd > 0 else 0.0
+
         avg_dividend_yield = round((total_annual_dividend_usd / total_eval_usd * 100), 2) if total_eval_usd > 0 else 0.0
+
+        # 최근 갱신 일시 집계
+        all_updated_at = [s['updated_at'] for s in stocks if s.get('updated_at')]
+        last_updated_at = max(all_updated_at) if all_updated_at else ''
+        all_price_dates = [s['price_date'] for s in stocks if s.get('price_date')]
+        last_price_date = max(all_price_dates) if all_price_dates else ''
 
         summary = {
             'total_eval_usd': round(total_eval_usd, 2),
@@ -4158,6 +4184,9 @@ def get_overseas_stocks():
             'total_profit_usd': total_profit_usd,
             'total_profit_krw': total_profit_krw,
             'total_profit_rate': total_profit_rate,
+            'total_day_profit_usd': round(total_day_profit_usd, 2),
+            'total_day_profit_krw': int(total_day_profit_krw),
+            'total_day_profit_rate': total_day_profit_rate,
             'total_annual_dividend_usd': round(total_annual_dividend_usd, 2),
             'total_annual_dividend_krw': int(total_annual_dividend_krw),
             'avg_dividend_yield': avg_dividend_yield,
@@ -4165,7 +4194,9 @@ def get_overseas_stocks():
             'count': len(stocks),
             'brokers': all_brokers,
             'broker_breakdown': [{'broker': b, 'eval_krw': round(v)} for b, v in sorted(broker_eval_map.items())],
-            'stock_summaries': stock_summaries
+            'stock_summaries': stock_summaries,
+            'last_updated_at': last_updated_at,
+            'last_price_date': last_price_date
         }
 
         return jsonify({'success': True, 'stocks': stocks, 'summary': summary})

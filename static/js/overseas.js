@@ -102,6 +102,9 @@ function renderOverseasSummaryTable(summaries) {
         const profitClass = s.total_profit_rate > 0 ? 'price-up' : (s.total_profit_rate < 0 ? 'price-down' : 'price-flat');
         const profitSign = s.total_profit_rate > 0 ? '+' : '';
 
+        const dayProfitSign = (s.total_day_profit_usd || 0) > 0 ? '+' : '';
+        const dayProfitClass = (s.total_day_profit_usd || 0) > 0 ? 'price-up' : ((s.total_day_profit_usd || 0) < 0 ? 'price-down' : 'price-flat');
+
         const brokerBadges = (s.brokers || []).map(b => 
             `<span class="stock-broker-badge" style="display: inline-block; margin: 2px; padding: 2px 7px; font-size: 11px;">🏦 ${b.broker} <b>${ovFormatQty(b.quantity)}주</b></span>`
         ).join('');
@@ -125,9 +128,10 @@ function renderOverseasSummaryTable(summaries) {
                 <td>
                     <div class="${profitClass}" style="font-weight: 700;">
                         ${profitSign}$${ovFormatNumber(s.total_profit_usd, 2)}
+                        <span style="font-size: 11px;">(${profitSign}${s.total_profit_rate}%)</span>
                     </div>
-                    <div class="${profitClass}" style="font-size: 11px;">
-                        (${profitSign}${s.total_profit_rate}%)
+                    <div class="${dayProfitClass}" style="font-size: 11px; margin-top: 2px;">
+                        당일 ${dayProfitSign}$${ovFormatNumber(s.total_day_profit_usd, 2)} (${changeSign}${s.fluctuations_ratio}%)
                     </div>
                 </td>
                 <td>
@@ -171,6 +175,20 @@ function renderBrokerFilterBar(brokers) {
 function renderOverseasSummary(summary) {
     if (!summary) return;
 
+    // 최근 갱신 일시 뱃지
+    const updateEl = document.getElementById('ovLastUpdateBadge');
+    if (updateEl) {
+        const lastTime = summary.last_updated_at || summary.last_price_date || '';
+        if (lastTime) {
+            // YYYY-MM-DD HH:mm:ss 형태에서 보기 좋게 표시
+            const displayTime = lastTime.length > 16 ? lastTime.slice(0, 16) : lastTime;
+            updateEl.innerHTML = `🕒 최근 갱신 <b>${displayTime}</b>`;
+            updateEl.title = `최근 시세 갱신 일시: ${lastTime}`;
+        } else {
+            updateEl.innerHTML = `🕒 최근 갱신 <b>-</b>`;
+        }
+    }
+
     // 환율 뱃지
     const rateEl = document.getElementById('ovExchangeRateBadge');
     if (rateEl) {
@@ -183,7 +201,7 @@ function renderOverseasSummary(summary) {
     if (evalUsdEl) evalUsdEl.textContent = ovFormatUSD(summary.total_eval_usd);
     if (evalKrwEl) evalKrwEl.textContent = `≈ ${ovFormatKRW(summary.total_eval_krw)} (${summary.count || 0}건)`;
 
-    // 카드 2: 총 평가손익
+    // 카드 2: 총 평가손익 (누적 손익 + 당일 변동 손익 병기)
     const profitUsdEl = document.getElementById('ovSummaryProfitUsd');
     const profitSubEl = document.getElementById('ovSummaryProfitSub');
     if (profitUsdEl) {
@@ -196,7 +214,18 @@ function renderOverseasSummary(summary) {
         const pRate = summary.total_profit_rate || 0;
         const pKrw = summary.total_profit_krw || 0;
         const sign = pRate > 0 ? '+' : '';
-        profitSubEl.textContent = `${sign}${pRate}% (≈ ${sign}${ovFormatKRW(pKrw)})`;
+
+        const dayUsd = summary.total_day_profit_usd || 0;
+        const dayRate = summary.total_day_profit_rate || 0;
+        const daySign = dayUsd > 0 ? '+' : '';
+        const dayColor = dayUsd > 0 ? '#f87171' : (dayUsd < 0 ? '#60a5fa' : '#94a3b8');
+
+        profitSubEl.innerHTML = `
+            <div>누적 ${sign}${pRate}% (≈ ${sign}${ovFormatKRW(pKrw)})</div>
+            <div style="font-size: 11px; margin-top: 3px; color: ${dayColor};">
+                ⚡ 당일 <b>${daySign}${ovFormatUSD(dayUsd)}</b> (${daySign}${dayRate}%)
+            </div>
+        `;
         profitSubEl.className = 'ov-card-sub ' + (pRate > 0 ? 'profit-up' : (pRate < 0 ? 'profit-down' : ''));
     }
 
@@ -233,6 +262,8 @@ function renderOverseasTable(stocks) {
         const changeSign = s.fluctuations_ratio > 0 ? '+' : '';
         const profitClass = s.profit_rate > 0 ? 'price-up' : (s.profit_rate < 0 ? 'price-down' : 'price-flat');
         const profitSign = s.profit_rate > 0 ? '+' : '';
+        const dayProfitSign = (s.day_profit_usd || 0) > 0 ? '+' : '';
+        const dayProfitClass = (s.day_profit_usd || 0) > 0 ? 'price-up' : ((s.day_profit_usd || 0) < 0 ? 'price-down' : 'price-flat');
 
         return `
             <tr>
@@ -264,11 +295,12 @@ function renderOverseasTable(stocks) {
                 </td>
                 <td>
                     ${s.purchase_price > 0 ? `
-                        <div class="${profitClass}" style="font-family: 'Outfit', sans-serif;">
+                        <div class="${profitClass}" style="font-family: 'Outfit', sans-serif; font-weight: 700;">
                             ${profitSign}${ovFormatUSD(s.profit_usd)}
+                            <span style="font-size: 11px;">(${profitSign}${ovFormatNumber(s.profit_rate, 2)}%)</span>
                         </div>
-                        <div class="${profitClass}" style="font-size: 11px;">
-                            ${profitSign}${ovFormatNumber(s.profit_rate, 2)}%
+                        <div class="${dayProfitClass}" style="font-size: 11px; margin-top: 2px;">
+                            당일 ${dayProfitSign}${ovFormatUSD(s.day_profit_usd)} (${changeSign}${ovFormatNumber(s.fluctuations_ratio, 2)}%)
                         </div>
                     ` : '<span style="color: #64748b;">-</span>'}
                 </td>
