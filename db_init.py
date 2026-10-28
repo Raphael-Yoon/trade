@@ -493,27 +493,78 @@ def _init_mysql():
     create_index_if_not_exists("idx_history_date_owner", "tr_stock_daily_history", "date, owner")
     create_index_if_not_exists("idx_journal_date", "tr_investment_journal", "date")
 
-    # [김선화/김정음] 해외 주식 관리 테이블 (MySQL)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tr_overseas_stocks (
-            symbol VARCHAR(50) PRIMARY KEY,
-            name VARCHAR(255),
-            quantity DOUBLE DEFAULT 0,
-            purchase_price DOUBLE DEFAULT 0,
-            close_price DOUBLE DEFAULT 0,
-            price_change DOUBLE DEFAULT 0,
-            fluctuations_ratio DOUBLE DEFAULT 0,
-            dividend_per_share DOUBLE DEFAULT 0,
-            dividend_yield DOUBLE DEFAULT 0,
-            dividend_date VARCHAR(50),
-            ex_dividend_date VARCHAR(50),
-            exchange_rate DOUBLE DEFAULT 0,
-            currency VARCHAR(10) DEFAULT 'USD',
-            price_date VARCHAR(50),
-            updated_at VARCHAR(50),
-            notes TEXT
-        )
-    ''')
+    # [김선화/김정음] 해외 주식 관리 테이블 (MySQL - id PK 및 broker 컬럼 지원)
+    cursor.execute("""
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema = DATABASE() AND table_name = 'tr_overseas_stocks'
+    """)
+    table_exists = (cursor.fetchone()[0] > 0)
+
+    if table_exists:
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.columns
+            WHERE table_schema = DATABASE() AND table_name = 'tr_overseas_stocks' AND column_name = 'id'
+        """)
+        has_id = (cursor.fetchone()[0] > 0)
+        
+        if not has_id:
+            print("[DB 마이그레이션] MySQL tr_overseas_stocks 테이블을 id PK 및 broker 구조로 마이그레이션합니다.")
+            cursor.execute("ALTER TABLE tr_overseas_stocks RENAME TO tr_overseas_stocks_old")
+            cursor.execute('''
+                CREATE TABLE tr_overseas_stocks (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    symbol VARCHAR(50),
+                    name VARCHAR(255),
+                    broker VARCHAR(50) DEFAULT '기본',
+                    quantity DOUBLE DEFAULT 0,
+                    purchase_price DOUBLE DEFAULT 0,
+                    close_price DOUBLE DEFAULT 0,
+                    price_change DOUBLE DEFAULT 0,
+                    fluctuations_ratio DOUBLE DEFAULT 0,
+                    dividend_per_share DOUBLE DEFAULT 0,
+                    dividend_yield DOUBLE DEFAULT 0,
+                    dividend_date VARCHAR(50),
+                    ex_dividend_date VARCHAR(50),
+                    exchange_rate DOUBLE DEFAULT 0,
+                    currency VARCHAR(10) DEFAULT 'USD',
+                    price_date VARCHAR(50),
+                    updated_at VARCHAR(50),
+                    notes TEXT
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ''')
+            try:
+                cursor.execute('''
+                    INSERT INTO tr_overseas_stocks (symbol, name, broker, quantity, purchase_price, close_price, price_change, fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date, ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes)
+                    SELECT symbol, name, '기본', quantity, purchase_price, close_price, price_change, fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date, ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes FROM tr_overseas_stocks_old
+                ''')
+            except Exception as e:
+                print(f"[DB 마이그레이션 경고] tr_overseas_stocks 데이터 복사 중 예외: {e}")
+            cursor.execute("DROP TABLE IF EXISTS tr_overseas_stocks_old")
+        else:
+            add_column_if_not_exists("tr_overseas_stocks", "broker", "VARCHAR(50) DEFAULT '기본'")
+    else:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tr_overseas_stocks (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                symbol VARCHAR(50),
+                name VARCHAR(255),
+                broker VARCHAR(50) DEFAULT '기본',
+                quantity DOUBLE DEFAULT 0,
+                purchase_price DOUBLE DEFAULT 0,
+                close_price DOUBLE DEFAULT 0,
+                price_change DOUBLE DEFAULT 0,
+                fluctuations_ratio DOUBLE DEFAULT 0,
+                dividend_per_share DOUBLE DEFAULT 0,
+                dividend_yield DOUBLE DEFAULT 0,
+                dividend_date VARCHAR(50),
+                ex_dividend_date VARCHAR(50),
+                exchange_rate DOUBLE DEFAULT 0,
+                currency VARCHAR(10) DEFAULT 'USD',
+                price_date VARCHAR(50),
+                updated_at VARCHAR(50),
+                notes TEXT
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
 
     # [김선화/김정음] 배당금 수령 내역 관리 테이블 (MySQL)
     cursor.execute('''
@@ -521,6 +572,7 @@ def _init_mysql():
             id INT AUTO_INCREMENT PRIMARY KEY,
             symbol VARCHAR(50),
             name VARCHAR(255),
+            broker VARCHAR(50) DEFAULT '기본',
             market_type VARCHAR(20) DEFAULT 'OVERSEAS',
             payment_date VARCHAR(50),
             amount_gross DOUBLE DEFAULT 0,
@@ -530,8 +582,9 @@ def _init_mysql():
             amount_net_krw DOUBLE DEFAULT 0,
             notes TEXT,
             created_at VARCHAR(50)
-        )
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ''')
+    add_column_if_not_exists("tr_dividend_history", "broker", "VARCHAR(50) DEFAULT '기본'")
     create_index_if_not_exists("idx_dividend_date", "tr_dividend_history", "payment_date")
     create_index_if_not_exists("idx_dividend_symbol", "tr_dividend_history", "symbol")
 

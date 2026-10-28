@@ -3947,24 +3947,51 @@ def get_overseas_stocks():
         cursor = db.cursor()
         
         target_broker = request.args.get('broker', '').strip()
-        if target_broker and target_broker != 'all':
-            cursor.execute("""
-                SELECT id, symbol, name, broker, quantity, purchase_price, close_price, price_change,
-                       fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date,
-                       ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes
-                FROM tr_overseas_stocks
-                WHERE broker = ?
-                ORDER BY symbol ASC, id ASC
-            """, (target_broker,))
-        else:
-            cursor.execute("""
-                SELECT id, symbol, name, broker, quantity, purchase_price, close_price, price_change,
-                       fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date,
-                       ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes
-                FROM tr_overseas_stocks
-                ORDER BY symbol ASC, id ASC
-            """)
-        rows = cursor.fetchall()
+        try:
+            if target_broker and target_broker != 'all':
+                cursor.execute("""
+                    SELECT id, symbol, name, broker, quantity, purchase_price, close_price, price_change,
+                           fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date,
+                           ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes
+                    FROM tr_overseas_stocks
+                    WHERE broker = ?
+                    ORDER BY symbol ASC, id ASC
+                """, (target_broker,))
+            else:
+                cursor.execute("""
+                    SELECT id, symbol, name, broker, quantity, purchase_price, close_price, price_change,
+                           fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date,
+                           ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes
+                    FROM tr_overseas_stocks
+                    ORDER BY symbol ASC, id ASC
+                """)
+            rows = cursor.fetchall()
+        except Exception as query_err:
+            err_msg = str(query_err)
+            if '1054' in err_msg or 'Unknown column' in err_msg or 'no such column' in err_msg:
+                init_db()
+                db = get_db()
+                cursor = db.cursor()
+                if target_broker and target_broker != 'all':
+                    cursor.execute("""
+                        SELECT id, symbol, name, broker, quantity, purchase_price, close_price, price_change,
+                               fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date,
+                               ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes
+                        FROM tr_overseas_stocks
+                        WHERE broker = ?
+                        ORDER BY symbol ASC, id ASC
+                    """, (target_broker,))
+                else:
+                    cursor.execute("""
+                        SELECT id, symbol, name, broker, quantity, purchase_price, close_price, price_change,
+                               fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date,
+                               ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes
+                        FROM tr_overseas_stocks
+                        ORDER BY symbol ASC, id ASC
+                    """)
+                rows = cursor.fetchall()
+            else:
+                raise query_err
 
         # 전체 증권사 목록 조회 (필터 버튼용)
         cursor.execute("SELECT DISTINCT broker FROM tr_overseas_stocks WHERE broker IS NOT NULL AND broker != ''")
@@ -4180,18 +4207,33 @@ def add_overseas_stock():
         db = get_db()
         cursor = db.cursor()
         
-        cursor.execute("""
+        insert_sql = """
             INSERT INTO tr_overseas_stocks (
                 symbol, name, broker, quantity, purchase_price, close_price, price_change,
                 fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date,
                 ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD', ?, ?, ?)
-        """, (
+        """
+        insert_params = (
             symbol, name, broker, quantity, purchase_price, close_price, price_change,
             fluct_ratio, dps, div_yield, div_date, ex_div_date, current_rate,
             price_date, now_str, notes
-        ))
-        db.commit()
+        )
+
+        try:
+            cursor.execute(insert_sql, insert_params)
+            db.commit()
+        except Exception as insert_err:
+            err_msg = str(insert_err)
+            if '1054' in err_msg or 'Unknown column' in err_msg or 'no such column' in err_msg:
+                # 운영 환경 테이블 마이그레이션 자동 실행 후 1회 재시도
+                init_db()
+                db = get_db()
+                cursor = db.cursor()
+                cursor.execute(insert_sql, insert_params)
+                db.commit()
+            else:
+                raise insert_err
 
         return jsonify({'success': True, 'message': f'{name}({symbol}, {broker}) 종목이 저장되었습니다.', 'symbol': symbol})
     except Exception as e:
@@ -4358,16 +4400,30 @@ def add_dividend_record():
 
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("""
+        insert_sql = """
             INSERT INTO tr_dividend_history (
                 symbol, name, broker, market_type, payment_date, amount_gross,
                 amount_net, currency, exchange_rate, amount_net_krw, notes, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
+        """
+        insert_params = (
             symbol, name, broker, market_type, payment_date, amount_gross,
             amount_net, currency, exchange_rate, amount_net_krw, notes, now_str
-        ))
-        db.commit()
+        )
+
+        try:
+            cursor.execute(insert_sql, insert_params)
+            db.commit()
+        except Exception as insert_err:
+            err_msg = str(insert_err)
+            if '1054' in err_msg or 'Unknown column' in err_msg or 'no such column' in err_msg:
+                init_db()
+                db = get_db()
+                cursor = db.cursor()
+                cursor.execute(insert_sql, insert_params)
+                db.commit()
+            else:
+                raise insert_err
 
         return jsonify({'success': True, 'message': f'{name} 배당금({amount_net} {currency}) 내역이 등록되었습니다.'})
     except Exception as e:
