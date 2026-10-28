@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from get_all_naver_data import get_all_naver_data
 
 from db_init import init_db
+import overseas_service
 
 import time
 from datetime import date as _date
@@ -3932,6 +3933,466 @@ def sync_data():
         return jsonify({'success': True, 'added': 0, 'removed': 0, 'message': '로컬 데이터베이스 동기화 완료'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500 
+
+
+# ==============================================================================
+# [김선화/김정음/김도희] 해외 주식 및 배당금 관리 API
+# ==============================================================================
+
+@app.route('/api/overseas/stocks', methods=['GET'])
+def get_overseas_stocks():
+    """해외 주식 보유 목록 및 평가/배당 요약 조회 (증권사 broker 필터 및 그룹핑 지원)"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        
+        target_broker = request.args.get('broker', '').strip()
+        if target_broker and target_broker != 'all':
+            cursor.execute("""
+                SELECT id, symbol, name, broker, quantity, purchase_price, close_price, price_change,
+                       fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date,
+                       ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes
+                FROM tr_overseas_stocks
+                WHERE broker = ?
+                ORDER BY symbol ASC, id ASC
+            """, (target_broker,))
+        else:
+            cursor.execute("""
+                SELECT id, symbol, name, broker, quantity, purchase_price, close_price, price_change,
+                       fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date,
+                       ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes
+                FROM tr_overseas_stocks
+                ORDER BY symbol ASC, id ASC
+            """)
+        rows = cursor.fetchall()
+
+        # 전체 증권사 목록 조회 (필터 버튼용)
+        cursor.execute("SELECT DISTINCT broker FROM tr_overseas_stocks WHERE broker IS NOT NULL AND broker != ''")
+        broker_rows = cursor.fetchall()
+        all_brokers = [r.get('broker') if isinstance(r, dict) else r[0] for r in broker_rows]
+        if not all_brokers:
+            all_brokers = ['기본']
+        
+        current_rate = overseas_service.fetch_usd_krw_rate()
+        
+        stocks = []
+        total_eval_usd = 0.0
+        total_eval_krw = 0.0
+        total_cost_usd = 0.0
+        total_cost_krw = 0.0
+        total_annual_dividend_usd = 0.0
+        total_annual_dividend_krw = 0.0
+        broker_eval_map = {}
+
+        for r in rows:
+            stock_id = r.get('id')
+            symbol = r.get('symbol')
+            name = r.get('name') or symbol
+            broker = r.get('broker') or '기본'
+            qty = float(r.get('quantity') or 0.0)
+            purchase_price = float(r.get('purchase_price') or 0.0)
+            close_price = float(r.get('close_price') or 0.0)
+            price_change = float(r.get('price_change') or 0.0)
+            fluct_ratio = float(r.get('fluctuations_ratio') or 0.0)
+            dps = float(r.get('dividend_per_share') or 0.0)
+            div_yield = float(r.get('dividend_yield') or 0.0)
+            stock_rate = float(r.get('exchange_rate') or current_rate or 1350.0)
+            
+            # 퀀트 연산
+            eval_usd = round(close_price * qty, 2)
+            eval_krw = round(eval_usd * stock_rate)
+            cost_usd = round(purchase_price * qty, 2)
+            cost_krw = round(cost_usd * stock_rate)
+            profit_usd = round(eval_usd - cost_usd, 2)
+            profit_krw = round(eval_krw - cost_krw)
+            profit_rate = round(((close_price - purchase_price) / purchase_price * 100), 2) if purchase_price > 0 else 0.0
+            annual_div_usd = round(dps * qty, 2)
+            annual_div_krw = round(annual_div_usd * stock_rate)
+
+            total_eval_usd += eval_usd
+            total_eval_krw += eval_krw
+            total_cost_usd += cost_usd
+            total_cost_krw += cost_krw
+            total_annual_dividend_usd += annual_div_usd
+            total_annual_dividend_krw += annual_div_krw
+
+            broker_eval_map[broker] = broker_eval_map.get(broker, 0.0) + eval_krw
+
+            stocks.append({
+                'id': stock_id,
+                'symbol': symbol,
+                'name': name,
+                'broker': broker,
+                'quantity': qty,
+                'purchase_price': purchase_price,
+                'close_price': close_price,
+                'price_change': price_change,
+                'fluctuations_ratio': fluct_ratio,
+                'eval_usd': eval_usd,
+                'eval_krw': eval_krw,
+                'cost_usd': cost_usd,
+                'cost_krw': cost_krw,
+                'profit_usd': profit_usd,
+                'profit_krw': profit_krw,
+                'profit_rate': profit_rate,
+                'dividend_per_share': dps,
+                'dividend_yield': div_yield,
+                'expected_annual_dividend_usd': annual_div_usd,
+                'expected_annual_dividend_krw': annual_div_krw,
+                'dividend_date': r.get('dividend_date') or '',
+                'ex_dividend_date': r.get('ex_dividend_date') or '',
+                'exchange_rate': stock_rate,
+                'price_date': r.get('price_date') or '',
+                'updated_at': r.get('updated_at') or '',
+                'notes': r.get('notes') or ''
+            })
+
+        # 종목(symbol)별 합산 요약 집계
+        symbol_summary_map = {}
+        for s in stocks:
+            sym = s['symbol']
+            if sym not in symbol_summary_map:
+                symbol_summary_map[sym] = {
+                    'symbol': sym,
+                    'name': s['name'],
+                    'close_price': s['close_price'],
+                    'price_change': s['price_change'],
+                    'fluctuations_ratio': s['fluctuations_ratio'],
+                    'dividend_per_share': s['dividend_per_share'],
+                    'dividend_yield': s['dividend_yield'],
+                    'exchange_rate': s['exchange_rate'],
+                    'total_quantity': 0.0,
+                    'total_cost_usd': 0.0,
+                    'total_cost_krw': 0.0,
+                    'total_eval_usd': 0.0,
+                    'total_eval_krw': 0.0,
+                    'total_annual_dividend_usd': 0.0,
+                    'total_annual_dividend_krw': 0.0,
+                    'broker_list': []
+                }
+            item = symbol_summary_map[sym]
+            item['total_quantity'] += s['quantity']
+            item['total_cost_usd'] += s['cost_usd']
+            item['total_cost_krw'] += s['cost_krw']
+            item['total_eval_usd'] += s['eval_usd']
+            item['total_eval_krw'] += s['eval_krw']
+            item['total_annual_dividend_usd'] += s['expected_annual_dividend_usd']
+            item['total_annual_dividend_krw'] += s['expected_annual_dividend_krw']
+            item['broker_list'].append({'broker': s['broker'], 'quantity': s['quantity']})
+
+        stock_summaries = []
+        for sym, item in symbol_summary_map.items():
+            tot_qty = round(item['total_quantity'], 4)
+            tot_cost_usd = round(item['total_cost_usd'], 2)
+            tot_eval_usd = round(item['total_eval_usd'], 2)
+            tot_cost_krw = round(item['total_cost_krw'])
+            tot_eval_krw = round(item['total_eval_krw'])
+            
+            avg_price = round(tot_cost_usd / tot_qty, 2) if tot_qty > 0 else 0.0
+            profit_usd = round(tot_eval_usd - tot_cost_usd, 2)
+            profit_krw = round(tot_eval_krw - tot_cost_krw)
+            profit_rate = round((profit_usd / tot_cost_usd * 100), 2) if tot_cost_usd > 0 else 0.0
+
+            stock_summaries.append({
+                'symbol': sym,
+                'name': item['name'],
+                'close_price': item['close_price'],
+                'price_change': item['price_change'],
+                'fluctuations_ratio': item['fluctuations_ratio'],
+                'dividend_per_share': item['dividend_per_share'],
+                'dividend_yield': item['dividend_yield'],
+                'total_quantity': tot_qty,
+                'avg_purchase_price': avg_price,
+                'total_cost_usd': tot_cost_usd,
+                'total_cost_krw': tot_cost_krw,
+                'total_eval_usd': tot_eval_usd,
+                'total_eval_krw': tot_eval_krw,
+                'total_profit_usd': profit_usd,
+                'total_profit_krw': profit_krw,
+                'total_profit_rate': profit_rate,
+                'total_annual_dividend_usd': round(item['total_annual_dividend_usd'], 2),
+                'total_annual_dividend_krw': round(item['total_annual_dividend_krw']),
+                'brokers': item['broker_list']
+            })
+
+        # 평가금액 높은 순 정렬
+        stock_summaries.sort(key=lambda x: x['total_eval_usd'], reverse=True)
+
+        total_profit_usd = round(total_eval_usd - total_cost_usd, 2)
+        total_profit_krw = round(total_eval_krw - total_cost_krw)
+        total_profit_rate = round((total_profit_usd / total_cost_usd * 100), 2) if total_cost_usd > 0 else 0.0
+        avg_dividend_yield = round((total_annual_dividend_usd / total_eval_usd * 100), 2) if total_eval_usd > 0 else 0.0
+
+        summary = {
+            'total_eval_usd': round(total_eval_usd, 2),
+            'total_eval_krw': int(total_eval_krw),
+            'total_cost_usd': round(total_cost_usd, 2),
+            'total_cost_krw': int(total_cost_krw),
+            'total_profit_usd': total_profit_usd,
+            'total_profit_krw': total_profit_krw,
+            'total_profit_rate': total_profit_rate,
+            'total_annual_dividend_usd': round(total_annual_dividend_usd, 2),
+            'total_annual_dividend_krw': int(total_annual_dividend_krw),
+            'avg_dividend_yield': avg_dividend_yield,
+            'exchange_rate': current_rate,
+            'count': len(stocks),
+            'brokers': all_brokers,
+            'broker_breakdown': [{'broker': b, 'eval_krw': round(v)} for b, v in sorted(broker_eval_map.items())],
+            'stock_summaries': stock_summaries
+        }
+
+        return jsonify({'success': True, 'stocks': stocks, 'summary': summary})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/overseas/stocks', methods=['POST'])
+def add_overseas_stock():
+    """해외 주식 종목 등록 (증권사 broker 지원)"""
+    try:
+        data = request.get_json() or {}
+        raw_symbol = data.get('symbol', '').strip().upper()
+        if not raw_symbol:
+            return jsonify({'success': False, 'message': '티커 심볼을 입력해 주세요.'}), 400
+
+        broker = data.get('broker', '').strip() or '기본'
+        quantity = float(data.get('quantity') or 0.0)
+        purchase_price = float(data.get('purchase_price') or 0.0)
+        custom_name = data.get('name', '').strip()
+        notes = data.get('notes', '').strip()
+
+        # 네이버 증권에서 상세 시세 및 배당 정보 조회
+        detail = overseas_service.fetch_overseas_stock_detail(raw_symbol)
+        current_rate = overseas_service.fetch_usd_krw_rate()
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        symbol = detail['symbol'] if detail else raw_symbol
+        name = custom_name or (detail['name'] if detail else raw_symbol)
+        close_price = detail['close_price'] if detail else 0.0
+        price_change = detail['price_change'] if detail else 0.0
+        fluct_ratio = detail['fluctuations_ratio'] if detail else 0.0
+        dps = detail['dividend_per_share'] if detail else 0.0
+        div_yield = detail['dividend_yield'] if detail else 0.0
+        div_date = detail['dividend_date'] if detail else ''
+        ex_div_date = detail['ex_dividend_date'] if detail else ''
+        price_date = detail['price_date'] if detail else ''
+
+        db = get_db()
+        cursor = db.cursor()
+        
+        cursor.execute("""
+            INSERT INTO tr_overseas_stocks (
+                symbol, name, broker, quantity, purchase_price, close_price, price_change,
+                fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date,
+                ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD', ?, ?, ?)
+        """, (
+            symbol, name, broker, quantity, purchase_price, close_price, price_change,
+            fluct_ratio, dps, div_yield, div_date, ex_div_date, current_rate,
+            price_date, now_str, notes
+        ))
+        db.commit()
+
+        return jsonify({'success': True, 'message': f'{name}({symbol}, {broker}) 종목이 저장되었습니다.', 'symbol': symbol})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/overseas/stocks/<int:stock_id>', methods=['PUT'])
+def update_overseas_stock(stock_id):
+    """해외 주식 수량/매수가/증권사/메모 수정 (id 기준)"""
+    try:
+        data = request.get_json() or {}
+        quantity = float(data.get('quantity') or 0.0)
+        purchase_price = float(data.get('purchase_price') or 0.0)
+        broker = data.get('broker', '').strip() or '기본'
+        name = data.get('name')
+        notes = data.get('notes', '')
+
+        db = get_db()
+        cursor = db.cursor()
+        if name:
+            cursor.execute("UPDATE tr_overseas_stocks SET quantity = ?, purchase_price = ?, broker = ?, name = ?, notes = ? WHERE id = ?",
+                           (quantity, purchase_price, broker, name, notes, stock_id))
+        else:
+            cursor.execute("UPDATE tr_overseas_stocks SET quantity = ?, purchase_price = ?, broker = ?, notes = ? WHERE id = ?",
+                           (quantity, purchase_price, broker, notes, stock_id))
+        db.commit()
+        return jsonify({'success': True, 'message': '수정되었습니다.'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/overseas/stocks/<int:stock_id>', methods=['DELETE'])
+def delete_overseas_stock(stock_id):
+    """해외 주식 종목 삭제 (id 기준)"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("DELETE FROM tr_overseas_stocks WHERE id = ?", (stock_id,))
+        db.commit()
+        return jsonify({'success': True, 'message': '종목이 삭제되었습니다.'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/overseas/stocks/refresh', methods=['POST'])
+def refresh_overseas_stocks():
+    """모든 해외 주식의 종가 및 배당정보 즉시 갱신"""
+    try:
+        db = get_db()
+        res = overseas_service.update_all_overseas_stocks(db)
+        return jsonify({'success': True, 'result': res, 'message': f"해외주식 {res['updated']}개 종목 시세/배당 갱신 완료"})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/overseas/search', methods=['GET'])
+def search_overseas():
+    """해외 주식 티커/종목명 검색 자동완성"""
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify({'success': True, 'items': []})
+    items = overseas_service.search_overseas_stock(q)
+    return jsonify({'success': True, 'items': items})
+
+
+# ------------------------------------------------------------------------------
+# 배당금 수령 내역 관리 API
+# ------------------------------------------------------------------------------
+
+@app.route('/api/overseas/dividends', methods=['GET'])
+def get_dividend_history():
+    """배당금 수령 내역 및 연도별/월별 통계 조회"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("""
+            SELECT id, symbol, name, broker, market_type, payment_date, amount_gross,
+                   amount_net, currency, exchange_rate, amount_net_krw, notes, created_at
+            FROM tr_dividend_history
+            ORDER BY payment_date DESC, id DESC
+        """)
+        rows = cursor.fetchall()
+        
+        current_year = str(datetime.now().year)
+        this_year_net_krw = 0.0
+        this_year_net_usd = 0.0
+        all_time_net_krw = 0.0
+        monthly_map = {}
+
+        dividends = []
+        for r in rows:
+            div_id = r.get('id')
+            symbol = r.get('symbol') or ''
+            name = r.get('name') or symbol
+            broker = r.get('broker') or '기본'
+            m_type = r.get('market_type') or 'OVERSEAS'
+            pay_date = r.get('payment_date') or ''
+            gross = float(r.get('amount_gross') or 0.0)
+            net = float(r.get('amount_net') or 0.0)
+            curr = r.get('currency') or 'USD'
+            rate = float(r.get('exchange_rate') or 0.0)
+            net_krw = float(r.get('amount_net_krw') or (net * rate if curr == 'USD' else net))
+
+            all_time_net_krw += net_krw
+            if pay_date.startswith(current_year):
+                this_year_net_krw += net_krw
+                if curr == 'USD':
+                    this_year_net_usd += net
+
+            month_key = pay_date[:7] if len(pay_date) >= 7 else '기타'
+            monthly_map[month_key] = monthly_map.get(month_key, 0.0) + net_krw
+
+            dividends.append({
+                'id': div_id,
+                'symbol': symbol,
+                'name': name,
+                'broker': broker,
+                'market_type': m_type,
+                'payment_date': pay_date,
+                'amount_gross': gross,
+                'amount_net': net,
+                'currency': curr,
+                'exchange_rate': rate,
+                'amount_net_krw': round(net_krw),
+                'notes': r.get('notes') or '',
+                'created_at': r.get('created_at') or ''
+            })
+
+        summary = {
+            'this_year': current_year,
+            'this_year_net_krw': round(this_year_net_krw),
+            'this_year_net_usd': round(this_year_net_usd, 2),
+            'all_time_net_krw': round(all_time_net_krw),
+            'monthly_breakdown': [{'month': k, 'amount_krw': round(v)} for k, v in sorted(monthly_map.items(), reverse=True)],
+            'count': len(dividends)
+        }
+
+        return jsonify({'success': True, 'dividends': dividends, 'summary': summary})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/overseas/dividends', methods=['POST'])
+def add_dividend_record():
+    """배당금 수령 내역 등록"""
+    try:
+        data = request.get_json() or {}
+        symbol = data.get('symbol', '').strip().upper()
+        name = data.get('name', '').strip() or symbol
+        broker = data.get('broker', '').strip() or '기본'
+        payment_date = data.get('payment_date', '').strip() or datetime.now().strftime('%Y-%m-%d')
+        amount_gross = float(data.get('amount_gross') or 0.0)
+        amount_net = float(data.get('amount_net') or 0.0)
+        currency = data.get('currency', 'USD').strip().upper()
+        exchange_rate = float(data.get('exchange_rate') or 0.0)
+        market_type = data.get('market_type', 'OVERSEAS')
+        notes = data.get('notes', '').strip()
+
+        if exchange_rate <= 0:
+            exchange_rate = overseas_service.fetch_usd_krw_rate() if currency == 'USD' else 1.0
+
+        amount_net_krw = round(amount_net * exchange_rate) if currency == 'USD' else round(amount_net)
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("""
+            INSERT INTO tr_dividend_history (
+                symbol, name, broker, market_type, payment_date, amount_gross,
+                amount_net, currency, exchange_rate, amount_net_krw, notes, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            symbol, name, broker, market_type, payment_date, amount_gross,
+            amount_net, currency, exchange_rate, amount_net_krw, notes, now_str
+        ))
+        db.commit()
+
+        return jsonify({'success': True, 'message': f'{name} 배당금({amount_net} {currency}) 내역이 등록되었습니다.'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/overseas/dividends/<int:dividend_id>', methods=['DELETE'])
+def delete_dividend_record(dividend_id):
+    """배당금 수령 내역 삭제"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("DELETE FROM tr_dividend_history WHERE id = ?", (dividend_id,))
+        db.commit()
+        return jsonify({'success': True, 'message': '배당 내역이 삭제되었습니다.'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# [김선화/김도희] 해외 주식 매일 오전 종가/배당 자동 갱신 스케줄러 기동
+try:
+    overseas_service.start_overseas_daily_scheduler(_new_db_conn)
+except Exception as _sc_err:
+    print(f"[김선화] 해외주식 스케줄러 기동 경고: {_sc_err}")
+
 
 def auto_snapshot_scheduler():
     """[김선화] 매일 애프터마켓 마감 후(20:10) 자동 스냅샷 기록 스케줄러"""

@@ -195,6 +195,94 @@ def _init_sqlite():
     ''')
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_journal_date ON tr_investment_journal(date)")
 
+    # [김선화/김정음] 해외 주식 관리 테이블 (id 및 증권사 broker 컬럼 지원)
+    cursor.execute("PRAGMA table_info(tr_overseas_stocks)")
+    existing_cols = [r[1] for r in cursor.fetchall()]
+    if existing_cols and 'id' not in existing_cols:
+        cursor.execute("ALTER TABLE tr_overseas_stocks RENAME TO tr_overseas_stocks_old")
+        cursor.execute('''
+            CREATE TABLE tr_overseas_stocks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                name TEXT,
+                broker TEXT DEFAULT '기본',
+                quantity REAL DEFAULT 0,
+                purchase_price REAL DEFAULT 0,
+                close_price REAL DEFAULT 0,
+                price_change REAL DEFAULT 0,
+                fluctuations_ratio REAL DEFAULT 0,
+                dividend_per_share REAL DEFAULT 0,
+                dividend_yield REAL DEFAULT 0,
+                dividend_date TEXT,
+                ex_dividend_date TEXT,
+                exchange_rate REAL DEFAULT 0,
+                currency TEXT DEFAULT 'USD',
+                price_date TEXT,
+                updated_at TEXT,
+                notes TEXT
+            )
+        ''')
+        try:
+            cursor.execute('''
+                INSERT INTO tr_overseas_stocks (symbol, name, broker, quantity, purchase_price, close_price, price_change, fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date, ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes)
+                SELECT symbol, name, '기본', quantity, purchase_price, close_price, price_change, fluctuations_ratio, dividend_per_share, dividend_yield, dividend_date, ex_dividend_date, exchange_rate, currency, price_date, updated_at, notes FROM tr_overseas_stocks_old
+            ''')
+        except Exception:
+            pass
+        cursor.execute("DROP TABLE IF EXISTS tr_overseas_stocks_old")
+    else:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tr_overseas_stocks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                name TEXT,
+                broker TEXT DEFAULT '기본',
+                quantity REAL DEFAULT 0,
+                purchase_price REAL DEFAULT 0,
+                close_price REAL DEFAULT 0,
+                price_change REAL DEFAULT 0,
+                fluctuations_ratio REAL DEFAULT 0,
+                dividend_per_share REAL DEFAULT 0,
+                dividend_yield REAL DEFAULT 0,
+                dividend_date TEXT,
+                ex_dividend_date TEXT,
+                exchange_rate REAL DEFAULT 0,
+                currency TEXT DEFAULT 'USD',
+                price_date TEXT,
+                updated_at TEXT,
+                notes TEXT
+            )
+        ''')
+        try:
+            cursor.execute("ALTER TABLE tr_overseas_stocks ADD COLUMN broker TEXT DEFAULT '기본'")
+        except Exception:
+            pass
+
+    # [김선화/김정음] 배당금 수령 내역 관리 테이블 (broker 컬럼 지원)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tr_dividend_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT,
+            name TEXT,
+            broker TEXT DEFAULT '기본',
+            market_type TEXT DEFAULT 'OVERSEAS',
+            payment_date TEXT,
+            amount_gross REAL DEFAULT 0,
+            amount_net REAL DEFAULT 0,
+            currency TEXT DEFAULT 'USD',
+            exchange_rate REAL DEFAULT 0,
+            amount_net_krw REAL DEFAULT 0,
+            notes TEXT,
+            created_at TEXT
+        )
+    ''')
+    try:
+        cursor.execute("ALTER TABLE tr_dividend_history ADD COLUMN broker TEXT DEFAULT '기본'")
+    except Exception:
+        pass
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dividend_date ON tr_dividend_history(payment_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dividend_symbol ON tr_dividend_history(symbol)")
+
     conn.commit()
     conn.close()
 
@@ -405,5 +493,53 @@ def _init_mysql():
     create_index_if_not_exists("idx_history_date_owner", "tr_stock_daily_history", "date, owner")
     create_index_if_not_exists("idx_journal_date", "tr_investment_journal", "date")
 
+    # [김선화/김정음] 해외 주식 관리 테이블 (MySQL)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tr_overseas_stocks (
+            symbol VARCHAR(50) PRIMARY KEY,
+            name VARCHAR(255),
+            quantity DOUBLE DEFAULT 0,
+            purchase_price DOUBLE DEFAULT 0,
+            close_price DOUBLE DEFAULT 0,
+            price_change DOUBLE DEFAULT 0,
+            fluctuations_ratio DOUBLE DEFAULT 0,
+            dividend_per_share DOUBLE DEFAULT 0,
+            dividend_yield DOUBLE DEFAULT 0,
+            dividend_date VARCHAR(50),
+            ex_dividend_date VARCHAR(50),
+            exchange_rate DOUBLE DEFAULT 0,
+            currency VARCHAR(10) DEFAULT 'USD',
+            price_date VARCHAR(50),
+            updated_at VARCHAR(50),
+            notes TEXT
+        )
+    ''')
+
+    # [김선화/김정음] 배당금 수령 내역 관리 테이블 (MySQL)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tr_dividend_history (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            symbol VARCHAR(50),
+            name VARCHAR(255),
+            market_type VARCHAR(20) DEFAULT 'OVERSEAS',
+            payment_date VARCHAR(50),
+            amount_gross DOUBLE DEFAULT 0,
+            amount_net DOUBLE DEFAULT 0,
+            currency VARCHAR(10) DEFAULT 'USD',
+            exchange_rate DOUBLE DEFAULT 0,
+            amount_net_krw DOUBLE DEFAULT 0,
+            notes TEXT,
+            created_at VARCHAR(50)
+        )
+    ''')
+    create_index_if_not_exists("idx_dividend_date", "tr_dividend_history", "payment_date")
+    create_index_if_not_exists("idx_dividend_symbol", "tr_dividend_history", "symbol")
+
     conn.commit()
     conn.close()
+
+
+if __name__ == '__main__':
+    init_db()
+    print("Database initialization completed.")
+

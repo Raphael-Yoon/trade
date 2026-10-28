@@ -25,3 +25,4 @@ recommendations.json
 
 *.sh
 Report/*.html
+*.log

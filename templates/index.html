@@ -11,6 +11,7 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=1.12">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/overseas.css') }}?v=1.00">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
     <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -840,6 +841,7 @@
                 <span id="targetBadge" style="display: none; position: absolute; top: -5px; right: -5px; width: 10px; height: 10px; background: #ef4444; border-radius: 50%; border: 2px solid #0f172a;"></span>
             </button>
             <button class="tab-btn" data-tab="history" onclick="switchTab('history')">📜 투자 성과</button>
+            <button class="tab-btn" data-tab="overseas" onclick="switchTab('overseas')">🌐 해외 주식 & 배당</button>
         </div>
 
         <!-- Tab 1: Stock Analysis -->
@@ -1530,6 +1532,332 @@
         }
         </style>
 
+        <!-- ==============================================================================
+             [개발2팀] Tab 7: 해외 주식 & 배당금 관리
+             담당: 김선화(PM), 김정음(BE), 유병욱(FE), 김미수(Design), 김도희(Quant), 권보성(QA)
+             ============================================================================== -->
+        <div id="overseasTab" class="tab-content">
+            <div class="overseas-section">
+                <!-- 헤더 및 컨트롤 바 -->
+                <div class="overseas-header">
+                    <div class="overseas-title-wrap">
+                        <h2>🌐 해외 주식 & 배당금 관리</h2>
+                        <p>보유 해외 주식의 종가 및 환율을 추적하고, 예상 연간 배당금 및 실제 배당 수령 내역을 관리합니다.</p>
+                    </div>
+                    <div class="overseas-actions">
+                        <div id="ovExchangeRateBadge" class="exchange-rate-badge">
+                            💵 USD/KRW <b>-</b>
+                        </div>
+                        <button id="ovRefreshBtn" class="btn-ov-action btn-ov-secondary" onclick="refreshOverseasStocks()">
+                            🔄 시세/배당 새로고침
+                        </button>
+                        <button class="btn-ov-action btn-ov-primary" onclick="openAddOverseasModal()">
+                            ➕ 해외 종목 추가
+                        </button>
+                        <button class="btn-ov-action btn-ov-dividend" onclick="openAddDividendModal()">
+                            💵 배당금 수령 등록
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 4대 메트릭 요약 그리드 -->
+                <div class="ov-summary-grid">
+                    <div class="ov-metric-card">
+                        <div class="ov-card-label">
+                            <span>총 해외자산 평가액</span>
+                            <span>💼</span>
+                        </div>
+                        <div id="ovSummaryEvalUsd" class="ov-card-val-usd">$0.00</div>
+                        <div id="ovSummaryEvalKrw" class="ov-card-val-krw">≈ 0원 (0종목)</div>
+                    </div>
+
+                    <div class="ov-metric-card">
+                        <div class="ov-card-label">
+                            <span>총 평가손익 & 수익률</span>
+                            <span>📈</span>
+                        </div>
+                        <div id="ovSummaryProfitUsd" class="ov-card-val-usd">$0.00</div>
+                        <div id="ovSummaryProfitSub" class="ov-card-sub">0.0% (≈ 0원)</div>
+                    </div>
+
+                    <div class="ov-metric-card">
+                        <div class="ov-card-label">
+                            <span>예상 연간 배당금</span>
+                            <span>💰</span>
+                        </div>
+                        <div id="ovSummaryDivAnnualUsd" class="ov-card-val-usd" style="color: #34d399;">$0.00</div>
+                        <div id="ovSummaryDivAnnualSub" class="ov-card-val-krw">≈ 0원 (배당률 0.0%)</div>
+                    </div>
+
+                    <div class="ov-metric-card">
+                        <div class="ov-card-label">
+                            <span>올해 실수령 배당금</span>
+                            <span>🏦</span>
+                        </div>
+                        <div id="ovSummaryDivRecKrw" class="ov-card-val-usd" style="color: #fbbf24;">0원</div>
+                        <div id="ovSummaryDivRecSub" class="ov-card-val-krw">올해 총 0건 ($0.00)</div>
+                    </div>
+                </div>
+
+                <!-- 내부 서브탭 메뉴 및 증권사 필터 -->
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+                    <div class="ov-inner-tabs" style="margin-bottom: 0;">
+                        <button class="ov-inner-tab-btn active" data-subtab="portfolio" onclick="switchOverseasSubTab('portfolio')">
+                            📊 보유 해외주식 포트폴리오
+                        </button>
+                        <button class="ov-inner-tab-btn" data-subtab="dividends" onclick="switchOverseasSubTab('dividends')">
+                            📝 배당금 수령 내역
+                        </button>
+                    </div>
+                    <!-- 증권사 필터 칩 컨테이너 -->
+                    <div id="ovBrokerFilterWrap" class="ov-broker-filter-wrap" style="margin-bottom: 0;">
+                        <!-- JS로 증권사 칩 생성 -->
+                    </div>
+                </div>
+
+                <!-- 서브탭 1: 보유 주식 테이블 -->
+                <div id="ovPortfolioSection">
+                    <!-- 종목별 합산 요약 (Stock Summary) -->
+                    <div id="ovSummaryCard" style="margin-bottom: 24px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div style="font-size: 15px; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 8px;">
+                                <span>📌</span> 종목별 합산 요약 (Total Summary)
+                                <span id="ovSummaryBadgeCount" style="font-size: 11px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); padding: 2px 8px; border-radius: 9999px;">0개 종목</span>
+                            </div>
+                            <span style="font-size: 12px; color: #94a3b8;">* 복수 증권사에 분산된 동일 종목의 수량 및 가중평균단가를 통합 집계합니다.</span>
+                        </div>
+                        <div id="ovSummaryTableWrap" class="ov-table-container">
+                            <table class="ov-table">
+                                <thead>
+                                    <tr>
+                                        <th>종목명 / 티커</th>
+                                        <th>총 보유수량</th>
+                                        <th>가중평균단가</th>
+                                        <th>현재 종가</th>
+                                        <th>총 평가금액</th>
+                                        <th>총 평가손익</th>
+                                        <th>주당배당금 (DPS)</th>
+                                        <th>총 예상 연배당금</th>
+                                        <th>보유 증권사 현황</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ovSummaryTableBody">
+                                    <!-- JS 동적 렌더링 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 계좌/증권사별 상세 보유 내역 헤더 -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; margin-top: 10px;">
+                        <div style="font-size: 15px; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 8px;">
+                            <span>📋</span> 계좌/증권사별 상세 보유 내역
+                        </div>
+                    </div>
+
+                    <div id="ovStocksTableWrap" class="ov-table-container">
+                        <table class="ov-table">
+                            <thead>
+                                <tr>
+                                    <th>증권사 / 종목 / 티커</th>
+                                    <th>보유수량</th>
+                                    <th>매입단가 (USD)</th>
+                                    <th>현재 종가</th>
+                                    <th>평가금액</th>
+                                    <th>평가손익</th>
+                                    <th>주당배당금 (DPS)</th>
+                                    <th>배당수익률</th>
+                                    <th>예상 연배당금</th>
+                                    <th>배당일정</th>
+                                    <th style="text-align: right;">관리</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ovStocksTableBody">
+                                <!-- JS 동적 렌더링 -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="ovStocksEmpty" class="ov-empty-state" style="display: none;">
+                        <div class="icon">🌍</div>
+                        <h4>등록된 해외 주식이 없습니다</h4>
+                        <p>우측 상단의 <b>[➕ 해외 종목 추가]</b> 버튼을 눌러 보유 종목을 등록해 보세요.</p>
+                        <button class="btn-ov-action btn-ov-primary" onclick="openAddOverseasModal()">해외 종목 등록하기</button>
+                    </div>
+                </div>
+
+                <!-- 서브탭 2: 배당금 수령 내역 -->
+                <div id="ovDividendSection" style="display: none;">
+                    <!-- 월별 배당금 칩 -->
+                    <div style="font-size: 13px; font-weight: 700; color: #94a3b8; margin-bottom: 10px;">월별 배당금 수령 현황</div>
+                    <div id="ovMonthlyChips" class="ov-monthly-chips"></div>
+
+                    <div id="ovDividendTableWrap" class="ov-table-container">
+                        <table class="ov-table">
+                            <thead>
+                                <tr>
+                                    <th>수령일자</th>
+                                    <th>증권사 / 종목명 / 티커</th>
+                                    <th>세전 배당금</th>
+                                    <th>실수령액 (세후)</th>
+                                    <th>원화 환산 실수령액</th>
+                                    <th>적용 환율</th>
+                                    <th>메모</th>
+                                    <th style="text-align: right;">관리</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ovDividendTableBody">
+                                <!-- JS 동적 렌더링 -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="ovDividendEmpty" class="ov-empty-state" style="display: none;">
+                        <div class="icon">💸</div>
+                        <h4>등록된 배당금 수령 내역이 없습니다</h4>
+                        <p>증권계좌로 입금된 배당금을 <b>[💵 배당금 수령 등록]</b> 버튼으로 기록해 보세요.</p>
+                        <button class="btn-ov-action btn-ov-dividend" onclick="openAddDividendModal()">배당금 내역 등록하기</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 모달 1: 해외 주식 종목 등록/수정 모달 -->
+        <div id="ovStockModal" class="ov-modal-backdrop">
+            <div class="ov-modal-box">
+                <input type="hidden" id="ovStockId">
+                <div class="ov-modal-header">
+                    <h3 id="ovModalTitle">➕ 해외 주식 종목 추가</h3>
+                    <button class="ov-modal-close" onclick="closeOverseasModal()">✕</button>
+                </div>
+                <div class="ov-form-group">
+                    <label class="ov-form-label">증권사 / 계좌 구분 *</label>
+                    <input type="text" id="ovStockBroker" class="ov-form-input" list="ovBrokerOptions" placeholder="예: 키움증권, 토스증권, 미래에셋, 직접입력 등">
+                    <datalist id="ovBrokerOptions">
+                        <option value="키움증권">
+                        <option value="토스증권">
+                        <option value="미래에셋">
+                        <option value="한국투자">
+                        <option value="NH투자">
+                        <option value="삼성증권">
+                        <option value="KB증권">
+                    </datalist>
+                </div>
+                <div class="ov-form-group">
+                    <label class="ov-form-label">티커 심볼 또는 종목명 검색 *</label>
+                    <input type="text" id="ovStockSymbol" class="ov-form-input" placeholder="예: AAPL, TSLA, NVDA 또는 애플, 테슬라" autocomplete="off" oninput="onOverseasSymbolInput(this.value)">
+                    <div id="ovAutocompleteDropdown" class="ov-autocomplete-dropdown"></div>
+                </div>
+                <div class="ov-form-group">
+                    <label class="ov-form-label">종목명 (표시용)</label>
+                    <input type="text" id="ovStockName" class="ov-form-input" placeholder="자동 입력되거나 직접 수정 가능">
+                </div>
+                <div class="ov-form-group" style="display: flex; gap: 12px;">
+                    <div style="flex: 1;">
+                        <label class="ov-form-label">보유 수량 (주) *</label>
+                        <input type="number" id="ovStockQty" class="ov-form-input" placeholder="예: 10" step="any">
+                    </div>
+                    <div style="flex: 1;">
+                        <label class="ov-form-label">매입단가 (USD, 선택)</label>
+                        <input type="number" id="ovStockPrice" class="ov-form-input" placeholder="예: 150.50" step="any">
+                    </div>
+                </div>
+                <div class="ov-form-group">
+                    <label class="ov-form-label">메모 (선택)</label>
+                    <input type="text" id="ovStockNotes" class="ov-form-input" placeholder="계좌 구분 또는 메모">
+                </div>
+                <div class="ov-modal-footer">
+                    <button class="btn-ov-action btn-ov-secondary" onclick="closeOverseasModal()">취소</button>
+                    <button class="btn-ov-action btn-ov-primary" onclick="submitOverseasStock()">저장하기</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 모달 2: 배당금 수령 내역 등록 모달 -->
+        <div id="ovDividendModal" class="ov-modal-backdrop">
+            <div class="ov-modal-box">
+                <input type="hidden" id="ovDivSelectedStockId">
+                <input type="hidden" id="ovDivQty" value="0">
+                <div class="ov-modal-header">
+                    <h3 id="ovDivModalTitle">💵 배당금 수령 등록</h3>
+                    <button class="ov-modal-close" onclick="closeDividendModal()">✕</button>
+                </div>
+
+                <!-- 대상 종목 선택 -->
+                <div class="ov-form-group">
+                    <label class="ov-form-label">대상 종목 *</label>
+                    <select id="ovDivSymbolSelect" class="ov-form-select" onchange="onDividendSymbolChange(this)">
+                        <!-- JS로 옵션 채움 -->
+                    </select>
+                    <input type="text" id="ovDivSymbolCustom" class="ov-form-input" placeholder="직접 티커 입력 (예: AAPL.O)" style="display: none; margin-top: 6px;">
+                </div>
+
+                <!-- 선택된 종목 & 수량 요약 정보 뱃지 -->
+                <div id="ovDivStockInfoBadge" style="display: flex; justify-content: space-between; align-items: center; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 12px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px;">
+                    <div>
+                        <span id="ovDivBadgeBroker" class="stock-broker-badge">🏦 증권사</span>
+                        <strong id="ovDivBadgeName" style="color: #ffffff;">종목명</strong>
+                    </div>
+                    <div style="font-weight: 800; color: #a5b4fc; font-family: 'Outfit', sans-serif;">
+                        보유: <span id="ovDivBadgeQty">0</span>주
+                    </div>
+                </div>
+
+                <div class="ov-form-group" style="display: flex; gap: 12px;">
+                    <div style="flex: 1;">
+                        <label class="ov-form-label">입금 일자 *</label>
+                        <input type="date" id="ovDivDate" class="ov-form-input">
+                    </div>
+                    <div style="flex: 1;">
+                        <label class="ov-form-label">주당 배당금 (USD) *</label>
+                        <input type="number" id="ovDivDps" class="ov-form-input" placeholder="예: 1.08" step="any" oninput="calculateDividendAuto()">
+                    </div>
+                </div>
+
+                <!-- 자동 계산 결과 프리뷰 카드 -->
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; padding: 14px; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 12.5px; color: #94a3b8; margin-bottom: 6px;">
+                        <span>세전 배당금 (주당배당금 × 수량)</span>
+                        <span id="ovDivGrossPreview" style="font-weight: 700; color: #ffffff; font-family: 'Outfit', sans-serif;">$0.00</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 12.5px; color: #94a3b8; margin-bottom: 6px;">
+                        <span>세후 실수령액 (미국 배당세 15% 공제)</span>
+                        <span id="ovDivNetPreview" style="font-weight: 800; color: #34d399; font-family: 'Outfit', sans-serif;">$0.00</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 12.5px; color: #94a3b8; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 6px; margin-top: 6px;">
+                        <span>원화 환산 실수령액</span>
+                        <span id="ovDivNetKrwPreview" style="font-weight: 900; color: #fbbf24; font-family: 'Outfit', sans-serif;">≈ 0원</span>
+                    </div>
+                </div>
+
+                <!-- 상세 조정 (접기/수정 가능) -->
+                <div class="ov-form-group" style="display: flex; gap: 12px;">
+                    <div style="flex: 1;">
+                        <label class="ov-form-label">실수령액 직접수정 ($)</label>
+                        <input type="number" id="ovDivNet" class="ov-form-input" placeholder="자동계산됨" step="any" oninput="calculateDividendAuto(false)">
+                    </div>
+                    <div style="flex: 1;">
+                        <label class="ov-form-label">적용 환율</label>
+                        <input type="number" id="ovDivRate" class="ov-form-input" placeholder="환율" step="any" oninput="calculateDividendAuto(false)">
+                    </div>
+                </div>
+
+                <div class="ov-form-group" style="display: none;">
+                    <input type="hidden" id="ovDivName">
+                    <input type="hidden" id="ovDivBroker">
+                    <input type="hidden" id="ovDivCurrency" value="USD">
+                    <input type="hidden" id="ovDivGross" value="0">
+                </div>
+
+                <div class="ov-form-group">
+                    <label class="ov-form-label">메모 (선택)</label>
+                    <input type="text" id="ovDivNotes" class="ov-form-input" placeholder="예: 3분기 정기배당">
+                </div>
+                <div class="ov-modal-footer">
+                    <button class="btn-ov-action btn-ov-secondary" onclick="closeDividendModal()">취소</button>
+                    <button class="btn-ov-action btn-ov-dividend" onclick="submitDividendRecord()">배당금 등록하기</button>
+                </div>
+            </div>
+        </div>
+
 
 
 
@@ -1688,6 +2016,11 @@
                 stopRealtimePolling();
                 stopMonitorPolling();
                 stopTargetLivePricePolling();
+            } else if (tabId === 'overseas') {
+                stopRealtimePolling();
+                stopMonitorPolling();
+                stopTargetLivePricePolling();
+                if (typeof initOverseasTab === 'function') initOverseasTab();
             } else {
                 stopRealtimePolling();
                 stopMonitorPolling();
@@ -5957,6 +6290,7 @@
         }, 10000); // 10초마다 갱신
 
     </script>
+    <script src="{{ url_for('static', filename='js/overseas.js') }}?v=1.03"></script>
 </body>
 
 </html>
