@@ -2593,6 +2593,49 @@ def get_my_stocks_status():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def _upsert_portfolio_buy(cursor, code, name, price, qty, owner='나', stop_loss_ratio=0, target_buy_price=0):
+    """[김정음] 포트폴리오 매수 반영 공통 헬퍼.
+    이미 보유 중(type='portfolio', 수량>0)이면 가중평균 평단으로 수량을 합산하고(추가 매수),
+    미보유/관심종목/수량 0이면 신규 등록(upsert)한다. 반환: (merged, new_qty, new_avg)"""
+    price = float(price or 0)
+    qty = int(qty or 0)
+    cursor.execute("SELECT purchase_price, quantity, type, stop_loss_ratio, owner, target_buy_price FROM tr_my_stocks WHERE code = ?", (code,))
+    row = cursor.fetchone()
+    existing = dict(row) if row else None
+
+    if existing and existing.get('type') == 'portfolio' and (existing.get('quantity') or 0) > 0 and qty > 0:
+        old_qty = int(existing['quantity'] or 0)
+        old_price = float(existing['purchase_price'] or 0)
+        new_qty = old_qty + qty
+        new_avg = round((old_price * old_qty + price * qty) / new_qty, 2)
+        # 손절비율·목표가는 새 값이 있을 때만 갱신, 소유자·최초 편입일(added_at)은 유지
+        new_sl = stop_loss_ratio if stop_loss_ratio else (existing.get('stop_loss_ratio') or 0)
+        new_tbp = target_buy_price if target_buy_price else (existing.get('target_buy_price') or 0)
+        cursor.execute(
+            "UPDATE tr_my_stocks SET name = ?, purchase_price = ?, quantity = ?, stop_loss_ratio = ?, target_buy_price = ? WHERE code = ?",
+            (name or code, new_avg, new_qty, new_sl, new_tbp, code))
+        return True, new_qty, new_avg
+
+    _sql = ("""
+        INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type, target_buy_price)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio', ?)
+        ON CONFLICT (code) DO UPDATE SET
+            name=EXCLUDED.name, added_at=EXCLUDED.added_at,
+            purchase_price=EXCLUDED.purchase_price, quantity=EXCLUDED.quantity,
+            stop_loss_ratio=EXCLUDED.stop_loss_ratio, owner=EXCLUDED.owner,
+            type='portfolio', target_buy_price=EXCLUDED.target_buy_price
+    """ if _IS_POSTGRES else """
+        INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type, target_buy_price)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio', ?)
+        ON DUPLICATE KEY UPDATE
+            name=VALUES(name), added_at=VALUES(added_at),
+            purchase_price=VALUES(purchase_price), quantity=VALUES(quantity),
+            stop_loss_ratio=VALUES(stop_loss_ratio), owner=VALUES(owner),
+            type='portfolio', target_buy_price=VALUES(target_buy_price)
+    """)
+    cursor.execute(_sql, (code, name, datetime.now().isoformat(), price, qty, stop_loss_ratio, owner, target_buy_price))
+    return False, qty, price
+
 @app.route('/api/my_stocks', methods=['POST'])
 def add_my_stock():
     data = request.get_json() or {}
@@ -2608,26 +2651,157 @@ def add_my_stock():
     try:
         db = get_db()
         cursor = db.cursor()
-        _sql = ("""
-            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type, target_buy_price)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio', ?)
-            ON CONFLICT (code) DO UPDATE SET
-                name=EXCLUDED.name, added_at=EXCLUDED.added_at,
-                purchase_price=EXCLUDED.purchase_price, quantity=EXCLUDED.quantity,
-                stop_loss_ratio=EXCLUDED.stop_loss_ratio, owner=EXCLUDED.owner,
-                type='portfolio', target_buy_price=EXCLUDED.target_buy_price
-        """ if _IS_POSTGRES else """
-            INSERT INTO tr_my_stocks (code, name, added_at, purchase_price, quantity, stop_loss_ratio, owner, type, target_buy_price)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'portfolio', ?)
-            ON DUPLICATE KEY UPDATE
-                name=VALUES(name), added_at=VALUES(added_at),
-                purchase_price=VALUES(purchase_price), quantity=VALUES(quantity),
-                stop_loss_ratio=VALUES(stop_loss_ratio), owner=VALUES(owner),
-                type='portfolio', target_buy_price=VALUES(target_buy_price)
-        """)
-        cursor.execute(_sql, (code, name, datetime.now().isoformat(), purchase_price, quantity, stop_loss_ratio, owner, target_buy_price))
+        merged, new_qty, new_avg = _upsert_portfolio_buy(
+            cursor, code, name, purchase_price, quantity, owner, stop_loss_ratio, target_buy_price)
         db.commit()
-        return jsonify({'success': True})
+        msg = (f"기존 보유분과 합산되었습니다: {new_qty:,}주 / 평단 {new_avg:,.0f}원" if merged
+               else '종목이 추가되었습니다.')
+        return jsonify({'success': True, 'merged': merged, 'quantity': new_qty, 'purchase_price': new_avg, 'message': msg})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/my_stocks/rebuy_sim', methods=['GET'])
+def get_rebuy_simulation():
+    """[김도희] 매도 자금 재매수 시뮬레이션.
+    재매수 대기(open) 매도 건을 종목별로 합산하여, 회수금으로 현재가에 몇 주를 다시 살 수 있는지 산출.
+    query: sell_cost_rate(매도 시 세금+수수료 %, 기본 0), buy_fee_rate(매수 수수료 %, 기본 0)"""
+    try:
+        sell_cost_rate = max(float(request.args.get('sell_cost_rate', 0) or 0), 0)
+        buy_fee_rate = max(float(request.args.get('buy_fee_rate', 0) or 0), 0)
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("""
+            SELECT id, code, name, owner, sell_price, sell_qty, purchase_price, profit, sell_date
+            FROM tr_sell_history
+            WHERE rebuy_status IS NULL OR rebuy_status = 'open'
+            ORDER BY sell_date ASC, id ASC
+        """)
+        groups = {}
+        for r in cursor.fetchall():
+            r = dict(r)
+            g = groups.setdefault(r['code'], {
+                'code': r['code'], 'name': r['name'], 'owner': r.get('owner') or '나',
+                'sell_ids': [], 'sell_count': 0, 'sold_qty': 0, 'gross_proceeds': 0.0,
+                'realized_profit': 0.0, 'first_sell_date': r['sell_date'], 'last_sell_date': r['sell_date'],
+            })
+            g['sell_ids'].append(r['id'])
+            g['sell_count'] += 1
+            g['sold_qty'] += int(r['sell_qty'] or 0)
+            g['gross_proceeds'] += float(r['sell_price'] or 0) * int(r['sell_qty'] or 0)
+            g['realized_profit'] += float(r['profit'] or 0)
+            g['last_sell_date'] = r['sell_date']
+
+        # 현재 보유 현황 (부분 매도 종목은 잔여 보유분과 합산 시 평단 미리보기 제공)
+        cursor.execute("SELECT code, purchase_price, quantity FROM tr_my_stocks WHERE type = 'portfolio'")
+        holdings = {row['code']: dict(row) for row in cursor.fetchall()}
+
+        codes = list(groups.keys())
+        prices = {}
+        if codes:
+            with ThreadPoolExecutor(max_workers=min(8, len(codes))) as ex:
+                for code, price in zip(codes, ex.map(get_current_price_naver, codes)):
+                    prices[code] = price
+
+        items = []
+        for code, g in groups.items():
+            sold_qty = g['sold_qty']
+            gross = g['gross_proceeds']
+            net = gross * (1 - sell_cost_rate / 100.0)
+            avg_sell_price = gross / sold_qty if sold_qty else 0
+            cur = prices.get(code)
+            hold = holdings.get(code)
+            held_qty = int(hold['quantity'] or 0) if hold else 0
+            held_avg = float(hold['purchase_price'] or 0) if hold else 0
+            item = {
+                **g,
+                'gross_proceeds': round(gross),
+                'net_proceeds': round(net),
+                'avg_sell_price': round(avg_sell_price, 2),
+                # 이 가격 이하로 재매수하면 매도 수량 이상을 되살 수 있음 (비용 반영)
+                'breakeven_price': round(avg_sell_price * (1 - sell_cost_rate / 100.0) / (1 + buy_fee_rate / 100.0), 2),
+                'current_price': cur,
+                'held_qty': held_qty,
+                'held_avg_price': held_avg,
+                'rebuy_qty': None, 'qty_diff': None, 'leftover_cash': None, 'change_vs_sell_pct': None,
+                'merged_qty': None, 'merged_avg_price': None,
+            }
+            if cur and cur > 0:
+                unit_cost = cur * (1 + buy_fee_rate / 100.0)
+                rebuy_qty = int(net // unit_cost)
+                leftover = net - rebuy_qty * unit_cost
+                item.update({
+                    'rebuy_qty': rebuy_qty,
+                    'qty_diff': rebuy_qty - sold_qty,
+                    'leftover_cash': round(leftover),
+                    'change_vs_sell_pct': round((cur - avg_sell_price) / avg_sell_price * 100, 2) if avg_sell_price else None,
+                })
+                if rebuy_qty > 0:
+                    merged_qty = held_qty + rebuy_qty
+                    item['merged_qty'] = merged_qty
+                    item['merged_avg_price'] = round((held_avg * held_qty + cur * rebuy_qty) / merged_qty, 2)
+            items.append(item)
+
+        items.sort(key=lambda x: max(x['sell_ids']), reverse=True)  # 최근 매도 입력 순
+        return jsonify({'success': True, 'items': items,
+                        'sell_cost_rate': sell_cost_rate, 'buy_fee_rate': buy_fee_rate})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/my_stocks/<code_val>/rebuy', methods=['POST'])
+def rebuy_my_stock(code_val):
+    """[김정음] 매도 자금 재매수 실행: 포트폴리오에 가중평균 합산 반영 + 해당 종목의 대기 매도 건을 rebought로 소진 처리.
+    body: {buy_price, buy_qty, sell_ids:[...]} (sell_ids는 시뮬레이션 조회 시점 기준, 그 사이 추가된 매도 건은 건드리지 않음)"""
+    try:
+        data = request.get_json() or {}
+        buy_price = float(data.get('buy_price', 0) or 0)
+        buy_qty = int(data.get('buy_qty', 0) or 0)
+        sell_ids = [int(i) for i in (data.get('sell_ids') or [])]
+        if buy_price <= 0 or buy_qty <= 0:
+            return jsonify({'success': False, 'message': '매수가와 수량을 올바르게 입력해주세요.'}), 400
+        if not sell_ids:
+            return jsonify({'success': False, 'message': '재매수 대상 매도 내역이 없습니다.'}), 400
+
+        db = get_db()
+        cursor = db.cursor()
+        ph = ','.join(['?'] * len(sell_ids))
+        cursor.execute(f"""
+            SELECT id, name, owner FROM tr_sell_history
+            WHERE code = ? AND id IN ({ph}) AND (rebuy_status IS NULL OR rebuy_status = 'open')
+        """, [code_val] + sell_ids)
+        rows = [dict(r) for r in cursor.fetchall()]
+        if len(rows) != len(set(sell_ids)):
+            return jsonify({'success': False, 'message': '이미 처리되었거나 존재하지 않는 매도 내역이 포함되어 있습니다. 새로고침 후 다시 시도해주세요.'}), 409
+
+        name = rows[0]['name']
+        owner = rows[0].get('owner') or '나'
+        merged, new_qty, new_avg = _upsert_portfolio_buy(cursor, code_val, name, buy_price, buy_qty, owner)
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute(f"UPDATE tr_sell_history SET rebuy_status = 'rebought', rebuy_closed_at = ? WHERE id IN ({ph})",
+                       [now] + sell_ids)
+        db.commit()
+        return jsonify({'success': True, 'quantity': new_qty, 'purchase_price': new_avg,
+                        'message': f"{name} {buy_qty:,}주 재매수 완료 | 보유 {new_qty:,}주 / 평단 {new_avg:,.0f}원"})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/my_stocks/<code_val>/rebuy_dismiss', methods=['POST'])
+def dismiss_rebuy(code_val):
+    """[김정음] 재매수 시뮬레이션 대상에서 제외 (재매수 의사 없음). body: {sell_ids:[...]}"""
+    try:
+        data = request.get_json() or {}
+        sell_ids = [int(i) for i in (data.get('sell_ids') or [])]
+        if not sell_ids:
+            return jsonify({'success': False, 'message': '대상 매도 내역이 없습니다.'}), 400
+        db = get_db()
+        cursor = db.cursor()
+        ph = ','.join(['?'] * len(sell_ids))
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute(f"""
+            UPDATE tr_sell_history SET rebuy_status = 'dismissed', rebuy_closed_at = ?
+            WHERE code = ? AND id IN ({ph}) AND (rebuy_status IS NULL OR rebuy_status = 'open')
+        """, [now, code_val] + sell_ids)
+        db.commit()
+        return jsonify({'success': True, 'message': '재매수 시뮬레이션 대상에서 제외했습니다.'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 

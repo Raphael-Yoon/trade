@@ -88,9 +88,23 @@ def _init_sqlite():
             profit REAL,
             profit_rate REAL,
             sell_date TEXT,
-            created_at TEXT
+            created_at TEXT,
+            rebuy_status TEXT DEFAULT 'open',
+            rebuy_closed_at TEXT
         )
     ''')
+    # [김정음] 매도 자금 재매수 시뮬레이션: open(재매수 대기) / rebought(재매수 완료) / dismissed(시뮬 제외)
+    for col_name, col_def in [
+        ('rebuy_status', "TEXT DEFAULT 'open'"),
+        ('rebuy_closed_at', 'TEXT'),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE tr_sell_history ADD COLUMN {col_name} {col_def}")
+            if col_name == 'rebuy_status':
+                # 기능 도입 이전의 과거 매도 건은 시뮬레이션 대상에서 제외
+                cursor.execute("UPDATE tr_sell_history SET rebuy_status = 'dismissed'")
+        except Exception:
+            pass
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_stocks_master (
@@ -420,9 +434,20 @@ def _init_mysql():
             profit DOUBLE,
             profit_rate DOUBLE,
             sell_date VARCHAR(50),
-            created_at VARCHAR(50)
+            created_at VARCHAR(50),
+            rebuy_status VARCHAR(20) DEFAULT 'open',
+            rebuy_closed_at VARCHAR(50)
         )
     ''')
+    cursor.execute("""
+        SELECT COUNT(*) FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'tr_sell_history' AND column_name = 'rebuy_status'
+    """)
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("ALTER TABLE tr_sell_history ADD COLUMN rebuy_status VARCHAR(20) DEFAULT 'open'")
+        # 기능 도입 이전의 과거 매도 건은 시뮬레이션 대상에서 제외
+        cursor.execute("UPDATE tr_sell_history SET rebuy_status = 'dismissed'")
+    add_column_if_not_exists("tr_sell_history", "rebuy_closed_at", "VARCHAR(50)")
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_stocks_master (

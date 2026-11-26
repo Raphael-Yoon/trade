@@ -728,6 +728,119 @@
         </div>
     </div>
 
+    <!-- [김미수] 매도 자금 재매수 시뮬레이션 — 우측 슬라이드 패널 -->
+    <style>
+        #rebuyDrawerToggle {
+            position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 1501;
+            writing-mode: vertical-rl; padding: 16px 10px; border-radius: 12px 0 0 12px;
+            background: linear-gradient(180deg, #10b981, #059669); color: white; border: none;
+            font-weight: 800; font-size: 13px; letter-spacing: 1px; cursor: pointer;
+            box-shadow: -4px 0 16px rgba(0,0,0,0.35); transition: right 0.3s ease;
+        }
+        #rebuyDrawerToggle .badge {
+            writing-mode: horizontal-tb; display: inline-block; margin-top: 8px; min-width: 20px; padding: 2px 6px;
+            border-radius: 10px; background: #fbbf24; color: #111; font-size: 11px; text-align: center;
+        }
+        #rebuyDrawer {
+            position: fixed; top: 0; right: 0; height: 100vh; width: 440px; max-width: 92vw; z-index: 1500;
+            background: #0f172a; border-left: 1px solid rgba(255,255,255,0.1); box-shadow: -12px 0 40px rgba(0,0,0,0.5);
+            transform: translateX(100%); transition: transform 0.3s ease; display: flex; flex-direction: column;
+        }
+        #rebuyDrawer.open { transform: translateX(0); }
+        body.rebuy-drawer-open #rebuyDrawerToggle { right: min(440px, 92vw); }
+        #rebuySellCode { color-scheme: dark; }
+        #rebuySellCode option { background: #1e293b; color: #f1f5f9; }
+        #rebuySellCode option:checked { background: #334155; }
+        .rebuy-card { padding: 16px; border-radius: 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); margin-bottom: 12px; }
+        .rebuy-card .row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+        .rebuy-card .row b { color: var(--text-main); font-weight: 700; }
+    </style>
+    <button id="rebuyDrawerToggle" onclick="toggleRebuyDrawer()" title="매도 자금 재매수 시뮬레이션">♻️ 재매수 시뮬 <span class="badge" id="rebuyDrawerBadge" style="display:none;">0</span></button>
+    <aside id="rebuyDrawer" aria-hidden="true">
+        <div style="padding: 20px 20px 14px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h4 style="margin: 0; font-size: 18px; color: var(--text-main); font-family: 'Outfit', sans-serif;">♻️ 매도 자금 재매수 시뮬레이션</h4>
+                <span class="close-modal" onclick="toggleRebuyDrawer(false)" style="cursor: pointer;">&times;</span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">일부 매도한 내역을 입력하면, 회수금으로 재매수가에 몇 주를 다시 살 수 있는지와 보유 변화를 계산합니다. (종목별 합산)</div>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); margin-top: 12px;">
+                <label>매도 비용
+                    <input type="number" id="rebuySellCostRate" value="0" min="0" step="0.01" onchange="loadRebuySim()"
+                        style="width: 64px; padding: 5px 6px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; text-align: right;">%</label>
+                <label>매수 수수료
+                    <input type="number" id="rebuyBuyFeeRate" value="0" min="0" step="0.001" onchange="loadRebuySim()"
+                        style="width: 64px; padding: 5px 6px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; text-align: right;">%</label>
+                <button onclick="loadRebuySim()"
+                    style="margin-left: auto; padding: 5px 10px; border-radius: 8px; background: rgba(255,255,255,0.1); border: none; color: var(--text-main); cursor: pointer; font-weight: 600;">🔄 현재가 갱신</button>
+            </div>
+        </div>
+        <div style="flex: 1; overflow-y: auto;">
+        <!-- [김정음] 실제 매도 입력 → tr_sell_history 기록 후 아래 시뮬레이션 카드로 반영 -->
+        <div style="margin: 16px 20px 4px; padding: 16px; border-radius: 14px; background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.25);">
+            <div style="font-size: 13px; font-weight: 800; color: var(--text-main); margin-bottom: 10px;">📤 매도 입력 <span style="font-weight: 400; font-size: 11px; color: var(--text-muted);">— 실제 매도한 내역을 기록합니다</span></div>
+            <select id="rebuySellCode" onchange="onRebuySellStockChange()"
+                style="width: 100%; padding: 10px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 14px;">
+                <option value="">보유 종목 선택</option>
+            </select>
+            <div id="rebuySellHolding" style="font-size: 11px; color: var(--text-muted); margin: 6px 2px 0; min-height: 14px;"></div>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+                <input type="text" id="rebuySellPrice" placeholder="매도가 (원)" oninput="this.value=formatNumber(this.value); updateRebuySellPreview()"
+                    style="flex: 1; min-width: 0; padding: 10px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 14px; text-align: right;">
+                <input type="number" id="rebuySellQty" placeholder="매도 수량" min="1" oninput="updateRebuySellPreview()"
+                    style="flex: 1; min-width: 0; padding: 10px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; font-size: 14px; text-align: right;">
+                <button id="rebuySellBtn" onclick="submitRebuySell()"
+                    style="padding: 0 14px; border-radius: 10px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; color: white; font-weight: 800; cursor: pointer; white-space: nowrap;">매도 기록</button>
+            </div>
+            <div id="rebuySellPreview" style="font-size: 12px; color: var(--text-muted); margin: 8px 2px 0; min-height: 14px;"></div>
+        </div>
+        <div id="rebuySimList" style="padding: 16px 20px;">
+            <p style="color: var(--text-muted); font-size: 14px; text-align: center; margin: 0;">불러오는 중...</p>
+        </div>
+        </div>
+    </aside>
+
+    <!-- [김정음] 매도 자금 재매수 모달 -->
+    <div id="rebuyModal" class="modal">
+        <div class="modal-content" style="max-width: 460px; width: 95%;">
+            <div class="modal-header">
+                <h2 style="font-size: 20px;">♻️ 재매수 실행</h2>
+                <span class="close-modal" onclick="closeRebuyModal()">&times;</span>
+            </div>
+            <div class="modal-body" style="padding: 28px;">
+                <div style="margin-bottom: 20px; padding: 16px; background: var(--radio-bg); border-radius: 14px; border: 1px solid var(--radio-border);">
+                    <div style="font-size: 18px; font-weight: 800; color: white;" id="rebuyModalStockName">-</div>
+                    <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;" id="rebuyModalInfo">-</div>
+                </div>
+                <div class="modal-form-group" style="gap: 16px; margin-bottom: 0;">
+                    <div>
+                        <label class="modal-label" style="margin-bottom: 6px;">매수가 (원)</label>
+                        <input type="text" id="rebuyPriceInput" class="modal-input"
+                            oninput="this.value=formatNumber(this.value); updateRebuyPreview()" style="text-align: left;">
+                    </div>
+                    <div>
+                        <label class="modal-label" style="margin-bottom: 6px;">매수 수량 (주)</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="number" id="rebuyQtyInput" class="modal-input" min="1"
+                                oninput="updateRebuyPreview()" style="flex: 1; text-align: left;">
+                            <button onclick="fillRebuyMaxQty()"
+                                style="padding: 10px 14px; border-radius: 10px; background: rgba(251,191,36,0.15); border: 1px solid rgba(251,191,36,0.3); color: var(--accent-gold); font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;">최대</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="rebuyPreviewArea" style="margin-top: 20px; padding: 16px; border-radius: 14px; background: var(--radio-bg); border: 1px solid var(--radio-border);">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">재매수 후 예상</div>
+                    <div id="rebuyPreviewMain" style="font-size: 18px; font-weight: 900; font-family: 'Outfit', sans-serif;">-</div>
+                    <div id="rebuyPreviewSub" style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">-</div>
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 12px;">※ 실제 주문은 증권사에서 하신 뒤, 체결가와 수량을 입력해 기록하세요. 실행하면 이 종목의 대기 매도 건이 '재매수 완료'로 처리됩니다.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="modal-btn-cancel" style="height: auto; padding: 12px 24px; font-size: 15px; flex: none; width: auto;" onclick="closeRebuyModal()">취소</button>
+                <button type="button" id="rebuyConfirmBtn" class="btn" style="height: auto; padding: 12px 24px; font-size: 15px; background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 800; box-shadow: none;" onclick="confirmRebuy()">♻️ 재매수 기록</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Real-time Surge Detection Modal -->
     <div id="monitorModal" class="modal">
         <div class="modal-content" style="max-width: 1200px; width: 95%;">
@@ -4151,6 +4264,7 @@
         });
 
         function loadMyStocks() {
+            loadRebuySim();
             fetch('/api/my_stocks')
                 .then(response => response.json())
                 .then(data => {
@@ -4696,6 +4810,13 @@
                 showToast('종목을 선택하거나 코드를 입력해주세요.', 'error');
                 return;
             }
+            // [권보성] 기존 보유 종목은 덮어쓰지 않고 가중평균으로 합산됨을 사전 고지
+            const held = (myStocks || []).find(s => s.code === code && (s.quantity || 0) > 0);
+            if (held && qty > 0) {
+                const newQty = held.quantity + qty;
+                const newAvg = ((held.purchase_price || 0) * held.quantity + price * qty) / newQty;
+                if (!confirm(`이미 보유 중인 종목입니다 (${held.quantity.toLocaleString()}주 @ ${Math.round(held.purchase_price || 0).toLocaleString()}원).\n추가 매수로 합산하면 ${newQty.toLocaleString()}주 @ ${Math.round(newAvg).toLocaleString()}원이 됩니다.\n\n(평단·수량을 직접 고치려면 종목 카드에서 수정하세요) 합산할까요?`)) return;
+            }
             fetch('/api/my_stocks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -4704,7 +4825,7 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        showToast('종목이 추가되었습니다.');
+                        showToast(data.message || '종목이 추가되었습니다.');
                         codeInput.value = '';
                         nameInput.value = '';
                         priceInput.value = '';
@@ -4801,6 +4922,283 @@
             })
             .catch(err => showToast('매도 처리 실패: ' + err, 'error'))
             .finally(() => { btn.disabled = false; btn.textContent = '📤 매도 확인'; });
+        }
+
+        // [김도희] 매도 자금 재매수 시뮬레이션
+        let rebuySimItems = [];
+        const _rebuyPriceInputs = {};  // code → 사용자가 입력한 재매수가 (재렌더링 시 보존)
+        let _rebuyTarget = null;
+        const _won = v => (v === null || v === undefined) ? '-' : Math.round(v).toLocaleString() + '원';
+
+        function loadRebuySim() {
+            const list = document.getElementById('rebuySimList');
+            if (!list) return;
+            const sellCost = parseFloat(document.getElementById('rebuySellCostRate').value) || 0;
+            const buyFee = parseFloat(document.getElementById('rebuyBuyFeeRate').value) || 0;
+            fetch(`/api/my_stocks/rebuy_sim?sell_cost_rate=${sellCost}&buy_fee_rate=${buyFee}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        list.innerHTML = `<p style="color:#ef4444; font-size:14px; text-align:center; margin:0;">시뮬레이션 오류: ${escapeHtml(data.message)}</p>`;
+                        return;
+                    }
+                    rebuySimItems = data.items || [];
+                    const badge = document.getElementById('rebuyDrawerBadge');
+                    badge.textContent = rebuySimItems.length;
+                    badge.style.display = rebuySimItems.length ? 'inline-block' : 'none';
+                    if (rebuySimItems.length === 0) {
+                        list.innerHTML = '<p style="color: var(--text-muted); font-size: 14px; text-align: center; margin: 0;">재매수 대기 중인 매도 내역이 없습니다.</p>';
+                        return;
+                    }
+                    list.innerHTML = rebuySimItems.map((it, idx) => {
+                        const hasPrice = !!(it.current_price && it.current_price > 0);
+                        const chg = it.change_vs_sell_pct;
+                        const chgStr = (chg === null || chg === undefined) ? '' :
+                            ` <span style="color:${chg <= 0 ? '#10b981' : '#ef4444'};">(매도가 대비 ${chg > 0 ? '+' : ''}${chg.toFixed(2)}%)</span>`;
+                        const period = escapeHtml(it.first_sell_date) + (it.first_sell_date !== it.last_sell_date ? ' ~ ' + escapeHtml(it.last_sell_date) : '');
+                        return `<div class="rebuy-card">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                                <div>
+                                    <div style="font-weight:800; color:white; font-size:15px;">${escapeHtml(it.name || it.code)}</div>
+                                    <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${escapeHtml(it.code)} · ${escapeHtml(it.owner)} · 매도 ${it.sell_count}건 (${period})</div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div id="rb-diff-${idx}" style="font-size:20px; font-weight:900; font-family:'Outfit',sans-serif;">-</div>
+                                    <div id="rb-sub-${idx}" style="font-size:11px; color:var(--text-muted);">매수 가능</div>
+                                </div>
+                            </div>
+                            <div class="row"><span>매도</span><b>${it.sold_qty.toLocaleString()}주 @ ${_won(it.avg_sell_price)}</b></div>
+                            <div class="row"><span>회수금</span><b>${_won(it.net_proceeds)}${it.net_proceeds !== it.gross_proceeds ? ` <span style="font-weight:400; color:var(--text-muted);">(세전 ${_won(it.gross_proceeds)})</span>` : ''}</b></div>
+                            <div class="row"><span>매도 전 보유</span><b>${(it.held_qty + it.sold_qty).toLocaleString()}주 → 현재 ${it.held_qty.toLocaleString()}주${it.held_qty > 0 ? ' @ ' + _won(it.held_avg_price) : ' (전량 매도)'}</b></div>
+                            <div class="row"><span>현재가</span><b>${hasPrice ? _won(it.current_price) + chgStr : '<span style="color:#f59e0b;">조회 실패</span>'}</b></div>
+                            <div class="row" style="align-items:center;"><span>재매수가 <span style="font-size:10px;">(손익분기 ${_won(it.breakeven_price)})</span></span>
+                                <span><input type="text" id="rb-price-${idx}" value="${_rebuyPriceInputs[it.code] || (hasPrice ? formatNumber(Math.round(it.current_price)) : '')}" placeholder="가격 입력"
+                                    oninput="this.value=formatNumber(this.value); _rebuyPriceInputs['${escapeHtml(it.code)}']=this.value; recalcRebuyCard(${idx})"
+                                    style="width:110px; padding:5px 8px; border-radius:8px; background:rgba(255,255,255,0.06); border:1px solid rgba(16,185,129,0.4); color:white; text-align:right; font-weight:700;">원</span></div>
+                            <div class="row"><span>재매수 가능</span><b id="rb-qty-${idx}" style="color:white;">-</b></div>
+                            <div class="row"><span>재매수 후 보유/평단</span><b id="rb-merged-${idx}">-</b></div>
+                            <div class="row"><span>매도 안 했을 때 대비</span><b id="rb-effect-${idx}">-</b></div>
+                            <div style="display:flex; gap:8px; margin-top:12px;">
+                                <button onclick="openRebuyModal(${idx})"
+                                    style="flex:1; padding:8px; border-radius:8px; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); color:#10b981; font-weight:700; cursor:pointer;">♻️ 재매수 기록</button>
+                                <button onclick="dismissRebuy(${idx})" title="시뮬레이션 대상에서 제외"
+                                    style="padding:8px 14px; border-radius:8px; background:none; border:1px solid rgba(255,255,255,0.1); color:var(--text-muted); cursor:pointer;">제외</button>
+                            </div>
+                        </div>`;
+                    }).join('');
+                    rebuySimItems.forEach((_, idx) => recalcRebuyCard(idx));
+                })
+                .catch(err => {
+                    list.innerHTML = `<p style="color:#ef4444; font-size:14px; text-align:center; margin:0;">서버 연결 오류: ${escapeHtml(String(err))}</p>`;
+                });
+        }
+
+        // [김도희] 재매수가 기준 재계산 (클라이언트, 서버 rebuy_sim 공식과 동일)
+        function calcRebuy(it, price) {
+            const buyFee = parseFloat(document.getElementById('rebuyBuyFeeRate').value) || 0;
+            if (!(price > 0)) return null;
+            const unit = price * (1 + buyFee / 100);
+            const qty = Math.floor(it.net_proceeds / unit);
+            const leftover = it.net_proceeds - qty * unit;
+            const mergedQty = it.held_qty + qty;
+            const mergedAvg = mergedQty > 0 ? (it.held_avg_price * it.held_qty + price * qty) / mergedQty : 0;
+            // 매도하지 않고 그대로 보유했을 때 대비 평가금 차이 = (재매수 수량 - 매도 수량) × 재매수가 + 잔액
+            const effect = (qty - it.sold_qty) * price + leftover;
+            return { qty, diff: qty - it.sold_qty, leftover, mergedQty, mergedAvg, effect };
+        }
+
+        function recalcRebuyCard(idx) {
+            const it = rebuySimItems[idx];
+            if (!it) return;
+            const price = parseFloat(unformatNumber(document.getElementById(`rb-price-${idx}`).value)) || 0;
+            const r = calcRebuy(it, price);
+            const diffEl = document.getElementById(`rb-diff-${idx}`);
+            const set = (id, html) => { document.getElementById(id).innerHTML = html; };
+            if (!r) {
+                diffEl.textContent = '-'; diffEl.style.color = 'var(--text-muted)';
+                set(`rb-sub-${idx}`, '매수 가능');
+                ['qty', 'merged', 'effect'].forEach(k => set(`rb-${k}-${idx}`, '-'));
+                return;
+            }
+            const color = r.diff > 0 ? '#10b981' : r.diff < 0 ? '#ef4444' : 'var(--text-main)';
+            diffEl.textContent = r.qty.toLocaleString() + '주';
+            diffEl.style.color = 'white';
+            set(`rb-sub-${idx}`, `매수 가능 <span style="color:${color};">(매도 ${it.sold_qty.toLocaleString()}주 대비 ${r.diff > 0 ? '+' : ''}${r.diff.toLocaleString()}주)</span>`);
+            set(`rb-qty-${idx}`, `${r.qty.toLocaleString()}주 <span style="font-weight:400; color:var(--text-muted);">(잔액 ${_won(r.leftover)})</span>`);
+            set(`rb-merged-${idx}`, `${r.mergedQty.toLocaleString()}주 / ${_won(r.mergedAvg)}`);
+            const ec = r.effect > 0 ? '#10b981' : r.effect < 0 ? '#ef4444' : 'var(--text-main)';
+            set(`rb-effect-${idx}`, `<span style="color:${ec};">${r.effect > 0 ? '+' : ''}${_won(r.effect)}</span>`);
+        }
+
+        // [김정음] 패널 상단 매도 입력 — 보유 종목 목록 로드 및 실제 매도 기록
+        let _rebuySellHoldings = [];
+        function loadRebuySellHoldings() {
+            fetch('/api/my_stocks').then(r => r.json()).then(data => {
+                _rebuySellHoldings = (Array.isArray(data) ? data : []).filter(s => (s.quantity || 0) > 0)
+                    .sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'ko'));
+                const sel = document.getElementById('rebuySellCode');
+                const prev = sel.value;
+                sel.innerHTML = '<option value="">보유 종목 선택</option>' + _rebuySellHoldings.map(s =>
+                    `<option value="${escapeHtml(s.code)}">${escapeHtml(s.name || s.code)} (${escapeHtml(s.owner || '나')}) · ${(s.quantity || 0).toLocaleString()}주</option>`).join('');
+                if (_rebuySellHoldings.some(s => s.code === prev)) sel.value = prev;
+                onRebuySellStockChange();
+            });
+        }
+
+        function onRebuySellStockChange() {
+            const code = document.getElementById('rebuySellCode').value;
+            const s = _rebuySellHoldings.find(x => x.code === code);
+            document.getElementById('rebuySellHolding').textContent = s
+                ? `보유 ${(s.quantity || 0).toLocaleString()}주 · 평단 ${_won(s.purchase_price)}` : '';
+            updateRebuySellPreview();
+        }
+
+        function updateRebuySellPreview() {
+            const code = document.getElementById('rebuySellCode').value;
+            const s = _rebuySellHoldings.find(x => x.code === code);
+            const price = parseFloat(unformatNumber(document.getElementById('rebuySellPrice').value)) || 0;
+            const qty = parseInt(document.getElementById('rebuySellQty').value) || 0;
+            const el = document.getElementById('rebuySellPreview');
+            if (!s || price <= 0 || qty <= 0) { el.innerHTML = ''; return; }
+            if (qty > (s.quantity || 0)) { el.innerHTML = `<span style="color:#f59e0b;">보유 수량(${(s.quantity || 0).toLocaleString()}주)을 초과합니다.</span>`; return; }
+            const profit = (price - (s.purchase_price || 0)) * qty;
+            const pc = profit >= 0 ? '#10b981' : '#ef4444';
+            el.innerHTML = `회수금 <b style="color:var(--text-main);">${_won(price * qty)}</b> · 실현손익 <b style="color:${pc};">${profit >= 0 ? '+' : ''}${_won(profit)}</b> · 남는 보유 ${((s.quantity || 0) - qty).toLocaleString()}주`;
+        }
+
+        function submitRebuySell() {
+            const code = document.getElementById('rebuySellCode').value;
+            const s = _rebuySellHoldings.find(x => x.code === code);
+            const price = parseFloat(unformatNumber(document.getElementById('rebuySellPrice').value)) || 0;
+            const qty = parseInt(document.getElementById('rebuySellQty').value) || 0;
+            if (!s) { showToast('매도한 종목을 선택해주세요.', 'error'); return; }
+            if (price <= 0) { showToast('매도가를 입력해주세요.', 'error'); return; }
+            if (qty <= 0) { showToast('매도 수량을 입력해주세요.', 'error'); return; }
+            if (qty > (s.quantity || 0)) { showToast(`매도 수량이 보유 수량(${s.quantity}주)을 초과합니다.`, 'error'); return; }
+            if (!confirm(`${s.name} ${qty.toLocaleString()}주를 ${price.toLocaleString()}원에 매도한 것으로 기록합니다.\n(포트폴리오 보유 수량이 ${(s.quantity - qty).toLocaleString()}주로 줄어듭니다)`)) return;
+            const btn = document.getElementById('rebuySellBtn');
+            btn.disabled = true;
+            fetch(`/api/my_stocks/${code}/sell`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sell_price: price, sell_qty: qty })
+            })
+            .then(r => r.json())
+            .then(data => {
+                showToast(data.message, data.success ? 'success' : 'error');
+                if (data.success) {
+                    document.getElementById('rebuySellPrice').value = '';
+                    document.getElementById('rebuySellQty').value = '';
+                    loadMyStocks();          // 포트폴리오 카드 + 시뮬레이션 카드 동시 갱신
+                    loadRebuySellHoldings();
+                }
+            })
+            .catch(err => showToast('매도 기록 실패: ' + err, 'error'))
+            .finally(() => { btn.disabled = false; });
+        }
+
+        function toggleRebuyDrawer(force) {
+            const drawer = document.getElementById('rebuyDrawer');
+            const open = (typeof force === 'boolean') ? force : !drawer.classList.contains('open');
+            drawer.classList.toggle('open', open);
+            drawer.setAttribute('aria-hidden', open ? 'false' : 'true');
+            document.body.classList.toggle('rebuy-drawer-open', open);
+            if (open) { loadRebuySim(); loadRebuySellHoldings(); }
+        }
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && document.getElementById('rebuyModal').style.display !== 'flex') toggleRebuyDrawer(false);
+        });
+        document.addEventListener('DOMContentLoaded', () => loadRebuySim());
+
+        function openRebuyModal(idx) {
+            const it = rebuySimItems[idx];
+            if (!it) return;
+            _rebuyTarget = it;
+            document.getElementById('rebuyModalStockName').textContent = it.name || it.code;
+            document.getElementById('rebuyModalInfo').textContent =
+                `회수금 ${_won(it.net_proceeds)} · 매도 ${it.sold_qty.toLocaleString()}주 · 현재 보유 ${it.held_qty.toLocaleString()}주`;
+            const cardPrice = parseFloat(unformatNumber(document.getElementById(`rb-price-${idx}`)?.value || '')) || it.current_price || 0;
+            const r = calcRebuy(it, cardPrice);
+            document.getElementById('rebuyPriceInput').value = cardPrice ? formatNumber(Math.round(cardPrice)) : '';
+            document.getElementById('rebuyQtyInput').value = (r && r.qty) || '';
+            updateRebuyPreview();
+            document.getElementById('rebuyModal').style.display = 'flex';
+        }
+
+        function closeRebuyModal() {
+            document.getElementById('rebuyModal').style.display = 'none';
+            _rebuyTarget = null;
+        }
+
+        function fillRebuyMaxQty() {
+            if (!_rebuyTarget) return;
+            const price = parseFloat(unformatNumber(document.getElementById('rebuyPriceInput').value)) || 0;
+            const buyFee = parseFloat(document.getElementById('rebuyBuyFeeRate').value) || 0;
+            if (price > 0) document.getElementById('rebuyQtyInput').value = Math.floor(_rebuyTarget.net_proceeds / (price * (1 + buyFee / 100)));
+            updateRebuyPreview();
+        }
+
+        function updateRebuyPreview() {
+            const it = _rebuyTarget;
+            if (!it) return;
+            const price = parseFloat(unformatNumber(document.getElementById('rebuyPriceInput').value)) || 0;
+            const qty = parseInt(document.getElementById('rebuyQtyInput').value) || 0;
+            const main = document.getElementById('rebuyPreviewMain');
+            const sub = document.getElementById('rebuyPreviewSub');
+            if (price <= 0 || qty <= 0) { main.textContent = '-'; sub.textContent = '매수가와 수량을 입력하세요.'; return; }
+            const diff = qty - it.sold_qty;
+            const totalQty = it.held_qty + qty;
+            const avg = (it.held_avg_price * it.held_qty + price * qty) / totalQty;
+            const cost = price * qty;
+            const color = diff > 0 ? '#10b981' : diff < 0 ? '#ef4444' : 'var(--text-main)';
+            main.innerHTML = `보유 ${totalQty.toLocaleString()}주 / 평단 ${_won(avg)} <span style="color:${color}; font-size:14px;">(매도 대비 ${diff > 0 ? '+' : ''}${diff.toLocaleString()}주)</span>`;
+            const remain = it.net_proceeds - cost;
+            sub.innerHTML = `매수금 ${_won(cost)} · 회수금 대비 ${remain >= 0 ? '잔액 ' + _won(remain) : '<span style="color:#f59e0b;">추가 투입 ' + _won(-remain) + '</span>'}`;
+        }
+
+        function confirmRebuy() {
+            const it = _rebuyTarget;
+            if (!it) return;
+            const price = parseFloat(unformatNumber(document.getElementById('rebuyPriceInput').value)) || 0;
+            const qty = parseInt(document.getElementById('rebuyQtyInput').value) || 0;
+            if (price <= 0) { showToast('매수가를 입력해주세요.', 'error'); return; }
+            if (qty <= 0) { showToast('매수 수량을 입력해주세요.', 'error'); return; }
+            const btn = document.getElementById('rebuyConfirmBtn');
+            btn.disabled = true;
+            btn.textContent = '처리 중...';
+            fetch(`/api/my_stocks/${it.code}/rebuy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ buy_price: price, buy_qty: qty, sell_ids: it.sell_ids })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    closeRebuyModal();
+                    showToast(data.message, 'success');
+                    loadMyStocks();
+                } else {
+                    showToast(data.message, 'error');
+                }
+            })
+            .catch(err => showToast('재매수 처리 실패: ' + err, 'error'))
+            .finally(() => { btn.disabled = false; btn.textContent = '♻️ 재매수 기록'; });
+        }
+
+        function dismissRebuy(idx) {
+            const it = rebuySimItems[idx];
+            if (!it) return;
+            if (!confirm(`${it.name || it.code}의 매도 ${it.sell_count}건을 재매수 시뮬레이션에서 제외할까요?`)) return;
+            fetch(`/api/my_stocks/${it.code}/rebuy_dismiss`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sell_ids: it.sell_ids })
+            })
+            .then(r => r.json())
+            .then(data => {
+                showToast(data.message, data.success ? 'success' : 'error');
+                if (data.success) loadRebuySim();
+            });
         }
 
         function updateStockDetail(code, type, value) {
