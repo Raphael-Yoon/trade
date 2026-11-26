@@ -361,7 +361,14 @@ def _init_mysql():
               AND table_name = '{table}' AND column_name = '{col}'
         """)
         if cursor.fetchone()[0] == 0:
-            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
+            try:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
+                return True
+            except pymysql.err.OperationalError as e:
+                # [권보성] gunicorn 다중 워커 동시 기동 시 다른 워커가 먼저 추가한 경우(1060 Duplicate column) 무시
+                if e.args[0] != 1060:
+                    raise
+        return False
 
     def create_index_if_not_exists(idx_name, table, col):
         cursor.execute(f"""
@@ -370,7 +377,11 @@ def _init_mysql():
               AND table_name = '{table}' AND index_name = '{idx_name}'
         """)
         if cursor.fetchone()[0] == 0:
-            cursor.execute(f"CREATE INDEX {idx_name} ON {table}({col})")
+            try:
+                cursor.execute(f"CREATE INDEX {idx_name} ON {table}({col})")
+            except pymysql.err.OperationalError as e:
+                if e.args[0] != 1061:  # 1061 Duplicate key name (동시 기동 경합)
+                    raise
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tr_my_stocks (
@@ -439,13 +450,8 @@ def _init_mysql():
             rebuy_closed_at VARCHAR(50)
         )
     ''')
-    cursor.execute("""
-        SELECT COUNT(*) FROM information_schema.columns
-        WHERE table_schema = DATABASE() AND table_name = 'tr_sell_history' AND column_name = 'rebuy_status'
-    """)
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("ALTER TABLE tr_sell_history ADD COLUMN rebuy_status VARCHAR(20) DEFAULT 'open'")
-        # 기능 도입 이전의 과거 매도 건은 시뮬레이션 대상에서 제외
+    if add_column_if_not_exists("tr_sell_history", "rebuy_status", "VARCHAR(20) DEFAULT 'open'"):
+        # 기능 도입 이전의 과거 매도 건은 시뮬레이션 대상에서 제외 (컬럼을 실제로 추가한 워커 1곳에서만 실행)
         cursor.execute("UPDATE tr_sell_history SET rebuy_status = 'dismissed'")
     add_column_if_not_exists("tr_sell_history", "rebuy_closed_at", "VARCHAR(50)")
 

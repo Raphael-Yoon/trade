@@ -751,6 +751,10 @@
         #rebuySellCode { color-scheme: dark; }
         #rebuySellCode option { background: #1e293b; color: #f1f5f9; }
         #rebuySellCode option:checked { background: #334155; }
+        @media (max-width: 768px) {
+            /* [유병욱] 재매수 시뮬레이션은 PC 전용 */
+            #rebuyDrawerToggle, #rebuyDrawer { display: none !important; }
+        }
         .rebuy-card { padding: 16px; border-radius: 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); margin-bottom: 12px; }
         .rebuy-card .row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 6px; }
         .rebuy-card .row b { color: var(--text-main); font-weight: 700; }
