@@ -55,7 +55,7 @@ def collect_stock_context(cand, rec_type):
         
     upside = round(((target_price - current_price) / current_price) * 100.0, 1)
     
-    # DART 공시
+    # DART 공시 (1차: OpenDartReader, 2차 폴백: 네이버 모바일 공시 API)
     disclosures = []
     if DART_KEY:
         try:
@@ -75,6 +75,29 @@ def collect_stock_context(cand, rec_type):
                         'corp_cls': row.get('corp_cls', ''),
                         'rm': row.get('rm', ''),
                         'link': f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={row.get('rcept_no', '')}"
+                    })
+        except Exception:
+            pass
+
+    if not disclosures:
+        try:
+            import requests as _req
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            disc_url = f"https://m.stock.naver.com/api/stock/{code}/disclosure"
+            d_res = _req.get(disc_url, headers=headers, timeout=5)
+            if d_res.status_code == 200:
+                d_items = d_res.json()
+                for item in d_items[:5]:
+                    dt_raw = str(item.get('datetime', ''))
+                    rcept_dt = dt_raw.split('T')[0] if 'T' in dt_raw else dt_raw
+                    disclosures.append({
+                        'report_nm': item.get('title', ''),
+                        'rcept_dt': rcept_dt,
+                        'rcept_no': str(item.get('disclosureId', '')),
+                        'flr_nm': item.get('author', ''),
+                        'corp_cls': '',
+                        'rm': '',
+                        'link': f"https://m.stock.naver.com/domestic/stock/{code}/disclosure"
                     })
         except Exception:
             pass
@@ -100,6 +123,10 @@ def collect_stock_context(cand, rec_type):
         'pbr': cand['pbr'],
         'per': cand['per'],
         'debt': cand['debt'],
+        'adjusted_debt': cand.get('adjusted_debt', cand['debt']),
+        'prepayments': cand.get('prepayments', 0.0),
+        'prep_growth': cand.get('prep_growth', 0.0),
+        'operating_margin': cand.get('operating_margin', 0.0),
         'op_profit': cand.get('op_profit', 0.0),
         'op_growth': cand.get('op_growth', 0.0),
         'rev_growth': cand.get('rev_growth', 0.0),

@@ -57,9 +57,17 @@ def save_cache_data(ticker, year, data):
     """재무 데이터를 로컬 캐시에 저장합니다."""
     cache_path = os.path.join(CACHE_DIR, f"{ticker}_{year}.json")
     try:
+        # numpy.int64/float64 직렬화 오류 및 깨진 파일 생성 방지
+        payload = json.dumps(
+            data,
+            ensure_ascii=False,
+            indent=4,
+            default=lambda o: o.item() if hasattr(o, 'item') else str(o)
+        )
         with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-    except: pass
+            f.write(payload)
+    except Exception:
+        pass
 
 def get_etf_codes(session):
     """네이버 금융 ETF API를 통해 전체 ETF 코드를 수집합니다."""
@@ -104,7 +112,7 @@ def get_etf_list(session):
         return []
 
 def get_top_tickers_from_naver(session, market='KOSPI', count=100):
-    """네이버 금융에서 시가총액 상위 종목 리스트를 가져옵니다. ETF는 제외합니다."""
+    """네이버 금융 모바일 API를 통해 시가총액 상위 종목 리스트를 가져옵니다. ETF는 제외합니다."""
     etf_codes = get_etf_codes(session)
 
     if market.upper() == 'ALL':
@@ -116,34 +124,39 @@ def get_top_tickers_from_naver(session, market='KOSPI', count=100):
     all_tickers = []
 
     for m in markets_to_fetch:
-
-        sosok = 0 if m == 'KOSPI' else 1
-        base_url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}"
-        page = 1
+        target_count = count if count > 0 else 5000
         market_tickers = []
-
-        target_count = count
+        page = 1
+        page_size = 100
 
         while len(market_tickers) < target_count:
-            url = f"{base_url}&page={page}"
-            res = session.get(url)
-            soup = BeautifulSoup(res.text, 'html.parser')
-            table = soup.find('table', {'class': 'type_2'})
-            if not table: break
+            url = f"https://m.stock.naver.com/api/stocks/marketValue/{m}?page={page}&pageSize={page_size}"
+            try:
+                res = session.get(url, timeout=5)
+                if res.status_code != 200:
+                    break
+                data = res.json()
+                stocks = data.get('stocks', [])
+                if not stocks:
+                    break
 
-            found = False
-            for a in table.find_all('a', {'class': 'tltle'}):
-                code = a.get('href').split('code=')[1]
-                name = a.text.strip()
-                if code in etf_codes:
-                    continue
-                market_tickers.append((code, name))
-                found = True
-                if len(market_tickers) >= target_count: break
+                for s in stocks:
+                    code = str(s.get('itemCode', '')).strip().zfill(6)
+                    name = str(s.get('stockName', '')).strip()
+                    if not code or code in etf_codes:
+                        continue
+                    market_tickers.append((code, name))
+                    if len(market_tickers) >= target_count:
+                        break
 
-            if not found: break
-            page += 1
-            time.sleep(0.05)
+                if len(stocks) < page_size:
+                    break
+                page += 1
+                time.sleep(0.02)
+            except Exception as e:
+                print(f"[경고] {m} 종목 목록 수집 중 오류 (page {page}): {e}")
+                break
+
         all_tickers.extend(market_tickers)
 
     return all_tickers[:count] if count > 0 else all_tickers
@@ -520,7 +533,7 @@ def get_treasury_stock(dart, ticker, year, report_code, total_shares=0):
 def get_dart_financials(dart, ticker, target_year=None, report_types=None):
     """OpenDARTReader를 사용하여 지정된 연도(또는 최신)의 특정 보고서들을 검색하고 가장 최신 데이터를 추출합니다."""
     if dart is None:
-        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A (API Key Missing)", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A (API Key Missing)", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
     # 상장주식수 먼저 파악 (비비율 계산용)
     total_shares = 0
@@ -551,23 +564,42 @@ def get_dart_financials(dart, ticker, target_year=None, report_types=None):
         current_y = datetime.now().year
         years_to_check = [current_y, current_y - 1, current_y - 2]
 
-    # 연도별, 보고서 종류별 탐색
+    # 연도별, 보고서 종류별 탐색 (연결 CFS 우선 조회, 미존재 시 별도 OFS 폴백)
+    now_year = datetime.now().year
+    valid_rev_ids = {
+        'ifrs-full_Revenue', 'ifrs-full_RevenueFromContractWithCustomers', 'ifrs_Revenue',
+        'ifrs-full_InsuranceRevenue', 'ifrs-full_InterestIncome', 'dart_OperatingIncomeLoss'
+    }
+    valid_rev_names = {
+        '매출액', '매출', '수익(매출액)', '영업수익', '수익',
+        '보험수익', '이자수익', '순영업수익', '영업이익', '영업이익(손실)'
+    }
+
     for ship_year in years_to_check:
         for code, code_nm in report_codes:
-            try:
-                df = dart.finstate_all(ticker, ship_year, code)
+            if ship_year >= now_year and code == '11011':
+                continue
+            for fs_div in ('CFS', 'OFS'):
+                df = None
+                for attempt in range(2):
+                    try:
+                        df = dart.finstate_all(ticker, ship_year, code, fs_div=fs_div)
+                        break
+                    except Exception:
+                        if attempt == 0:
+                            time.sleep(0.3)
                 if df is not None and not df.empty:
-                    # 데이터가 유효한지 확인 (매출액 등이 있는지)
-                    if any(df['account_nm'].str.contains('매출액|영업수익', na=False)):
+                    # 데이터가 유효한지 확인 (매출/영업수익/금융·보험수익/영업이익 유무)
+                    has_rev_id = 'account_id' in df.columns and any(df['account_id'].isin(valid_rev_ids))
+                    has_rev_nm = any(df['account_nm'].astype(str).str.replace(' ', '').isin(valid_rev_names))
+                    if has_rev_id or has_rev_nm:
                         report_nm = f"{ship_year}년 {code_nm}"
                         financials = parse_finstate_df(df, report_nm, ticker)
                         # 자사주 정보 추가 수집 (상장주식수 정보 전달)
                         treasury_shares, treasury_ratio = get_treasury_stock(dart, ticker, ship_year, code, total_shares)
                         return financials + (treasury_shares, treasury_ratio)
-            except:
-                continue
     
-    return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 
 def parse_finstate_df(df, report_nm, ticker):
@@ -577,22 +609,38 @@ def parse_finstate_df(df, report_nm, ticker):
         prev_revenue = prev_op = prev_net_income = 0
         prev2_revenue = prev2_op = prev2_net_income = 0
         prev_liabilities = prev2_liabilities = prev_equity = prev2_equity = 0
+        prep_items = {}
+        prep_total_ids = {'ifrs-full_ContractLiabilities', 'ifrs_ContractLiabilities'}
+        prep_sub_ids = {
+            'ifrs-full_CurrentContractLiabilities', 'ifrs-full_NoncurrentContractLiabilities',
+            'ifrs-full_CurrentContractLiabilitiesForPerformanceObligationsSatisfiedOverTime',
+            'ifrs-full_NoncurrentContractLiabilitiesForPerformanceObligationsSatisfiedOverTime',
+            'ifrs_CurrentContractLiabilities', 'ifrs_NoncurrentContractLiabilities',
+            'ifrs-full_AdvancesReceived', 'ifrs-full_CurrentAdvances', 'ifrs-full_NoncurrentAdvances',
+            'dart_ShortTermAdvancesReceived', 'dart_LongTermAdvancesReceived',
+            'dart_ShortTermDueToCustomersForContractWork', 'dart_LongTermDueToCustomersForContractWork',
+        }
         
         # 계정 ID 매핑
         mapping = {
             'revenue': ['ifrs-full_Revenue', 'ifrs-full_RevenueFromContractWithCustomers', 'ifrs_Revenue'],
+            'revenue_fallback': ['ifrs-full_InsuranceRevenue', 'ifrs-full_InterestIncome'],
             'op': ['dart_OperatingIncomeLoss'],
             're': ['ifrs-full_RetainedEarnings'],
             'cash': ['ifrs-full_CashAndCashEquivalents', 'ifrs_CashAndCashEquivalents'],
             'liabilities': ['ifrs-full_Liabilities', 'ifrs_Liabilities'],
-            'equity': ['ifrs-full_Equity', 'ifrs_Equity', 'ifrs-full_EquityAttributableToOwnersOfParent'],
+            'equity': ['ifrs-full_Equity', 'ifrs_Equity'],
+            'equity_fallback': ['ifrs-full_EquityAttributableToOwnersOfParent'],
             'ocf': ['ifrs-full_CashFlowsFromUsedInOperatingActivities', 'ifrs_CashFlowsFromUsedInOperatingActivities'],
             'capex': ['ifrs-full_PurchaseOfPropertyPlantAndEquipment', 'ifrs-full_PurchaseOfIntangibleAssets'],
-            'depreciation': ['ifrs-full_DepreciationAndAmortisationExpense', 'ifrs-full_DepreciationExpense', 'ifrs-full_AmortisationExpense'],
-            'net_income': ['ifrs-full_ProfitLoss', 'ifrs_ProfitLoss', 'ifrs-full_ProfitLossAttributableToOwnersOfParent'],
+            'depreciation': ['ifrs-full_DepreciationAndAmortisationExpense', 'ifrs-full_DepreciationExpense', 'ifrs_AmortisationExpense', 'ifrs-full_AmortisationExpense'],
+            'net_income': ['ifrs-full_ProfitLoss', 'ifrs_ProfitLoss'],
+            'net_income_fallback': ['ifrs-full_ProfitLossAttributableToOwnersOfParent'],
             'current_assets': ['ifrs-full_CurrentAssets', 'ifrs_CurrentAssets'],
             'current_liabilities': ['ifrs-full_CurrentLiabilities', 'ifrs_CurrentLiabilities']
         }
+        rev_primary_found = False
+        ni_primary_found = False
 
         for _, row in df.iterrows():
             acc_id = str(row.get('account_id', ''))
@@ -608,6 +656,15 @@ def parse_finstate_df(df, report_nm, ticker):
                 prev_val = pd.to_numeric(row.get('frmtrm_q_amount'), errors='coerce')
             if pd.isna(prev_val) or prev_val == 0:
                 prev_val = pd.to_numeric(row.get('frmtrm_add_amount'), errors='coerce')
+
+            # 손익계산서(IS/CIS)에서 반기/3분기 누적 실적(thstrm_add_amount & frmtrm_add_amount)이 모두 존재하면
+            # 3개월 단기 변동 노이즈 방지를 위해 누적 실적 기준으로 동일 기간 비교 우선 적용
+            if sj_div in ('IS', 'CIS'):
+                add_val = pd.to_numeric(row.get('thstrm_add_amount'), errors='coerce')
+                prev_add_val = pd.to_numeric(row.get('frmtrm_add_amount'), errors='coerce')
+                if pd.notna(add_val) and pd.notna(prev_add_val):
+                    val = add_val
+                    prev_val = prev_add_val
                 
             # 전전년 동기/전전년 금액 추출 (사업보고서 등에 주로 존재, bfefrmtrm_amount)
             prev2_val = pd.to_numeric(row.get('bfefrmtrm_amount'), errors='coerce')
@@ -617,15 +674,22 @@ def parse_finstate_df(df, report_nm, ticker):
             if pd.isna(prev_val): prev_val = 0
             # prev2_val은 없을 수도 있으므로 (분기보고서 등) 0으로 유지됨
 
-            # 1. Revenue
-            if acc_id in mapping['revenue'] or acc_name in ['매출액', '수익(매출액)', '영업수익']:
-                if revenue == 0 or acc_id in mapping['revenue']: 
+            # 1. Revenue (IS/CIS 손익계산서만 허용, 금융·보험 수익 폴백 포함)
+            if sj_div in ('IS', 'CIS') and (acc_id in mapping['revenue'] or acc_name in ['매출액', '수익(매출액)', '영업수익', '매출', '수익']):
+                if not rev_primary_found or acc_id in mapping['revenue']:
+                    revenue = val
+                    prev_revenue = prev_val
+                    prev2_revenue = prev2_val
+                    rev_primary_found = True
+
+            elif sj_div in ('IS', 'CIS') and (acc_id in mapping['revenue_fallback'] or acc_name in ['보험수익', '이자수익', '순영업수익']):
+                if not rev_primary_found and revenue == 0:
                     revenue = val
                     prev_revenue = prev_val
                     prev2_revenue = prev2_val
             
-            # 2. Operating Income
-            elif acc_id in mapping['op'] or acc_name in ['영업이익', '영업이익(손실)']:
+            # 2. Operating Income (IS/CIS만 허용)
+            elif sj_div in ('IS', 'CIS') and (acc_id in mapping['op'] or acc_name in ['영업이익', '영업이익(손실)']):
                 if op == 0 or acc_id in mapping['op']: 
                     op = val
                     prev_op = prev_val
@@ -646,9 +710,9 @@ def parse_finstate_df(df, report_nm, ticker):
                     prev_liabilities = prev_val
                     prev2_liabilities = prev2_val
             
-            # 6. Equity
-            elif sj_div == 'BS' and (acc_id in mapping['equity'] or acc_name == '자본총계'):
-                if equity == 0 or acc_id in mapping['equity']: 
+            # 6. Equity (총자본 최우선: 지배주주지분으로 자본총계가 덮어쓰이지 않도록 보호)
+            elif sj_div == 'BS' and (acc_id in mapping['equity'] or acc_name == '자본총계' or acc_id in mapping['equity_fallback']):
+                if acc_id in mapping['equity'] or acc_name == '자본총계' or equity == 0:
                     equity = val
                     prev_equity = prev_val
                     prev2_equity = prev2_val
@@ -665,9 +729,16 @@ def parse_finstate_df(df, report_nm, ticker):
             elif any(tag in acc_id for tag in mapping['depreciation']) or '감가상각' in acc_name:
                 da += val
  
-            # 10. Net Income
-            elif acc_id in mapping['net_income'] or acc_name in ['당기순이익', '당기순이익(손실)']:
-                if net_income == 0 or acc_id in mapping['net_income']: 
+            # 10. Net Income (IS/CIS만 허용하여 SCE 자본변동표의 0원/소액 덮어쓰기 원천 차단)
+            elif sj_div in ('IS', 'CIS') and (acc_id in mapping['net_income'] or acc_name in ['당기순이익', '당기순이익(손실)', '분기순이익', '분기순이익(손실)', '반기순이익', '반기순이익(손실)']):
+                if not ni_primary_found or acc_id in mapping['net_income']:
+                    net_income = val
+                    prev_net_income = prev_val
+                    prev2_net_income = prev2_val
+                    ni_primary_found = True
+
+            elif sj_div in ('IS', 'CIS') and acc_id in mapping['net_income_fallback']:
+                if not ni_primary_found and net_income == 0:
                     net_income = val
                     prev_net_income = prev_val
                     prev2_net_income = prev2_val
@@ -680,10 +751,38 @@ def parse_finstate_df(df, report_nm, ticker):
             elif sj_div == 'BS' and (acc_id in mapping['current_liabilities'] or acc_name == '유동부채'):
                 if current_liabilities == 0 or acc_id in mapping['current_liabilities']: current_liabilities = val
 
-        return revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, current_assets, current_liabilities, report_nm, prev_revenue, prev_op, prev_net_income, prev2_revenue, prev2_op, prev2_net_income, prev_liabilities, prev2_liabilities, prev_equity, prev2_equity
+            # 13. Prepayments / Contract Liabilities (선수금, 계약부채, 초과청구공사 - 당기/전기)
+            if sj_div == 'BS':
+                is_prep_id = (acc_id in prep_total_ids) or (acc_id in prep_sub_ids)
+                is_prep_nm = (
+                    any(k in acc_name for k in ('계약부채', '선수금', '초과청구공사'))
+                    and not any(ex in acc_name for ex in ('확정계약', '선급', '미수', '자산', '충당', '이연법인세'))
+                )
+                if (is_prep_id or is_prep_nm) and 'FirmCommitment' not in acc_id:
+                    prep_key = (acc_id, acc_name)
+                    if prep_key not in prep_items:
+                        prep_items[prep_key] = (val, prev_val)
+
+        # 계약부채 총계와 유동/비유동 분할 계정이 동시 존재할 경우 중복 합산 방지
+        has_total_contract_liab = any(k[0] in prep_total_ids for k in prep_items)
+        split_contract_ids = {
+            'ifrs-full_CurrentContractLiabilities', 'ifrs-full_NoncurrentContractLiabilities',
+            'ifrs_CurrentContractLiabilities', 'ifrs_NoncurrentContractLiabilities',
+            'ifrs-full_CurrentContractLiabilitiesForPerformanceObligationsSatisfiedOverTime',
+            'ifrs-full_NoncurrentContractLiabilitiesForPerformanceObligationsSatisfiedOverTime',
+        }
+        prepayments = 0.0
+        prev_prepayments = 0.0
+        for (k_id, _), (k_val, k_prev_val) in prep_items.items():
+            if has_total_contract_liab and k_id in split_contract_ids:
+                continue
+            prepayments += k_val
+            prev_prepayments += k_prev_val
+
+        return revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, current_assets, current_liabilities, report_nm, prev_revenue, prev_op, prev_net_income, prev2_revenue, prev2_op, prev2_net_income, prev_liabilities, prev2_liabilities, prev_equity, prev2_equity, prepayments, prev_prepayments
     except Exception as e:
         print(f"[DART] {ticker} 재무제표 조회 실패: {e}")
-        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "N/A", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 
 def get_audit_opinions(session, corp_code, year, api_key):
@@ -870,7 +969,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 # DART 데이터 캐시 확인 (사용자가 연도나 종류를 명시하지 않은 경우에만 캐시 사용)
                 cached = get_cached_data(ticker, cache_year) if not (year or report_types) else None
                 
-                if cached and cached.get('report_nm') != "N/A" and 'prev_rev' in cached:
+                if cached and cached.get('report_nm') != "N/A" and 'prev_rev' in cached and 'prepayments' in cached:
                     revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni = (
                         cached['revenue'], cached['op'], cached['re_val'], cached['cash'],
                         cached['liabilities'], cached['equity'], cached['ocf'], cached['capex'], cached['da'],
@@ -883,12 +982,14 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     prev2_liabilities = cached.get('prev2_liabilities', 0)
                     prev_equity = cached.get('prev_equity', 0)
                     prev2_equity = cached.get('prev2_equity', 0)
+                    prepayments = cached.get('prepayments', 0.0)
+                    prev_prepayments = cached.get('prev_prepayments', 0.0)
                     treasury_shares = cached.get('treasury_shares', 0)
                     treasury_ratio = cached.get('treasury_ratio', 0.0)
                 else:
-                    # 캐시가 없거나 전년 데이터가 없는 구버전 캐시라면 새로 수집
+                    # 캐시가 없거나 전년/선수금 데이터가 없는 구버전 캐시라면 새로 수집
                     dart_all = get_dart_financials(dart, ticker, current_year, report_types)
-                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni, prev_liabilities, prev2_liabilities, prev_equity, prev2_equity, treasury_shares, treasury_ratio = dart_all
+                    revenue, op, re_val, cash, liabilities, equity, ocf, capex, da, net_income, cur_assets, cur_liab, report_nm, prev_rev, prev_op, prev_ni, prev2_rev, prev2_op, prev2_ni, prev_liabilities, prev2_liabilities, prev_equity, prev2_equity, prepayments, prev_prepayments, treasury_shares, treasury_ratio = dart_all
                     
                     # 캐시 저장
                     save_cache_data(ticker, cache_year, {
@@ -900,6 +1001,7 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                         'prev2_rev': prev2_rev, 'prev2_op': prev2_op, 'prev2_ni': prev2_ni,
                         'prev_liabilities': prev_liabilities, 'prev2_liabilities': prev2_liabilities,
                         'prev_equity': prev_equity, 'prev2_equity': prev2_equity,
+                        'prepayments': prepayments, 'prev_prepayments': prev_prepayments,
                         'treasury_shares': treasury_shares,
                         'treasury_ratio': treasury_ratio
                     })
@@ -979,6 +1081,15 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                 prev_op_growth = round(((prev_op - prev2_op) / abs(prev2_op) * 100), 2) if prev2_op != 0 else 0.0
                 prev_ni_growth = round(((prev_ni - prev2_ni) / abs(prev2_ni) * 100), 2) if prev2_ni != 0 else 0.0
 
+                # 3. 선수금(계약부채) 증감 및 실질부채비율 계산
+                nominal_debt_ratio = naver_data.get('debt_ratio') if naver_data.get('debt_ratio') > 0 else (round(liabilities / equity * 100, 2) if equity > 0 else 0)
+                if equity > 0 and liabilities > 0:
+                    adj_liabilities = max(0.0, liabilities - prepayments)
+                    adjusted_debt_ratio = round((adj_liabilities / equity) * 100, 2)
+                else:
+                    adjusted_debt_ratio = nominal_debt_ratio
+                prep_growth = round(((prepayments - prev_prepayments) / abs(prev_prepayments) * 100), 2) if prev_prepayments > 0 else 0.0
+
                 res_dict = {
                     '종목코드': ticker,
                     '종목명': name,
@@ -989,6 +1100,8 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     '업종': naver_data.get('sector'),
                     '시가총액': naver_data.get('market_cap'),
                     '자산총계': (liabilities or 0.0) + (equity or 0.0),
+                    '부채총계': liabilities,
+                    '자본총계': equity,
                     'PBR': naver_data.get('pbr'),
                     '업종평균PBR': naver_data.get('avg_pbr'),
                     'PER': naver_data.get('per'),
@@ -1027,7 +1140,12 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     '현금및현금성자산': cash,
                     '52주최고가': naver_data.get('high_52w'),
                     '52주최저가': naver_data.get('low_52w'),
-                    '부채비율': naver_data.get('debt_ratio') if naver_data.get('debt_ratio') > 0 else (round(liabilities/equity*100, 2) if equity > 0 else 0),
+                    '부채비율': nominal_debt_ratio,
+                    '선수금(계약부채)': prepayments,
+                    '전기선수금(계약부채)': prev_prepayments,
+                    '선수금증감액': prepayments - prev_prepayments,
+                    '선수금증감(%)': prep_growth,
+                    '실질부채비율': adjusted_debt_ratio,
                     '전년도부채비율': prev_debt_ratio,
                     '전전년도부채비율': prev2_debt_ratio,
                     '유동비율': current_ratio,
@@ -1077,7 +1195,12 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
                     if f not in selected_fields:
                         selected_fields.insert(2, f)
             
-            yoy_fields = ['전년동기매출액', '매출액증가율(%)', '전년동기영업이익', '영업이익증가율(%)', '전년동기순이익', '순이익증가율(%)', '전년도ROE', '전전년도ROE', '전년도부채비율', '전전년도부채비율']
+            yoy_fields = [
+                '자산총계', '부채총계', '자본총계',
+                '선수금(계약부채)', '전기선수금(계약부채)', '선수금증감액', '선수금증감(%)', '실질부채비율',
+                '전년동기매출액', '매출액증가율(%)', '전년동기영업이익', '영업이익증가율(%)',
+                '전년동기순이익', '순이익증가율(%)', '전년도ROE', '전전년도ROE', '전년도부채비율', '전전년도부채비율'
+            ]
             for f in yoy_fields:
                 if f not in selected_fields:
                     selected_fields.append(f)
@@ -1091,12 +1214,26 @@ def main(stock_count=100, selected_fields=None, market='KOSPI', output_path=None
             output_file = output_path
         else:
             time_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
-            market_lower = market.lower() if market else 'all'
+            market_lower = 'kospi,kosdaq' if (not market or market.upper() == 'ALL') else market.lower()
+            count_label = 'all' if stock_count == 0 else f'top{stock_count}'
             results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
             os.makedirs(results_dir, exist_ok=True)
-            output_file = os.path.join(results_dir, f"kospi,kosdaq_{market_lower}_{time_suffix}.xlsx")
+            output_file = os.path.join(results_dir, f"{market_lower}_{count_label}_{time_suffix}.xlsx")
             
         df.to_excel(output_file, index=False)
+        if not output_path:
+            meta_path = output_file.replace('.xlsx', '.json')
+            try:
+                with open(meta_path, 'w', encoding='utf-8') as mf:
+                    json.dump({
+                        'filename': os.path.basename(output_file),
+                        'market': market.upper() if market else 'KOSPI,KOSDAQ',
+                        'stock_count': stock_count,
+                        'created_at': datetime.now().isoformat(),
+                        'size': os.path.getsize(output_file)
+                    }, mf, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
         print(f"\n\n[+] 로컬 데이터 저장 완료: {output_file}")
         print(f"Total stocks: {len(df)}")
 

@@ -752,8 +752,8 @@
         #rebuySellCode option { background: #1e293b; color: #f1f5f9; }
         #rebuySellCode option:checked { background: #334155; }
         @media (max-width: 768px) {
-            /* [유병욱] 재매수 시뮬레이션은 PC 전용 */
-            #rebuyDrawerToggle, #rebuyDrawer { display: none !important; }
+            /* [유병욱] 재매수 시뮬레이션 및 자산보고서 버튼은 PC 전용 */
+            #rebuyDrawerToggle, #rebuyDrawer, #assetReportTabBtn { display: none !important; }
         }
         .rebuy-card { padding: 16px; border-radius: 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); margin-bottom: 12px; }
         .rebuy-card .row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 6px; }
@@ -959,6 +959,7 @@
             </button>
             <button class="tab-btn" data-tab="history" onclick="switchTab('history')">📜 투자 성과</button>
             <button class="tab-btn" data-tab="overseas" onclick="switchTab('overseas')">🌐 해외주식</button>
+            <button id="assetReportTabBtn" class="tab-btn" onclick="window.open('/asset-report', '_blank')">📊 자산보고서</button>
         </div>
 
         <!-- Tab 1: Stock Analysis -->
@@ -1042,6 +1043,12 @@
                         <h4>재무 정보</h4>
                         <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="시가총액"
                                 checked><span>시가총액</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="자산총계"
+                                checked><span>자산총계</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="부채총계"
+                                checked><span>부채총계</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="자본총계"
+                                checked><span>자본총계</span></label>
                         <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="매출액"
                                 checked><span>매출액</span></label>
                         <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="영업이익"
@@ -1062,6 +1069,12 @@
                                 checked><span>FCF</span></label>
                         <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="부채비율"
                                 checked><span>부채비율</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="선수금(계약부채)"
+                                checked><span>선수금(계약부채)</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="선수금증감(%)"
+                                checked><span>선수금 증감(%)</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="실질부채비율"
+                                checked><span>실질부채비율</span></label>
                         <label class="checkbox-label"><input type="checkbox" class="field-checkbox" value="유동비율"
                                 checked><span>유동비율</span></label>
                     </div>
@@ -6436,6 +6449,12 @@
                 let calloutBg = 'rgba(99, 102, 241, 0.08)';
                 let calloutBorder = '#6366f1';
 
+                const hasAdjDebt = s.adjusted_debt !== undefined && s.adjusted_debt !== null && Math.abs((s.debt_ratio||0) - s.adjusted_debt) >= 1.0;
+                const prepVal = s.prepayments || 0;
+                const prepGrowth = s.prep_growth || 0;
+                const prepStr = prepVal >= 1e12 ? (prepVal / 1e12).toFixed(1) + '조원' : (prepVal >= 1e8 ? Math.round(prepVal / 1e8).toLocaleString() + '억원' : '');
+                const prepColor = prepGrowth >= 0 ? '#10b981' : '#f59e0b';
+
                 const watchlistBtn = isAdded 
                     ? `<button disabled style="flex:1.5;padding:10px 4px;border-radius:10px;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#10b981;font-size:12px;font-weight:800;cursor:default;white-space:nowrap;">
                         ✓ 등록됨
@@ -6473,8 +6492,9 @@
                                     <div style="font-size:15px;font-weight:900;color:#10b981;">${(s.operating_margin||0).toFixed(1)}%</div>
                                 </div>
                                 <div style="padding:10px 8px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
-                                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">부채비율</div>
-                                    <div style="font-size:15px;font-weight:900;color:#3b82f6;">${(s.debt_ratio||0).toFixed(0)}%</div>
+                                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">${hasAdjDebt ? '실질 부채비율' : '부채비율'}</div>
+                                    <div style="font-size:15px;font-weight:900;color:${hasAdjDebt ? '#38bdf8' : '#3b82f6'};">${(hasAdjDebt ? s.adjusted_debt : (s.debt_ratio||0)).toFixed(0)}%</div>
+                                    ${hasAdjDebt ? `<div style="font-size:9px;color:#64748b;margin-top:2px;">명목 ${(s.debt_ratio||0).toFixed(0)}%</div>` : ''}
                                 </div>
                                 <div style="padding:10px 8px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
                                     <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">${scoreLabel}</div>
@@ -6507,6 +6527,7 @@
                                     <div style="font-size:15px;font-weight:900;color:#10b981;font-family:'Outfit',sans-serif;">${s.operating_growth !== undefined && s.operating_growth !== null ? (s.operating_growth > 0 ? '+' : '') + s.operating_growth.toFixed(1)+'%' : '-'}</div>
                                 </div>
                             </div>
+                            ${prepStr ? `<div style="padding:8px 14px;background:rgba(56,189,248,0.08);border-radius:10px;border:1px solid rgba(56,189,248,0.2);font-size:12px;color:#cbd5e1;display:flex;justify-content:space-between;align-items:center;"><span>📦 <b>선수금(계약부채)</b></span><span><b style="color:#38bdf8;">${prepStr}</b> <span style="color:${prepColor};font-weight:700;">(${prepGrowth >= 0 ? '+' : ''}${prepGrowth.toFixed(1)}%)</span></span></div>` : ''}
                             ${summary ? `<div style="padding:12px 14px;background:rgba(16,185,129,0.05);border-radius:12px;border:1px solid rgba(16,185,129,0.1);font-size:12px;color:#94a3b8;line-height:1.6;"><span style="color:#10b981;font-weight:700;">분석 요약 </span>${summary}</div>` : ''}
                         </div>
                         <div class="card-right" style="flex:45;padding:20px;display:flex;flex-direction:column;gap:12px;">

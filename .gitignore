@@ -26,3 +26,7 @@ recommendations.json
 *.sh
 Report/*.html
 *.log
+coffee_house.pid
+asset_report/outputs/
+asset_report/expenses.json
+asset_report/notes.json

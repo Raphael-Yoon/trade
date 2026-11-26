@@ -9,6 +9,7 @@ if os.name == 'nt':
     sys.stderr.reconfigure(encoding='utf-8')
 
 from flask import Flask, render_template, jsonify, send_file, request, g, session, redirect, url_for
+from pathlib import Path
 import threading
 import uuid
 from datetime import datetime, timedelta
@@ -1320,10 +1321,7 @@ def get_stock_pool():
                 sector_categories[row['sector']] = row['sector_category'] or 'scale'
             
         # 3. tr_audit_recommendations 테이블에서 추천 종목 조회
-        cursor.execute("""
-            SELECT code, name, sector, current_price, target_price, upside, score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, opinion, operating_growth, revenue_growth, pbr, op_profit
-            FROM tr_audit_recommendations
-        """)
+        cursor.execute("SELECT * FROM tr_audit_recommendations")
         rec_rows = [dict(r) for r in cursor.fetchall()]
         
         # 4. tr_stock_pool 조회
@@ -1365,9 +1363,12 @@ def get_stock_pool():
                 "pbr": rec.get('pbr') if rec.get('pbr') is not None else pool_info.get('pbr'),
                 "per": pool_info.get('per'),
                 "debt_ratio": rec.get('debt') or pool_info.get('debt_ratio', 0.0),
-                "operating_margin": pool_info.get('operating_margin'),
+                "adjusted_debt": rec.get('adjusted_debt') if rec.get('adjusted_debt') is not None else (rec.get('debt') or pool_info.get('debt_ratio', 0.0)),
+                "prepayments": rec.get('prepayments') if rec.get('prepayments') is not None else 0.0,
+                "prep_growth": rec.get('prep_growth') if rec.get('prep_growth') is not None else 0.0,
+                "operating_margin": rec.get('operating_margin') if rec.get('operating_margin') is not None else pool_info.get('operating_margin'),
                 "target_price": rec.get('target_price') or pool_info.get('target_price', 0.0),
-                "pool_score": pool_info.get('pool_score', 0.0),
+                "pool_score": rec.get('base_score') if rec.get('base_score') is not None else pool_info.get('pool_score', 0.0),
                 "priority_score": rec.get('score', 0.0),
                 "ai_summary": rec.get('reason', ''),
                 "news_summary": rec.get('news_summary', '[]'),
@@ -1536,10 +1537,43 @@ def check_is_local():
 def check_is_prod():
     return (os.getenv('RUN_MODE') == 'prod') or (os.getenv('FLASK_ENV') == 'production') or (os.getenv('IS_PROD') == 'true')
 
+ASSET_REPORT_OUTPUTS_DIR = Path(__file__).resolve().parent / 'asset_report' / 'outputs'
+_ASSET_REPORT_FILE_RE = re.compile(r'^asset_report_(\d{4}_\d{2})\.html$')
+
+
+def _resolve_asset_report_path(ym=None):
+    """월별 자산 보고서 HTML 경로를 검증해 반환한다 (ym 생략 시 최신 파일)."""
+    if not ASSET_REPORT_OUTPUTS_DIR.is_dir():
+        return None
+    if ym is not None:
+        if not re.fullmatch(r'\d{4}_\d{2}', ym):
+            return None
+        candidate = ASSET_REPORT_OUTPUTS_DIR / f'asset_report_{ym}.html'
+        return candidate if candidate.is_file() else None
+    candidates = [
+        p for p in ASSET_REPORT_OUTPUTS_DIR.iterdir()
+        if p.is_file() and _ASSET_REPORT_FILE_RE.match(p.name)
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.name, reverse=True)
+    return candidates[0]
+
+
 @app.route('/')
 def index():
     is_prod = check_is_prod()
     return render_template('index.html', is_local=check_is_local(), is_prod=is_prod)
+
+
+@app.route('/asset-report')
+@app.route('/asset-report/<ym>')
+def view_asset_report(ym=None):
+    """생성된 독립형 월별 자산/배당금/지출 HTML 보고서를 로그인 세션 내에서 반환한다."""
+    report_path = _resolve_asset_report_path(ym)
+    if not report_path:
+        return "생성된 자산 보고서가 없습니다.", 404
+    return send_file(report_path, mimetype='text/html')
 
 @app.route('/api/collect', methods=['POST'])
 def start_collection():

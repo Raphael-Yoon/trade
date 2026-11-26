@@ -811,55 +811,37 @@ def get_extra_stock_data(ticker, name, headers, data):
                 extra['inst_today_net'] = i_today
                 break
 
-        # 2. 뉴스 검색 (news_search.naver)
-        import urllib.parse
-        query = name if name else ticker
-        encoded_query = urllib.parse.quote(query.encode('euc-kr'))
-        news_url = f"https://finance.naver.com/news/news_search.naver?q={encoded_query}"
-        res = requests.get(news_url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        # 2. 뉴스 검색 (네이버 모바일 뉴스 API)
+        try:
+            m_news_url = f"https://m.stock.naver.com/api/news/stock/{ticker}?pageSize=5"
+            n_res = requests.get(m_news_url, headers=headers, timeout=5)
+            if n_res.status_code == 200:
+                n_data = n_res.json()
+                items_list = []
+                if isinstance(n_data, list):
+                    for group in n_data:
+                        if isinstance(group, dict) and 'items' in group:
+                            items_list.extend(group['items'])
+                elif isinstance(n_data, dict) and 'items' in n_data:
+                    items_list = n_data['items']
 
-        # newsList는 dl 요소 자체이며, 내부에 dt/dd 쌍으로 기사가 나열됨
-        news_dl = soup.select_one('dl.newsList')
-        if news_dl:
-            # articleSubject를 가진 모든 요소 찾기 (dt 또는 dd)
-            subject_elements = news_dl.select('dt.articleSubject, dd.articleSubject')
-            for subj_el in subject_elements:
-                if len(extra['news']) >= 4:
-                    break
-
-                link_el = subj_el.select_one('a')
-                if not link_el:
-                    continue
-
-                title = link_el.get_text(strip=True)
-                href = link_el.get('href', '')
-                link = "https://finance.naver.com" + href if href.startswith('/') else href
-
-                # 다음 형제 요소에서 press/date 찾기
-                source = ""
-                date = ""
-
-                # articleSummary는 보통 바로 다음 dd 형제에 있음
-                next_sibling = subj_el.find_next_sibling()
-                if next_sibling and 'articleSummary' in next_sibling.get('class', []):
-                    press_el = next_sibling.select_one('.press')
-                    date_el = next_sibling.select_one('.wdate')
-                    if press_el:
-                        source = press_el.get_text(strip=True)
-                    if date_el:
-                        # 날짜 텍스트 정리 (내부 공백/줄바꿈 제거)
-                        date = ' '.join(date_el.get_text(strip=True).split())
-
-                if title:  # 제목이 있는 경우만 추가
-                    body = get_news_body(link, headers) if link else ''
-                    extra['news'].append({
-                        'title': title,
-                        'link': link,
-                        'source': source,
-                        'date': date,
-                        'body': body
-                    })
+                for item in items_list[:5]:
+                    title = item.get('title') or item.get('tit') or ''
+                    link = item.get('mobileNewsUrl') or item.get('link') or ''
+                    source = item.get('officeName') or ''
+                    dt_raw = str(item.get('datetime') or '')
+                    date_str = f"{dt_raw[:4]}.{dt_raw[4:6]}.{dt_raw[6:8]} {dt_raw[8:10]}:{dt_raw[10:12]}" if len(dt_raw) >= 12 else dt_raw
+                    body = item.get('body') or ''
+                    if title:
+                        extra['news'].append({
+                            'title': title,
+                            'link': link,
+                            'source': source,
+                            'date': date_str,
+                            'body': body
+                        })
+        except Exception as ne:
+            pass
 
         # 3. 이동평균선 계산
         ma_data = get_moving_averages(ticker, headers)

@@ -158,6 +158,13 @@ def main():
         if recent_news:
             desc_parts.append(f"최근 관련 보도로 '{recent_news[0]}'" + (f" 외 {len(recent_news)-1}건" if len(recent_news) > 1 else "") + " 뉴스 등이 확인됩니다.")
             
+        prep_val = float(c.get('prepayments', 0.0) or 0.0)
+        prep_g = float(c.get('prep_growth', 0.0) or 0.0)
+        adj_debt = float(c.get('adjusted_debt', c['debt']) if c.get('adjusted_debt') is not None else c['debt'])
+        if prep_val >= 1e10 and abs(c['debt'] - adj_debt) >= 1.0:
+            prep_str = f"{prep_val/1e12:.1f}조" if prep_val >= 1e12 else f"{prep_val/1e8:,.0f}억"
+            desc_parts.append(f"선수금(계약부채) {prep_str}({prep_g:+.1f}%) 차감 시 실질부채비율 {adj_debt:.1f}%(명목 {c['debt']:.1f}%)로 재무건전성이 우수합니다.")
+
         if desc_parts:
             reason = f"[{c['sector']}] " + " ".join(desc_parts)
         else:
@@ -172,6 +179,11 @@ def main():
             'upside': c['upside'],
             'roe': c['roe'],
             'debt': c['debt'],
+            'adjusted_debt': adj_debt,
+            'prepayments': prep_val,
+            'prep_growth': prep_g,
+            'operating_margin': round(float(c.get('operating_margin', 0.0) or 0.0), 2),
+            'base_score': round(float(c.get('score', 0.0) or 0.0), 2),
             'pbr': c.get('pbr', 0.0),
             'op_profit': c.get('op_profit', 0.0),
             'operating_growth': c.get('op_growth', 0.0),
@@ -220,7 +232,8 @@ def main():
     cursor = conn.cursor()
     
     # tr_audit_recommendations 테이블에 컬럼이 없을 경우를 대비해 ALTER TABLE 자동 실행
-    for col in ['operating_growth', 'revenue_growth', 'pbr', 'op_profit']:
+    extra_cols = ['operating_growth', 'revenue_growth', 'pbr', 'op_profit', 'adjusted_debt', 'prepayments', 'prep_growth', 'operating_margin', 'base_score']
+    for col in extra_cols:
         try:
             cursor.execute(f"ALTER TABLE tr_audit_recommendations ADD COLUMN {col} REAL")
         except sqlite3.OperationalError:
@@ -234,17 +247,65 @@ def main():
         cursor.execute("""
             INSERT INTO tr_audit_recommendations
             (code, name, sector, current_price, target_price, upside, opinion, data_date, created_at,
-             score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json, operating_growth, revenue_growth, pbr, op_profit)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json,
+             operating_growth, revenue_growth, pbr, op_profit,
+             adjusted_debt, prepayments, prep_growth, operating_margin, base_score)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             r['code'], r['name'], r['sector'], r['current_price'], r['target_price'], r['upside'],
             r['opinion'], r['data_date'], now_str, r['score'], r['roe'], r['debt'], r['reason'],
-            r['news_summary'], r['rec_type'], r['one_liner'], r['disc_json'], r['operating_growth'], r['revenue_growth'],
-            r['pbr'], r['op_profit']
+            r['news_summary'], r['rec_type'], r['one_liner'], r['disc_json'],
+            r['operating_growth'], r['revenue_growth'], r['pbr'], r['op_profit'],
+            r['adjusted_debt'], r['prepayments'], r['prep_growth'], r['operating_margin'], r['base_score']
         ))
     conn.commit()
     conn.close()
     print("[+] DB Load Successful!")
+
+    # 3. MySQL DB 적재 (설정되어 있을 경우)
+    from dotenv import load_dotenv
+    load_dotenv(TRADE_DIR / '.env')
+    db_url = os.getenv('DATABASE_URL', '')
+    if db_url and db_url.startswith('mysql'):
+        try:
+            import pymysql
+            from urllib.parse import urlparse
+            u = urlparse(db_url)
+            m_conn = pymysql.connect(
+                host=u.hostname or '127.0.0.1',
+                port=u.port or 3306,
+                user=u.username or 'root',
+                password=u.password or '',
+                database=u.path.lstrip('/') or 'trade',
+                charset='utf8mb4'
+            )
+            m_cursor = m_conn.cursor()
+            for col in extra_cols:
+                try:
+                    m_cursor.execute(f"ALTER TABLE tr_audit_recommendations ADD COLUMN {col} DOUBLE")
+                except Exception:
+                    pass
+            m_cursor.execute("DELETE FROM tr_audit_recommendations WHERE rec_type IN ('large_cap', 'mid_cap', 'small_cap', 'value', 'momentum')")
+            for r in combined:
+                m_cursor.execute("""
+                    INSERT INTO tr_audit_recommendations
+                    (code, name, sector, current_price, target_price, upside, opinion, data_date, created_at,
+                     score, roe, debt, reason, news_summary, rec_type, one_liner, disc_json,
+                     operating_growth, revenue_growth, pbr, op_profit,
+                     adjusted_debt, prepayments, prep_growth, operating_margin, base_score)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    r['code'], r['name'], r['sector'], r['current_price'], r['target_price'], r['upside'],
+                    r['opinion'], r['data_date'], now_str, r['score'], r['roe'], r['debt'], r['reason'],
+                    r['news_summary'], r['rec_type'], r['one_liner'], r['disc_json'],
+                    r['operating_growth'], r['revenue_growth'], r['pbr'], r['op_profit'],
+                    r['adjusted_debt'], r['prepayments'], r['prep_growth'], r['operating_margin'], r['base_score']
+                ))
+            m_conn.commit()
+            m_conn.close()
+            print("[+] MySQL DB Load Successful!")
+        except Exception as me:
+            print(f"[!] MySQL DB Load Failed: {me}")
 
 if __name__ == '__main__':
     main()
