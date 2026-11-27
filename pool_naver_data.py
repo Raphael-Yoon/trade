@@ -624,64 +624,54 @@ def get_all_naver_data(ticker):
 
 def get_moving_averages(ticker, headers):
     """
-    네이버 금융 일별 시세 페이지에서 최근 20일 종가를 가져와 5일, 20일 이동평균선을 계산합니다.
-    추가로 전일(어제)의 등락률도 계산합니다.
+    네이버 금융 모바일 일별 시세 JSON API에서 최근 25거래일 종가를 가져와 5일, 20일 이동평균선 및 이격도를 계산합니다.
+    (구 PC sise_day.naver 410 폐지 대응)
     """
     ma_data = {'ma5': 0, 'ma20': 0, 'ma5_diff': 0, 'ma20_diff': 0, 'prev_change_rate': 0.0}
     try:
-        url = f"https://finance.naver.com/item/sise_day.naver?code={ticker}&page=1"
+        url = f"https://m.stock.naver.com/api/stock/{ticker}/price?pageSize=25&page=1"
         res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
+        if res.status_code != 200:
+            return ma_data
+        items = res.json()
+        if not isinstance(items, list):
+            return ma_data
+
         prices = []
-        rows = soup.select('tr[onmouseover]')
-        for row in rows:
-            tds = row.find_all('td')
-            if len(tds) >= 2:
+        for item in items:
+            raw_close = str(item.get('closePrice', '')).replace(',', '').strip()
+            if raw_close:
                 try:
-                    price = int(tds[1].get_text(strip=True).replace(',', ''))
-                    prices.append(price)
-                except: continue
-        
-        # 전일 등락률 계산 (어제 종가 vs 그저께 종가)
+                    prices.append(int(float(raw_close)))
+                except Exception:
+                    continue
+
         if len(prices) >= 2:
-            yesterday_price = prices[0] # 가장 최근 종가 (오늘 장중이면 오늘 가격일 수 있으나 일별 시세 페이지 특성상 보통 어제 종가가 첫번째)
-            # 만약 장중이라면 prices[0]이 오늘 가격일 수 있음. 
-            # 네이버 일별 시세 페이지는 장중에도 오늘 가격을 첫번째 행에 보여줌.
-            # 전일 상승률을 구하려면 '어제 vs 그저께'가 필요함.
-            
-            # 장중(09:00~15:30) 여부 확인하여 인덱스 조정
             from datetime import datetime
             now = datetime.now()
             is_trading = now.weekday() < 5 and 9 <= now.hour < 16
-            
-            if is_trading:
-                # 장중이면 prices[0]은 오늘, prices[1]은 어제, prices[2]는 그저께
-                if len(prices) >= 3:
-                    y_close = prices[1]
-                    db_close = prices[2]
-                    ma_data['prev_change_rate'] = round((y_close - db_close) / db_close * 100, 2)
-            else:
-                # 장 마감 후면 prices[0]은 오늘(또는 가장 최근 거래일), prices[1]은 어제
-                y_close = prices[0]
-                db_close = prices[1]
-                ma_data['prev_change_rate'] = round((y_close - db_close) / db_close * 100, 2)
+            if is_trading and len(prices) >= 3 and prices[2] > 0:
+                ma_data['prev_change_rate'] = round((prices[1] - prices[2]) / prices[2] * 100, 2)
+            elif prices[1] > 0:
+                ma_data['prev_change_rate'] = round((prices[0] - prices[1]) / prices[1] * 100, 2)
 
         if len(prices) >= 5:
             ma5 = sum(prices[:5]) / 5
-            ma_data['ma5'] = round(ma5, 2)
-            ma_data['ma5_diff'] = round(((prices[0] - ma5) / ma5) * 100, 2)
-            
+            if ma5 > 0:
+                ma_data['ma5'] = round(ma5, 2)
+                ma_data['ma5_diff'] = round(((prices[0] - ma5) / ma5) * 100, 2)
+
         if len(prices) >= 20:
             ma20 = sum(prices[:20]) / 20
-            ma_data['ma20'] = round(ma20, 2)
-            ma_data['ma20_diff'] = round(((prices[0] - ma20) / ma20) * 100, 2)
+            if ma20 > 0:
+                ma_data['ma20'] = round(ma20, 2)
+                ma_data['ma20_diff'] = round(((prices[0] - ma20) / ma20) * 100, 2)
         elif len(prices) > 0:
-            # 20일치가 안되면 있는만큼만
             ma20 = sum(prices) / len(prices)
-            ma_data['ma20'] = round(ma20, 2)
-            ma_data['ma20_diff'] = round(((prices[0] - ma20) / ma20) * 100, 2)
-            
+            if ma20 > 0:
+                ma_data['ma20'] = round(ma20, 2)
+                ma_data['ma20_diff'] = round(((prices[0] - ma20) / ma20) * 100, 2)
+
     except Exception as e:
         print(f"MA calculation error for {ticker}: {e}")
     return ma_data
@@ -732,84 +722,48 @@ def get_extra_stock_data(ticker, name, headers, data):
     }
     
     try:
-        # 1. 수급 추세 및 자기주식 (frgn.naver)
-        frgn_url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
-        res = requests.get(frgn_url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
-        # 자기주식수 및 비율 추출
+        # 1. 수급 추세 (네이버 모바일 trend JSON API — 구 PC frgn.naver SPA 전환 대응)
         try:
-            for th in soup.find_all('th'):
-                if '자기주식' in th.text:
-                    td = th.find_next_sibling('td')
-                    if td:
-                        text = td.get_text(strip=True)
-                        # 1. 비율 추출 (예: 1.14%)
-                        ratio_match = re.search(r'([\d.]+)\s*%', text)
-                        if ratio_match:
-                            extra['treasury_ratio'] = float(ratio_match.group(1))
-                        
-                        # 2. 수량 추출 (예: 68,024,561)
-                        # 괄호 밖의 큰 숫자를 수량으로 판단
-                        count_text = re.sub(r'\(.*?\)', '', text)
-                        nums = re.findall(r'[\d,]+', count_text)
-                        if nums:
-                            count_val = int(nums[0].replace(',', ''))
-                            # 만약 추출된 숫자가 너무 작고(100 미만) 소수점이 포함되어 있었다면 비율일 가능성 높음
-                            if count_val < 100 and '.' in nums[0]:
-                                if extra['treasury_ratio'] == 0:
-                                    extra['treasury_ratio'] = float(nums[0])
-                            else:
-                                extra['treasury_shares'] = count_val
-            
-            # 3. 데이터 상호 보완 (수량은 있는데 비율이 없거나 그 반대인 경우)
-            if extra['treasury_shares'] > 0 and extra['treasury_ratio'] == 0:
-                if data.get('outstanding_shares', 0) > 0:
-                    extra['treasury_ratio'] = round((extra['treasury_shares'] / data['outstanding_shares']) * 100, 2)
-            elif extra['treasury_ratio'] > 0 and extra['treasury_shares'] == 0:
-                if data.get('outstanding_shares', 0) > 0:
-                    extra['treasury_shares'] = int(data['outstanding_shares'] * (extra['treasury_ratio'] / 100))
-        except: pass
-
-        tables = soup.find_all('table', class_='type2')
-        for table in tables:
-            if '날짜' in table.get_text() and '기관' in table.get_text():
-                rows = table.select('tr[onmouseover]')
-                f_5d, f_20d, i_5d, i_20d = 0, 0, 0, 0
-                f_5d_weighted, i_5d_weighted = 0.0, 0.0
-                f_today, i_today = 0, 0
-                weights = [0.45, 0.25, 0.15, 0.10, 0.05]
-                for i, row in enumerate(rows):
-                    tds = row.find_all('td')
-                    if len(tds) >= 9:
+            trend_url = f"https://m.stock.naver.com/api/stock/{ticker}/trend?pageSize=20&page=1"
+            t_res = requests.get(trend_url, headers=headers, timeout=5)
+            if t_res.status_code == 200:
+                t_items = t_res.json()
+                if isinstance(t_items, list) and t_items:
+                    f_5d, f_20d, i_5d, i_20d = 0, 0, 0, 0
+                    f_5d_weighted, i_5d_weighted = 0.0, 0.0
+                    f_today, i_today = 0, 0
+                    weights = [0.45, 0.25, 0.15, 0.10, 0.05]
+                    for idx, item in enumerate(t_items[:20]):
                         try:
-                            i_val = int(re.sub(r'[^0-9\-]', '', tds[5].get_text(strip=True) or '0'))
-                            f_val = int(re.sub(r'[^0-9\-]', '', tds[6].get_text(strip=True) or '0'))
-                            
-                            if i == 0:
-                                f_today = f_val
-                                i_today = i_val
-                            
-                            if i < 5:
-                                f_5d += f_val
-                                i_5d += i_val
-                                if i < len(weights):
-                                    f_5d_weighted += f_val * weights[i]
-                                    i_5d_weighted += i_val * weights[i]
-                            if i < 20:
-                                f_20d += f_val
-                                i_20d += i_val
-                        except: continue
-                
-                extra['foreign_5d_net'] = f_5d
-                extra['foreign_20d_net'] = f_20d
-                extra['inst_5d_net'] = i_5d
-                extra['inst_20d_net'] = i_20d
-                extra['foreign_5d_weighted'] = round(f_5d_weighted, 2)
-                extra['inst_5d_weighted'] = round(i_5d_weighted, 2)
-                extra['foreign_today_net'] = f_today
-                extra['inst_today_net'] = i_today
-                break
+                            f_raw = re.sub(r'[^0-9\-]', '', str(item.get('foreignerPureBuyQuant', '0') or '0'))
+                            i_raw = re.sub(r'[^0-9\-]', '', str(item.get('organPureBuyQuant', '0') or '0'))
+                            f_val = int(f_raw) if f_raw and f_raw != '-' else 0
+                            i_val = int(i_raw) if i_raw and i_raw != '-' else 0
+                        except Exception:
+                            continue
+
+                        if idx == 0:
+                            f_today = f_val
+                            i_today = i_val
+                        if idx < 5:
+                            f_5d += f_val
+                            i_5d += i_val
+                            if idx < len(weights):
+                                f_5d_weighted += f_val * weights[idx]
+                                i_5d_weighted += i_val * weights[idx]
+                        f_20d += f_val
+                        i_20d += i_val
+
+                    extra['foreign_5d_net'] = f_5d
+                    extra['foreign_20d_net'] = f_20d
+                    extra['inst_5d_net'] = i_5d
+                    extra['inst_20d_net'] = i_20d
+                    extra['foreign_5d_weighted'] = round(f_5d_weighted, 2)
+                    extra['inst_5d_weighted'] = round(i_5d_weighted, 2)
+                    extra['foreign_today_net'] = f_today
+                    extra['inst_today_net'] = i_today
+        except Exception:
+            pass
 
         # 2. 뉴스 검색 (네이버 모바일 뉴스 API)
         try:

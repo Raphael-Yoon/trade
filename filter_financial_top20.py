@@ -6,18 +6,130 @@ import argparse
 import json
 import sqlite3
 import re
+import time
 from datetime import datetime
+from pathlib import Path
+import requests
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(PROJECT_ROOT)
-sys.path.append(os.path.join(PROJECT_ROOT, 'trade'))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+TRADE_DIR = PROJECT_ROOT / 'trade'
+sys.path.append(str(PROJECT_ROOT))
+sys.path.append(str(TRADE_DIR))
 
-load_dotenv(os.path.join(PROJECT_ROOT, 'trade', '.env'))
+load_dotenv(TRADE_DIR / '.env')
 DATABASE_URL = os.getenv('DATABASE_URL')
-SQLITE_PATH = os.path.join(PROJECT_ROOT, 'trade', 'trade.db')
+SQLITE_PATH = TRADE_DIR / 'trade.db'
+
+
+def resolve_market_map(df):
+    """각 종목의 시장구분(KOSPI / KOSDAQ)을 판별한다.
+    우선순위: (1) 엑셀 '시장구분' 컬럼 -> (2) tr_stocks_master DB -> (3) 네이버 모바일 API 폴백
+    """
+    market_map = {}
+
+    if '시장구분' in df.columns:
+        for _, row in df[['code', '시장구분']].dropna(subset=['시장구분']).iterrows():
+            val = str(row['시장구분']).strip().upper()
+            if val in ('KOSPI', 'KOSDAQ'):
+                market_map[row['code']] = val
+
+    unresolved = [c for c in df['code'].unique() if c not in market_map]
+
+    # 2차: 로컬 SQLite tr_stocks_master 조회
+    if unresolved and SQLITE_PATH.exists():
+        try:
+            conn = sqlite3.connect(SQLITE_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT code, market FROM tr_stocks_master WHERE market IN ('KOSPI', 'KOSDAQ')")
+            for code, mkt in cursor.fetchall():
+                c_norm = str(code).strip().zfill(6)
+                if c_norm not in market_map:
+                    market_map[c_norm] = str(mkt).strip().upper()
+            conn.close()
+        except Exception as e:
+            print(f"[!] tr_stocks_master 조회 실패 (무시 후 폴백): {e}")
+
+    unresolved = [c for c in df['code'].unique() if c not in market_map]
+
+    # 3차: 네이버 모바일 API marketValue 조회 (미매핑 종목 보완)
+    if unresolved:
+        print(f"[*] 시장구분 미매핑 {len(unresolved)}개 종목에 대해 네이버 API 보완 조회 시작...")
+        unresolved_set = set(unresolved)
+        session = requests.Session()
+        session.headers.update({'User-Agent': 'Mozilla/5.0'})
+        for mkt in ('KOSPI', 'KOSDAQ'):
+            page = 1
+            page_size = 100
+            while page <= 40 and unresolved_set:
+                url = f"https://m.stock.naver.com/api/stocks/marketValue/{mkt}?page={page}&pageSize={page_size}"
+                try:
+                    res = session.get(url, timeout=5)
+                    if res.status_code != 200:
+                        break
+                    stocks = res.json().get('stocks', [])
+                    if not stocks:
+                        break
+                    for s in stocks:
+                        code = str(s.get('itemCode', '')).strip().zfill(6)
+                        if code in unresolved_set:
+                            market_map[code] = mkt
+                            unresolved_set.discard(code)
+                    if len(stocks) < page_size:
+                        break
+                    page += 1
+                    time.sleep(0.02)
+                except Exception as e:
+                    print(f"[!] 네이버 {mkt} 시장목록 조회 중 오류 (page {page}): {e}")
+                    break
+        print(f"[*] 네이버 보완 조회 완료 (잔여 미매핑: {len(unresolved_set)}개)")
+
+    return market_map
+
+
+def score_market_pool(pool_df):
+    """단일 시장(KOSPI 또는 KOSDAQ) 풀 내부에서 독립 백분위 스코어(0~100)를 산출한다.
+    이상치/기저효과 왜곡 방지를 위해 영업이익률(0~60%), ROE(0~60%), 영업이익증가율(-100~300%)에 클램핑을 적용한다.
+    """
+    pool = pool_df.copy()
+    if pool.empty:
+        pool['unified_score'] = pd.Series(dtype=float)
+        return pool
+
+    op_profit_pct = pool['영업이익_fill'].rank(pct=True)
+    roe_pct = pool['ROE_fill'].clip(lower=0.0, upper=60.0).rank(pct=True)
+    op_margin_pct = pool['영업이익률_fill'].clip(lower=0.0, upper=60.0).rank(pct=True)
+
+    # 실질부채비율 안전구간 평준화
+    is_fin_filtered = pool['업종'].astype(str).str.contains('은행|증권|카드|보험|금융|투자', na=False)
+    is_high_prepayment_filtered = pool['업종'].astype(str).str.contains('조선|우주항공|방위|기계|방산', na=False)
+    has_row_adj_filtered = pool['실질부채비율'].notna()
+    adj_debt_vals = pool['실질부채비율_fill'].clip(lower=0.0)
+    health_pct_tiered = np.where(
+        is_fin_filtered,
+        0.60,
+        np.where(
+            adj_debt_vals <= 100.0,
+            1.0 - (adj_debt_vals / 100.0) * 0.20,
+            np.maximum(0.20, 0.80 - ((adj_debt_vals - 100.0) / 50.0) * 0.30)
+        )
+    )
+    health_pct = np.where((~has_row_adj_filtered) & is_high_prepayment_filtered, 0.80, health_pct_tiered)
+
+    valuation_pct = 1 - pool['PBR_fill'].rank(pct=True)
+    op_growth_pct = pool['영업이익증가율_fill'].clip(lower=-100.0, upper=300.0).rank(pct=True)
+
+    pool['unified_score'] = (
+        op_profit_pct * 0.25 +
+        roe_pct * 0.20 +
+        op_margin_pct * 0.15 +
+        health_pct * 0.10 +
+        valuation_pct * 0.10 +
+        op_growth_pct * 0.20
+    ) * 100
+    return pool
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Financial-based stock screener")
@@ -55,12 +167,12 @@ def main():
     # 폴백: 로컬 results 및 trade 폴더에서 검색
     if df is None:
         possible_paths = [
-            os.path.join(PROJECT_ROOT, 'trade', 'results', args.source_file),
-            os.path.join(PROJECT_ROOT, 'trade', args.source_file),
-            args.source_file
+            TRADE_DIR / 'results' / args.source_file,
+            TRADE_DIR / args.source_file,
+            Path(args.source_file)
         ]
         for p in possible_paths:
-            if os.path.exists(p):
+            if p.exists():
                 print(f"[*] Loading from fallback local path: {p}...")
                 df = pd.read_excel(p)
                 print("[+] Successfully loaded from fallback path.")
@@ -101,8 +213,10 @@ def main():
 
     # 결측치 보정
     df['영업이익_fill'] = df['영업이익'].fillna(0.0)
+    df['당기순이익_fill'] = df['당기순이익'].fillna(0.0)
     df['ROE_fill'] = df['ROE'].fillna(0.0)
     df['PBR_fill'] = df['PBR'].fillna(df['PBR'].median())
+    df['PER_fill'] = df['PER'].fillna(0.0)
     df['영업이익증가율_fill'] = df['영업이익증가율(%)'].fillna(0.0)
     df['매출액증가율_fill'] = df['매출액증가율(%)'].fillna(0.0)
     df['영업이익률_fill'] = df['영업이익률'].fillna(0.0)
@@ -114,14 +228,39 @@ def main():
     df['매출액_fill'] = df['매출액'].fillna(0.0)
     df['영업이익_val'] = df['영업이익'].fillna(0.0)
 
+    # 종목코드 6자리 정규화
+    def format_code(c):
+        c_str = str(c).strip()
+        return c_str.zfill(6) if len(c_str) < 6 else c_str
+
+    df['code'] = df['종목코드'].apply(format_code)
+
+    # 우선주 및 상장자산(리츠, ETN, ETF, 스팩) 스코어링 전 선배제
+    before_asset = len(df)
+    df = df[~df['종목명'].astype(str).str.endswith(('우', '우B', '우C', '우(전환)', '3우B'))]
+    df = df[~df['종목명'].astype(str).str.contains('리츠|ETN|ETF|스팩|레버리지|선물|인버스|Koosec', na=False)]
+    print(f"[*] After Preferred/ETF/SPAC/REIT exclusion: {before_asset} -> {len(df)} stocks remaining")
+
     # 영업이익률 결측치 산출 보정 (영업이익 / 매출액)
     calc_op_margin = np.where(df['매출액_fill'] > 0, (df['영업이익_val'] / df['매출액_fill']) * 100, 0.0)
     df['영업이익률_fill'] = np.where((df['영업이익률_fill'] <= 0) & (df['매출액_fill'] > 0), calc_op_margin, df['영업이익률_fill'])
 
-    # PBR 밸류에이션 안전마진(Safety Cap) 하드 필터링: PBR 12.0배 초과 투기성 과열주 자동 배제
+    # 기본 수익성 및 최소 유동성(시가총액 1,000억 이상) 하드 필터링
+    before_profit = len(df)
+    df = df[
+        (df['매출액_fill'] > 0) &
+        (df['영업이익_fill'] > 0) &
+        (df['당기순이익_fill'] > 0) &
+        (df['시가총액_fill'] >= 1000.0)
+    ]
+    print(f"[*] After Profitability(Sales/OP/NI>0) & Cap(>=1,000억) filtering: {before_profit} -> {len(df)} stocks remaining")
+
+    # PBR 밸류에이션 안전마진(Safety Cap) 하드 필터링:
+    # PBR 12.0배 이하 원칙, 단 고ROE(>=25%) & 합리적 PER(0<PER<=25) 성장 우량주는 예외 허용
     before_pbr = len(df)
-    df = df[df['PBR_fill'] <= 12.0]
-    print(f"[*] After PBR Safety Cap (<= 12.0) filtering: {before_pbr} -> {len(df)} stocks remaining")
+    high_roe_exception = (df['PER_fill'] > 0) & (df['PER_fill'] <= 25.0) & (df['ROE_fill'] >= 25.0)
+    df = df[(df['PBR_fill'] <= 12.0) | high_roe_exception]
+    print(f"[*] After PBR Safety Cap (<= 12.0 or High-ROE/Low-PER) filtering: {before_pbr} -> {len(df)} stocks remaining")
 
     # 자산총계 컬럼 처리
     if '자산총계' in df.columns:
@@ -141,102 +280,19 @@ def main():
     ]
     print(f"[*] After Debt Ratio filtering (Adjusted<=150% or Legacy<=150%/500%): {before_debt} -> {len(df)} stocks remaining")
 
-    # 6. 스코어링 계산
-    # 단일 공통 스코어 (Unified Score) 계산 (영업이익 규모 25% + ROE 20% + 영업이익률 15% + 부채비율 안정도 10% + PBR 저평가도 10% + 영업이익 성장률 20%)
-    op_profit_pct = df['영업이익_fill'].rank(pct=True)
-    roe_pct = df['ROE_fill'].rank(pct=True)
-    op_margin_pct = df['영업이익률_fill'].rank(pct=True)
-    
-    # 실질부채비율 안전구간 평준화:
-    # - 100% 이하 안전구간: 0.80 ~ 1.00 (장치/수주/제조업이 10~30% IT기업 대비 과도한 감점을 받지 않도록 평준화)
-    # - 100% ~ 150% 허용구간: 0.50 ~ 0.80
-    # - 금융업: 레버리지 업종 특성상 중립 기준(0.60) 부여
-    # - 미집계 구형 파일 수주업종: 0.80 폴백 유지
-    is_fin_filtered = df['업종'].astype(str).str.contains('은행|증권|카드|보험|금융|투자', na=False)
-    is_high_prepayment_filtered = df['업종'].astype(str).str.contains('조선|우주항공|방위|기계|방산', na=False)
-    has_row_adj_filtered = df['실질부채비율'].notna()
-    adj_debt_vals = df['실질부채비율_fill'].clip(lower=0.0)
-    health_pct_tiered = np.where(
-        is_fin_filtered,
-        0.60,
-        np.where(
-            adj_debt_vals <= 100.0,
-            1.0 - (adj_debt_vals / 100.0) * 0.20,
-            np.maximum(0.20, 0.80 - ((adj_debt_vals - 100.0) / 50.0) * 0.30)
-        )
-    )
-    health_pct = np.where((~has_row_adj_filtered) & is_high_prepayment_filtered, 0.80, health_pct_tiered)
-    
-    valuation_pct = 1 - df['PBR_fill'].rank(pct=True)
-    op_growth_pct = df['영업이익증가율_fill'].rank(pct=True)
+    # 6. 시장구분(KOSPI / KOSDAQ) 매핑 및 시장별 독립 스코어링
+    market_map = resolve_market_map(df)
+    df = df.copy()
+    df['market'] = df['code'].map(market_map).fillna('UNKNOWN')
 
-    df['unified_score'] = (
-        op_profit_pct * 0.25 +
-        roe_pct * 0.20 +
-        op_margin_pct * 0.15 +
-        health_pct * 0.10 +
-        valuation_pct * 0.10 +
-        op_growth_pct * 0.20
-    ) * 100
+    kospi_pool = score_market_pool(df[df['market'] == 'KOSPI'])
+    kosdaq_pool = score_market_pool(df[df['market'] == 'KOSDAQ'])
+    unknown_cnt = int((df['market'] == 'UNKNOWN').sum())
+    print(f"[*] Market Pool Split -> KOSPI: {len(kospi_pool)}개, KOSDAQ: {len(kosdaq_pool)}개 (미매핑 제외: {unknown_cnt}개)")
 
-    # 7. 상위 20개 종목 추출
-    def format_code(c):
-        c_str = str(c).strip()
-        return c_str.zfill(6) if len(c_str) < 6 else c_str
-
-    df['code'] = df['종목코드'].apply(format_code)
-
-    # 우선주 및 상장자산(리츠, ETN, ETF, 스팩) 배제 필터 적용
-    df = df[~df['종목명'].astype(str).str.endswith(('우', '우B', '우C', '우(전환)', '3우B'))]
-    df = df[~df['종목명'].astype(str).str.contains('리츠|ETN|ETF|스팩|레버리지|선물|인버스|Koosec', na=False)]
-
-    # 대형주(Large Cap) 풀: 자산/매출 2조 원 이상(또는 시총 2조/영업익 5천억 이상) + 최소 시가총액 1조 원 이상 필수 가드
-    if (df['자산총계_fill'] > 0).any():
-        print("[*] 대형주 선별 기준: 자산/매출 2조 원 이상 및 시총 1조 원 이상 기업 적용")
-        large_cap_pool = df[
-            ((df['자산총계_fill'] >= 2000000000000.0) | (df['매출액_fill'] >= 2000000000000.0) | (df['시가총액_fill'] >= 20000.0) | (df['영업이익_val'] >= 500000000000.0)) &
-            (df['시가총액_fill'] >= 10000.0)
-        ]
-    else:
-        print("[*] 대형주 선별 기준: 매출액 2조 원 이상 (자산총계 누락 폴백 - 시총 1조 원 이상 가드 포함)")
-        large_cap_pool = df[
-            ((df['매출액_fill'] >= 2000000000000.0) | (df['시가총액_fill'] >= 20000.0) | (df['영업이익_val'] >= 500000000000.0)) &
-            (df['시가총액_fill'] >= 10000.0)
-        ]
-    
-    # 중형주(Mid Cap) 풀: 자산총계 5천억~2조 미만(또는 자산 2조 이상이나 시총 3천억~1조 미만 지주사)
-    if (df['자산총계_fill'] > 0).any():
-        print("[*] 중형주 선별 기준: 자산총계 5천억 원 이상 ~ 2조 원 미만(및 시총 3천억~1조 지주/중견주) 적용")
-        mid_cap_pool = df[
-            (((df['자산총계_fill'] >= 500000000000.0) & (df['자산총계_fill'] < 2000000000000.0)) |
-            ((df['자산총계_fill'] >= 2000000000000.0) & (df['시가총액_fill'] >= 3000.0) & (df['시가총액_fill'] < 10000.0)) |
-            (((df['자산총계_fill'] == 0) | df['자산총계_fill'].isna()) & (df['매출액_fill'] >= 500000000000.0) & (df['매출액_fill'] < 2000000000000.0))) &
-            (df['시가총액_fill'] < 50000.0)
-        ]
-    else:
-        print("[*] 중형주 선별 기준: 매출액 5천억 원 이상 ~ 2조 원 미만 (자산총계 누락으로 폴백 적용)")
-        mid_cap_pool = df[(df['매출액_fill'] >= 500000000000.0) & (df['매출액_fill'] < 2000000000000.0) & (df['시가총액_fill'] < 50000.0)]
-    
-    # 소형주(Small Cap) 풀: 자산총계 1천억~5천억 미만(또는 자산 5천억 이상이나 시총 3천억 미만 소형주)
-    if (df['자산총계_fill'] > 0).any():
-        print("[*] 소형주 선별 기준: 자산총계 1천억 원 이상 ~ 5천억 원 미만(및 시총 3천억 미만 소형주) 적용")
-        small_cap_pool = df[
-            (((df['자산총계_fill'] >= 100000000000.0) & (df['자산총계_fill'] < 500000000000.0)) |
-            ((df['자산총계_fill'] >= 500000000000.0) & (df['시가총액_fill'] < 3000.0)) |
-            (((df['자산총계_fill'] == 0) | df['자산총계_fill'].isna()) & (df['매출액_fill'] >= 100000000000.0) & (df['매출액_fill'] < 500000000000.0))) &
-            (df['시가총액_fill'] < 10000.0) & (df['영업이익_val'] < 300000000000.0)
-        ]
-    else:
-        print("[*] 소형주 선별 기준: 매출액 1천억 원 이상 ~ 5천억 원 미만 (자산총계 누락으로 폴백 적용)")
-        small_cap_pool = df[(df['매출액_fill'] >= 100000000000.0) & (df['매출액_fill'] < 500000000000.0) & (df['시가총액_fill'] < 10000.0) & (df['영업이익_val'] < 300000000000.0)]
-    
-    # 트랙 간 상호 배제 (대형주에 포함된 종목은 중/소형주에서 제외, 중형주는 소형주에서 제외)
-    mid_cap_pool = mid_cap_pool[~mid_cap_pool.index.isin(large_cap_pool.index)]
-    small_cap_pool = small_cap_pool[~small_cap_pool.index.isin(large_cap_pool.index) & ~small_cap_pool.index.isin(mid_cap_pool.index)]
-
-    top_large_cap = large_cap_pool.sort_values(by='unified_score', ascending=False).head(20).copy()
-    top_mid_cap = mid_cap_pool.sort_values(by='unified_score', ascending=False).head(20).copy()
-    top_small_cap = small_cap_pool.sort_values(by='unified_score', ascending=False).head(20).copy()
+    # 7. 시장별 상위 30개 종목 추출 (총 60개 후보)
+    top_kospi = kospi_pool.sort_values(by='unified_score', ascending=False).head(30).copy()
+    top_kosdaq = kosdaq_pool.sort_values(by='unified_score', ascending=False).head(30).copy()
 
     def to_dict_list(target_df, score_col):
         result = []
@@ -244,9 +300,10 @@ def main():
             result.append({
                 "code": r['code'],
                 "name": str(r['종목명']),
+                "market": str(r['market']),
                 "sector": str(r['업종']),
                 "current_price": 0.0,
-                "target_price": float(r['목표주가']) if pd.notna(r['목표주가']) else 0.0,
+                "target_price": float(r['목표주가']) if ('목표주가' in target_df.columns and pd.notna(r['목표주가'])) else 0.0,
                 "upside": 0.0,
                 "roe": float(r['ROE_fill']),
                 "pbr": float(r['PBR_fill']),
@@ -266,29 +323,23 @@ def main():
             })
         return result
 
-    large_cap_results = to_dict_list(top_large_cap, 'unified_score')
-    mid_cap_results = to_dict_list(top_mid_cap, 'unified_score')
-    small_cap_results = to_dict_list(top_small_cap, 'unified_score')
+    kospi_results = to_dict_list(top_kospi, 'unified_score')
+    kosdaq_results = to_dict_list(top_kosdaq, 'unified_score')
 
-    results_dir = os.path.join(PROJECT_ROOT, 'trade', 'results')
-    os.makedirs(results_dir, exist_ok=True)
+    results_dir = TRADE_DIR / 'results'
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    large_cap_file = os.path.join(results_dir, 'financial_large_cap_top20.json')
-    mid_cap_file = os.path.join(results_dir, 'financial_mid_cap_top20.json')
-    small_cap_file = os.path.join(results_dir, 'financial_small_cap_top20.json')
+    kospi_file = results_dir / 'financial_kospi_top30.json'
+    kosdaq_file = results_dir / 'financial_kosdaq_top30.json'
 
-    with open(large_cap_file, 'w', encoding='utf-8') as f:
-        json.dump(large_cap_results, f, ensure_ascii=False, indent=2)
+    with open(kospi_file, 'w', encoding='utf-8') as f:
+        json.dump(kospi_results, f, ensure_ascii=False, indent=2)
 
-    with open(mid_cap_file, 'w', encoding='utf-8') as f:
-        json.dump(mid_cap_results, f, ensure_ascii=False, indent=2)
+    with open(kosdaq_file, 'w', encoding='utf-8') as f:
+        json.dump(kosdaq_results, f, ensure_ascii=False, indent=2)
 
-    with open(small_cap_file, 'w', encoding='utf-8') as f:
-        json.dump(small_cap_results, f, ensure_ascii=False, indent=2)
-
-    print(f"[+] Step 1 Completed. Large-caps saved to: {large_cap_file}")
-    print(f"[+] Step 1 Completed. Mid-caps saved to: {mid_cap_file}")
-    print(f"[+] Step 1 Completed. Small-caps saved to: {small_cap_file}")
+    print(f"[+] Step 1 Completed. KOSPI Top {len(kospi_results)} saved to: {kospi_file}")
+    print(f"[+] Step 1 Completed. KOSDAQ Top {len(kosdaq_results)} saved to: {kosdaq_file}")
 
 if __name__ == '__main__':
     main()

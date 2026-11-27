@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-STEP 2 — 1단계 선출 종목(대형주/상승주 20위) 대상 뉴스·공시 데이터 수집
-역할: 1단계 선출 종목의 실시간 데이터·뉴스·공시를 수집하여 pool_context_top20.json을 생성한다.
-      생성된 파일은 Claude AI 프롬프트의 입력으로 사용된다.
+STEP 2 — 1단계 선출 종목(KOSPI 30 + KOSDAQ 30, 총 60종목) 대상 뉴스·공시·수급 데이터 수집
+역할: 1단계 선출 후보군의 실시간 주가·뉴스·공시·수급을 수집하여 pool_context_top20.json을 생성한다.
 """
 import sys
 import os
@@ -29,7 +28,7 @@ except ImportError:
     print("[오류] pool_naver_data.py를 로드할 수 없습니다.")
     sys.exit(1)
 
-def collect_stock_context(cand, rec_type):
+def collect_stock_context(cand, rec_type, dart_client=None):
     code = cand['code']
     name = cand['name']
     
@@ -55,14 +54,13 @@ def collect_stock_context(cand, rec_type):
         
     upside = round(((target_price - current_price) / current_price) * 100.0, 1)
     
-    # DART 공시 (1차: OpenDartReader, 2차 폴백: 네이버 모바일 공시 API)
+    # DART 공시 (1차: 공유 OpenDartReader, 2차 폴백: 네이버 모바일 공시 API)
     disclosures = []
-    if DART_KEY:
+    if dart_client is not None:
         try:
-            dart = OpenDartReader(DART_KEY)
             end_dt = datetime.now()
             start_dt = end_dt - timedelta(days=30)
-            df_dart = dart.list(code, start=start_dt.strftime('%Y%m%d'), end=end_dt.strftime('%Y%m%d'))
+            df_dart = dart_client.list(code, start=start_dt.strftime('%Y%m%d'), end=end_dt.strftime('%Y%m%d'))
             if df_dart is not None and len(df_dart) > 0:
                 for _, row in df_dart.iterrows():
                     raw_dt = str(row.get('rcept_dt', ''))
@@ -115,6 +113,7 @@ def collect_stock_context(cand, rec_type):
     return {
         'code': code,
         'name': name,
+        'market': cand.get('market', rec_type.upper()),
         'sector': cand['sector'],
         'current_price': current_price,
         'target_price': target_price,
@@ -143,44 +142,42 @@ def collect_stock_context(cand, rec_type):
     }
 
 def main():
-    print("[*] Starting Step 2 Context Collection...")
+    print("[*] Starting Step 2 Context Collection (KOSPI 30 + KOSDAQ 30)...")
     results_dir = TRADE_DIR / 'results'
-    large_cap_file = results_dir / 'financial_large_cap_top20.json'
-    mid_cap_file = results_dir / 'financial_mid_cap_top20.json'
-    small_cap_file = results_dir / 'financial_small_cap_top20.json'
+    kospi_file = results_dir / 'financial_kospi_top30.json'
+    kosdaq_file = results_dir / 'financial_kosdaq_top30.json'
 
-    if not large_cap_file.exists() or not mid_cap_file.exists() or not small_cap_file.exists():
-        print("[오류] 1단계 결과 파일 중 누락된 것이 있습니다.")
+    if not kospi_file.exists() or not kosdaq_file.exists():
+        print("[오류] 1단계 결과 파일(financial_kospi_top30.json / financial_kosdaq_top30.json)이 누락되었습니다.")
         sys.exit(1)
 
-    with open(large_cap_file, 'r', encoding='utf-8') as f:
-        large_cap_candidates = json.load(f)
-    with open(mid_cap_file, 'r', encoding='utf-8') as f:
-        mid_cap_candidates = json.load(f)
-    with open(small_cap_file, 'r', encoding='utf-8') as f:
-        small_cap_candidates = json.load(f)
+    with open(kospi_file, 'r', encoding='utf-8') as f:
+        kospi_candidates = json.load(f)
+    with open(kosdaq_file, 'r', encoding='utf-8') as f:
+        kosdaq_candidates = json.load(f)
+
+    # OpenDartReader 1회 초기화 후 전 스레드 공유 (중복 초기화 병목 방지)
+    dart_client = None
+    if DART_KEY:
+        try:
+            dart_client = OpenDartReader(DART_KEY)
+            print("[*] OpenDartReader initialized once for shared use.")
+        except Exception as e:
+            print(f"[!] OpenDartReader 초기화 실패 (네이버 공시 폴백 사용): {e}")
 
     all_candidates = []
-    
-    print("[*] Collecting data for Large-caps...")
+
+    print(f"[*] Collecting data for KOSPI candidates ({len(kospi_candidates)} stocks)...")
     with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(collect_stock_context, cand, 'large_cap'): cand for cand in large_cap_candidates}
+        futures = {executor.submit(collect_stock_context, cand, 'kospi', dart_client): cand for cand in kospi_candidates}
         for future in as_completed(futures):
             res = future.result()
             if res:
                 all_candidates.append(res)
 
-    print("[*] Collecting data for Mid-caps...")
+    print(f"[*] Collecting data for KOSDAQ candidates ({len(kosdaq_candidates)} stocks)...")
     with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(collect_stock_context, cand, 'mid_cap'): cand for cand in mid_cap_candidates}
-        for future in as_completed(futures):
-            res = future.result()
-            if res:
-                all_candidates.append(res)
-
-    print("[*] Collecting data for Small-caps...")
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(collect_stock_context, cand, 'small_cap'): cand for cand in small_cap_candidates}
+        futures = {executor.submit(collect_stock_context, cand, 'kosdaq', dart_client): cand for cand in kosdaq_candidates}
         for future in as_completed(futures):
             res = future.result()
             if res:
@@ -191,7 +188,7 @@ def main():
     with open(context_file, 'w', encoding='utf-8') as f:
         json.dump(all_candidates, f, ensure_ascii=False, indent=2)
 
-    print(f"[+] Step 2 Context Collection Completed. Saved to: {context_file}")
+    print(f"[+] Step 2 Context Collection Completed ({len(all_candidates)} stocks). Saved to: {context_file}")
 
 if __name__ == '__main__':
     main()

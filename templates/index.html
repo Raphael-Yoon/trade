@@ -5484,7 +5484,7 @@
         }
 
         function startCalibration(btn, filename) {
-            const message = `'${filename}' 파일을 기준으로 가격 및 시가총액을 최신 실시간 데이터로 동기화하고, 3대 트랙(대형주, 중형주, 소형주) 분석 및 요약을 다시 구성하시겠습니까?\n이 작업은 약 1~2분 정도 소요됩니다.`;
+            const message = `'${filename}' 파일을 기준으로 가격 및 시가총액을 최신 실시간 데이터로 동기화하고, KOSPI/KOSDAQ 2대 시장 트랙(각 TOP 10) 분석 및 요약을 다시 구성하시겠습니까?\n이 작업은 약 1~2분 정도 소요됩니다.`;
             showCustomConfirm(message, function() {
                 // Disable button and show loader
                 const originalText = btn.innerHTML;
@@ -5493,7 +5493,7 @@
                 btn.style.opacity = '0.6';
                 btn.style.cursor = 'not-allowed';
 
-                showToast('실시간 시세 반영 및 3대 트랙 재구성 시작...', 'info');
+                showToast('실시간 시세 반영 및 KOSPI/KOSDAQ 트랙 재구성 시작...', 'info');
                 
                 // Show collection log area
                 const logArea = document.getElementById('collectionLogArea');
@@ -6286,16 +6286,15 @@
         function loadAuditDates() { loadPoolData(); }
 
         let currentPoolTab = 'top10';
-        let currentRecType = '대형주 TOP 10';
+        let currentRecType = 'KOSPI TOP 10';
         let currentWatchlistCodes = new Set();
         let currentTopSectors = [];
         let currentSectorCategories = {};
 
-        // 섹터 구분별 표시 스타일: scale(영업이익 규모 대표) / growth(성장 대표) / other(기타) / large_cap(대형주) / mid_cap(중형주) / small_cap(소형주)
+        // 시장/섹터 구분별 표시 스타일: kospi(코스피) / kosdaq(코스닥) / scale(영업이익 규모 대표) / growth(성장 대표) / other(기타)
         const SECTOR_CATEGORY_STYLE = {
-            large_cap: { icon: '🎯', accent: '#a5b4fc', label: '대형주' },
-            mid_cap:   { icon: '💎', accent: '#60a5fa', label: '중형주' },
-            small_cap: { icon: '🔥', accent: '#ef4444', label: '소형주' },
+            kospi:     { icon: '🏛️', accent: '#60a5fa', label: '코스피' },
+            kosdaq:    { icon: '🚀', accent: '#34d399', label: '코스닥' },
             scale:     { icon: '📊', accent: '#fbbf24', label: '규모' },
             growth:    { icon: '🚀', accent: '#34d399', label: '성장' },
             other:     { icon: '',   accent: '#64748b', label: '' },
@@ -6306,12 +6305,12 @@
             if (!container) return;
             currentTopSectors = topSectors;
 
-            const allTabs = ['대형주 TOP 10', '중형주 TOP 10', '소형주 TOP 10'];
+            const allTabs = ['KOSPI TOP 10', 'KOSDAQ TOP 10'];
 
             container.innerHTML = allTabs.map((sectorName, index) => {
                 const isActive = (currentRecType === sectorName);
-                const category = sectorName === '대형주 TOP 10' ? 'large_cap' : (sectorName === '중형주 TOP 10' ? 'mid_cap' : (sectorName === '소형주 TOP 10' ? 'small_cap' : (currentSectorCategories[sectorName] || 'scale')));
-                const style = SECTOR_CATEGORY_STYLE[category];
+                const category = sectorName === 'KOSPI TOP 10' ? 'kospi' : (sectorName === 'KOSDAQ TOP 10' ? 'kosdaq' : (currentSectorCategories[sectorName] || 'scale'));
+                const style = SECTOR_CATEGORY_STYLE[category] || SECTOR_CATEGORY_STYLE.other;
 
                 const bgStyle = isActive ? 'rgba(99, 102, 241, 0.2)' : 'transparent';
                 const colorStyle = isActive ? '#a5b4fc' : 'var(--text-muted)';
@@ -6335,12 +6334,10 @@
 
         function refreshPoolTop10Rendering() {
             let filtered;
-            if (currentRecType === '대형주 TOP 10') {
-                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'large_cap');
-            } else if (currentRecType === '중형주 TOP 10') {
-                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'mid_cap');
-            } else if (currentRecType === '소형주 TOP 10') {
-                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'small_cap');
+            if (currentRecType === 'KOSPI TOP 10') {
+                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'kospi');
+            } else if (currentRecType === 'KOSDAQ TOP 10') {
+                filtered = currentPoolStocks.filter(s => s.is_rec === 1 && s.rec_type === 'kosdaq');
             } else {
                 filtered = currentPoolStocks.filter(s => {
                     return s.mapped_sector === currentRecType;
@@ -6389,7 +6386,7 @@
                 currentTopSectors = topSectors;
                 currentSectorCategories = poolData.sector_categories || {};
                 
-                currentRecType = '대형주 TOP 10';
+                currentRecType = 'KOSPI TOP 10';
                 
                 buildSectorTabs(topSectors);
                 

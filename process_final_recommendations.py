@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 STEP 3 & 4 — 정성 평가 및 최종 1~10위 선발 & DB 적재
-역할: pool_context_top20.json 데이터를 로드하여 뉴스 감성 및 공시 가감점을 반영하고,
-      대형주(large_cap), 가치주(value), 상승주(momentum) 각각 최종 상위 10개 종목을 선발해 DB 및 sector_recommendations.json에 저장한다.
+역할: pool_context_top20.json 데이터(코스피 30 + 코스닥 30)를 로드하여 뉴스 감성, 공시 가감점, 추세·수급 보정을 반영하고,
+      코스피(kospi), 코스닥(kosdaq) 각각 최종 상위 10개 종목(총 20선)을 선발해 DB 및 sector_recommendations.json에 저장한다.
 """
 import sys
 import os
@@ -19,7 +19,7 @@ def analyze_news_sentiment(news_list):
     pos_words = ['호재', '수주', '흑자', '성장', '계약', '최고', '상승', '신제품', '개발', '전환', '협약', '인수', '진입', '독점', '상위', '우수', '돌파', '강세', 'M&A']
     neg_words = ['악재', '소송', '적자', '하락', '횡령', '배임', '감소', '감원', '피소', '위험', '논란', '위기', '부진', '약세', '우려', '손실', '취소']
     
-    news_score = 60.0
+    news_score = 50.0
     enriched_news = []
     
     for n in news_list:
@@ -81,7 +81,7 @@ def analyze_disclosures(disc_list):
             reason = f"호재성 공시({', '.join(found_pos)})가 확인되었습니다."
         elif found_neg and not found_pos:
             val = -0.5 if is_minor else -1.5
-            impact -= val
+            impact += val
             sentiment = 'negative'
             reason = f"악재성 공시({', '.join(found_neg)})가 확인되었습니다."
             
@@ -111,35 +111,59 @@ def main():
     with open(context_file, 'r', encoding='utf-8') as f:
         candidates = json.load(f)
         
-    large_caps = []
-    mid_caps = []
-    small_caps = []
-    
+    kospi_list = []
+    kosdaq_list = []
+
     for c in candidates:
         name = c['name']
         code = c['code']
         rec_type = c['rec_type']
-        
-        # Hard Filter: 중대 공시
+
+        # Hard Filter: 중대 공시 리스크 (오탐 방지를 위해 감사의견 비적정·횡령·배임 키워드 정밀 매칭)
         has_critical_risk = False
         for d in c.get('disclosures', []):
-            if any(t in d['report_nm'] for t in ['의견거절', '부적정', '한정', '내부회계', '배임', '횡령']):
+            rpt = d.get('report_nm', '')
+            if any(t in rpt for t in ['의견거절', '부적정', '감사의견한정', '의견한정', '감사범위제한', '비적정', '배임', '횡령']):
                 has_critical_risk = True
                 break
         if has_critical_risk:
             print(f"  [제외] {name}({code}): 중대 공시 리스크 감지")
             continue
-            
+
         # 뉴스 및 공시 감성 분석
         enriched_news, news_score = analyze_news_sentiment(c.get('news', []))
         enriched_disc, disc_impact = analyze_disclosures(c.get('disclosures', []))
-        
-        # 최종 점수 계산 (단일 공식 통일 및 정성 평가 스케일 다운)
+
+        # 추세(5일선/20일선 이격도) 및 5일 외국인/기관 수급 보정 (최대 ±3.0점)
+        ma5_diff = float(c.get('ma5_diff', 0.0) or 0.0)
+        ma20_diff = float(c.get('ma20_diff', 0.0) or 0.0)
+        foreign_5d = float(c.get('foreign_5d_net', 0) or 0)
+        inst_5d = float(c.get('inst_5d_net', 0) or 0)
+
+        trend_adj = 0.0
+        if ma20_diff > 25.0:
+            trend_adj = -1.0  # 단기 급등 과열 견제
+        elif ma5_diff > 0 and ma20_diff > 0:
+            trend_adj = 1.0   # 5일·20일선 상방 추세 양호
+        elif ma5_diff < -3.0 and ma20_diff < -5.0:
+            trend_adj = -1.0  # 단기·중기 역배열 하락 추세
+
+        flow_adj = 0.0
+        if foreign_5d > 0 and inst_5d > 0:
+            flow_adj = 2.0    # 외인·기관 쌍끌이 순매수
+        elif foreign_5d > 0 or inst_5d > 0:
+            flow_adj = 0.6    # 단독 순매수
+        elif foreign_5d < 0 and inst_5d < 0:
+            flow_adj = -1.5   # 외인·기관 동반 순매도
+
+        trend_flow_adj = max(-3.0, min(3.0, trend_adj + flow_adj))
+
+        # 최종 점수 계산: 1단계 정량점수 + 뉴스(±1.5) + 공시(±1.5) + 추세·수급(±3.0)
         step1_score = c['score']
-        final_score = step1_score + ((news_score - 50) * 0.06) + disc_impact
-            
+        final_score = step1_score + ((news_score - 50.0) * 0.03) + disc_impact + trend_flow_adj
+
         opinion = "적극매수" if final_score >= 80 else ("매수" if final_score >= 60 else "보유")
-        kor_type = {'large_cap': '대형주', 'mid_cap': '중형주', 'small_cap': '소형주'}.get(rec_type, rec_type)
+        kor_type = {'kospi': '코스피', 'kosdaq': '코스닥'}.get(rec_type, rec_type)
         
         # 최근 공시 및 뉴스 정보 추출 (중복 템플릿 제거)
         recent_discs = [d['report_nm'].strip() for d in c.get('disclosures', []) if d.get('report_nm')]
@@ -198,27 +222,22 @@ def main():
             'data_date': c['data_date']
         }
         
-        if rec_type == 'large_cap':
-            large_caps.append(result_item)
-        elif rec_type == 'mid_cap':
-            mid_caps.append(result_item)
-        elif rec_type == 'small_cap':
-            small_caps.append(result_item)
-            
-    # 정렬 및 Top 10 선정
-    large_caps.sort(key=lambda x: x['score'], reverse=True)
-    mid_caps.sort(key=lambda x: x['score'], reverse=True)
-    small_caps.sort(key=lambda x: x['score'], reverse=True)
-    
-    top10_large_cap = large_caps[:10]
-    top10_mid_cap = mid_caps[:10]
-    top10_small_cap = small_caps[:10]
-    
-    print(f"[+] Selected Large-cap Top 10: {[s['name'] for s in top10_large_cap]}")
-    print(f"[+] Selected Mid-cap Top 10: {[s['name'] for s in top10_mid_cap]}")
-    print(f"[+] Selected Small-cap Top 10: {[s['name'] for s in top10_small_cap]}")
-    
-    combined = top10_large_cap + top10_mid_cap + top10_small_cap
+        if rec_type == 'kospi':
+            kospi_list.append(result_item)
+        elif rec_type == 'kosdaq':
+            kosdaq_list.append(result_item)
+
+    # 정렬 및 시장별 Top 10 선정 (총 20선)
+    kospi_list.sort(key=lambda x: x['score'], reverse=True)
+    kosdaq_list.sort(key=lambda x: x['score'], reverse=True)
+
+    top10_kospi = kospi_list[:10]
+    top10_kosdaq = kosdaq_list[:10]
+
+    print(f"[+] Selected KOSPI Top 10: {[s['name'] for s in top10_kospi]}")
+    print(f"[+] Selected KOSDAQ Top 10: {[s['name'] for s in top10_kosdaq]}")
+
+    combined = top10_kospi + top10_kosdaq
     
     # 1. 파일 저장
     rec_json_file = results_dir / 'sector_recommendations.json'
@@ -239,8 +258,8 @@ def main():
         except sqlite3.OperationalError:
             pass
     
-    # 기존 대형주, 중형주, 소형주 및 구 가치주/상승주 데이터 삭제 후 재적재
-    cursor.execute("DELETE FROM tr_audit_recommendations WHERE rec_type IN ('large_cap', 'mid_cap', 'small_cap', 'value', 'momentum')")
+    # 기존 시장별/구 트랙 데이터 일괄 삭제 후 재적재
+    cursor.execute("DELETE FROM tr_audit_recommendations WHERE rec_type IN ('kospi', 'kosdaq', 'large_cap', 'mid_cap', 'small_cap', 'value', 'momentum')")
     
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     for r in combined:
@@ -285,7 +304,7 @@ def main():
                     m_cursor.execute(f"ALTER TABLE tr_audit_recommendations ADD COLUMN {col} DOUBLE")
                 except Exception:
                     pass
-            m_cursor.execute("DELETE FROM tr_audit_recommendations WHERE rec_type IN ('large_cap', 'mid_cap', 'small_cap', 'value', 'momentum')")
+            m_cursor.execute("DELETE FROM tr_audit_recommendations WHERE rec_type IN ('kospi', 'kosdaq', 'large_cap', 'mid_cap', 'small_cap', 'value', 'momentum')")
             for r in combined:
                 m_cursor.execute("""
                     INSERT INTO tr_audit_recommendations

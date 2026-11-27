@@ -1637,7 +1637,7 @@ def run_calibrate_and_rebuild(task_id, filename):
             return
             
         tasks[task_id]['progress'] = 60
-        tasks[task_id]['message'] = '3대 트랙 정량 필터링 및 파이프라인 분석 가동 중...'
+        tasks[task_id]['message'] = 'KOSPI/KOSDAQ 2대 시장 트랙 정량 필터링 및 파이프라인 분석 가동 중...'
         
         # 2. 통합 파이프라인 실행
         res = subprocess.run(
@@ -1664,7 +1664,7 @@ def run_calibrate_and_rebuild(task_id, filename):
             
         tasks[task_id]['progress'] = 100
         tasks[task_id]['status'] = 'completed'
-        tasks[task_id]['message'] = '시가총액 보정 및 3대 트랙 재집계 완료! 대시보드를 새로고침하세요.'
+        tasks[task_id]['message'] = '시가총액 보정 및 KOSPI/KOSDAQ 트랙 재집계 완료! 대시보드를 새로고침하세요.'
         
     except Exception as e:
         tasks[task_id]['status'] = 'failed'

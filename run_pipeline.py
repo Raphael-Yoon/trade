@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-내일의 공략주 3대 트랙 (대형주, 가치주, 상승주) 전체 실행 마스터 파이프라인
+내일의 공략주 KOSPI / KOSDAQ 2대 시장 트랙 전체 실행 마스터 파이프라인
+(1차: KOSPI 30 + KOSDAQ 30 = 60종목 선별 -> 2차: 뉴스/공시/수급 수집 -> 3·4차: 점수화 및 각 TOP 10 총 20선 적재)
 사용법: python run_pipeline.py --source_file results/[엑셀파일명].xlsx
 """
 import sys
@@ -25,7 +26,7 @@ def run_script(cmd_list):
 
 def main():
     sys.stdout.reconfigure(encoding='utf-8')
-    parser = argparse.ArgumentParser(description="내일의 공략주 3대 트랙 전체 분석 파이프라인 마스터 실행기")
+    parser = argparse.ArgumentParser(description="내일의 공략주 KOSPI/KOSDAQ 2대 시장 트랙 통합 분석 파이프라인 마스터 실행기")
     parser.add_argument('--source_file', type=str, required=False, help="1차 선별 대상 엑셀 파일 경로 (예: results/kospi,kosdaq_all_xxx.xlsx)")
     parser.add_argument('--id', type=str, required=False, help="Google Drive Spreadsheet ID")
     args = parser.parse_args()
@@ -53,20 +54,20 @@ def main():
         cmd_step1.extend(['--source_file', source_desc])
 
     print("====================================================================")
-    print("      🚀 [내일의 공략주] 3대 트랙 통합 분석 파이프라인 시작")
+    print("      🚀 [내일의 공략주] KOSPI/KOSDAQ 통합 분석 파이프라인 시작")
     print(f"      - 분석 소스: {source_desc}")
     print("====================================================================")
 
-    # 1단계: 정량 선별 (대형주, 중형주, 소형주 후보군 20개씩 추출)
-    print("\n[Step 1] 1차 재무 정량 필터링 및 20위 후보군 선출 진행...")
+    # 1단계: 정량 선별 (KOSPI 30종목 + KOSDAQ 30종목 = 총 60개 후보군 추출)
+    print("\n[Step 1] 1차 재무 정량 필터링 및 시장별 30위 후보군(총 60종목) 선출 진행...")
     run_script(cmd_step1)
 
-    # 2단계: 실시간 뉴스 및 공시 데이터 수집
-    print("\n[Step 2] 선출 후보 60개 종목에 대한 실시간 뉴스 및 DART 공시 통합 수집 진행...")
+    # 2단계: 실시간 뉴스, 공시, 추세·수급 데이터 수집
+    print("\n[Step 2] 선출 후보 60개 종목에 대한 실시간 뉴스·DART 공시·수급 통합 수집 진행...")
     run_script([VENV_PYTHON, PROJECT_ROOT / 'collect_top20_context.py'])
 
-    # 3단계 & 4단계: 정성 분석 요약 평가 및 SQLite DB & JSON 배포 적재
-    print("\n[Step 3 & 4] 뉴스 심리/공시 가감점 결합 및 5일선/20일선 추세 필터 적용 후 최종 탑텐 선발/적재 진행...")
+    # 3단계 & 4단계: 정성 분석 점수화 및 SQLite/MySQL DB & JSON 배포 적재
+    print("\n[Step 3 & 4] 뉴스 심리·공시 가감점·추세/수급 보정 결합 후 KOSPI/KOSDAQ 각 TOP 10(총 20선) 선발·적재 진행...")
     run_script([VENV_PYTHON, PROJECT_ROOT / 'process_final_recommendations.py'])
 
     print("\n====================================================================")
