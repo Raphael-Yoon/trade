@@ -1869,11 +1869,11 @@ def get_detailed_price(ticker):
 
 analyst_target_cache = {}
 
-def get_analyst_target_price(ticker):
+def get_analyst_target_price(ticker, force=False):
     """[김정음] 네이버 모바일 통합 API에서 증권사 목표주가 및 투자의견을 가져옵니다."""
     global analyst_target_cache
     entry = analyst_target_cache.get(ticker)
-    if entry and time.time() - entry['ts'] < 1800:
+    if not force and entry and time.time() - entry['ts'] < 1800:
         return entry['data']
     result = {'target_price': 0, 'opinion': ''}
     try:
@@ -1909,11 +1909,12 @@ def get_analyst_target_price(ticker):
 def get_analyst_target_prices():
     """[김정음] 여러 종목의 증권사 목표주가를 병렬로 조회합니다."""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         codes = data.get('codes', [])
+        force = bool(data.get('force', False))
         results = {}
         with ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_code = {executor.submit(get_analyst_target_price, code): code for code in codes}
+            future_to_code = {executor.submit(get_analyst_target_price, code, force): code for code in codes}
             for future in as_completed(future_to_code):
                 code = future_to_code[future]
                 try:
@@ -1921,6 +1922,126 @@ def get_analyst_target_prices():
                 except Exception:
                     results[code] = {'target_price': 0, 'opinion': ''}
         return jsonify(results)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+watchlist_entry_cache = {}
+
+def get_entry_zones(ticker, force=False):
+    """[김도희] 네이버 모바일 일봉 20거래일 API 기반 1차(MA5)·2차(MA20) 진입 구간 계산."""
+    entry = watchlist_entry_cache.get(ticker)
+    if not force and entry and time.time() - entry['ts'] < 600:
+        return entry['data']
+
+    result = {
+        'current_price': 0,
+        'ma5': 0,
+        'ma20': 0,
+        'regime': 'unknown',
+        'entry1_price': 0,
+        'entry1_label': '1차 구간',
+        'entry2_price': 0,
+        'entry2_label': '2차 구간',
+        'entry1_diff_pct': 0.0,
+        'entry2_diff_pct': 0.0,
+        'status': 'unknown',
+        'status_label': '-',
+        'updated_at': datetime.now().strftime('%H:%M')
+    }
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        url = f"https://m.stock.naver.com/api/stock/{ticker}/price?pageSize=20&page=1"
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            items = res.json()
+            if isinstance(items, list) and items:
+                prices = []
+                for it in items:
+                    raw = str(it.get('closePrice', '')).replace(',', '').strip()
+                    if raw:
+                        try:
+                            prices.append(int(float(raw)))
+                        except Exception:
+                            continue
+                if prices:
+                    cur = prices[0]
+                    # 장중 실시간 현재가 보정 (Polling API)
+                    try:
+                        p_res = requests.get(f"https://polling.finance.naver.com/api/realtime/domestic/stock/{ticker}", headers=headers, timeout=3)
+                        if p_res.status_code == 200:
+                            p_datas = p_res.json().get('datas', [])
+                            if p_datas and int(p_datas[0].get('closePriceRaw') or 0) > 0:
+                                cur = int(p_datas[0]['closePriceRaw'])
+                    except Exception:
+                        pass
+
+                    ma5 = int(round(sum(prices[:5]) / min(5, len(prices))))
+                    ma20 = int(round(sum(prices[:20]) / len(prices)))
+                    regime = 'reversal' if ma5 < ma20 else 'uptrend'
+
+                    # 항상 낮은 금액을 1차 구간, 높은 금액을 2차 구간으로 정렬
+                    if ma5 <= ma20:
+                        e1_price, e1_label = ma5, '1차 구간'
+                        e2_price, e2_label = ma20, '2차 구간'
+                    else:
+                        e1_price, e1_label = ma20, '1차 구간'
+                        e2_price, e2_label = ma5, '2차 구간'
+
+                    e1_diff = round((cur - e1_price) / e1_price * 100, 1) if e1_price > 0 else 0.0
+                    e2_diff = round((cur - e2_price) / e2_price * 100, 1) if e2_price > 0 else 0.0
+
+                    if e1_diff <= 2.5:
+                        st, st_lbl = 'entry1', '🟢 1차 구간'
+                    elif cur >= e2_price:
+                        if regime == 'reversal':
+                            st, st_lbl = 'breakout', '🚀 2차 돌파'
+                        elif e2_diff <= 2.5:
+                            st, st_lbl = 'entry2', '💎 2차 구간'
+                        else:
+                            st, st_lbl = 'over', '⏸️ 이격 관망'
+                    else:
+                        st, st_lbl = 'wait', '⏳ 1~2차 관망'
+
+                    result.update({
+                        'current_price': cur,
+                        'ma5': ma5,
+                        'ma20': ma20,
+                        'regime': regime,
+                        'entry1_price': e1_price,
+                        'entry1_label': e1_label,
+                        'entry2_price': e2_price,
+                        'entry2_label': e2_label,
+                        'entry1_diff_pct': e1_diff,
+                        'entry2_diff_pct': e2_diff,
+                        'status': st,
+                        'status_label': st_lbl,
+                        'updated_at': datetime.now().strftime('%H:%M')
+                    })
+                    watchlist_entry_cache[ticker] = {'data': result, 'ts': time.time()}
+    except Exception as e:
+        print(f"Error fetching entry zones {ticker}: {e}")
+    return result
+
+@app.route('/api/watchlist/entry_zones', methods=['POST'])
+def get_watchlist_entry_zones():
+    """[김정음] 관심종목 1차(MA5)·2차(MA20) 진입 구간을 병렬로 조회합니다. force=True 시 캐시 무시."""
+    try:
+        data = request.get_json() or {}
+        codes = data.get('codes', [])
+        force = bool(data.get('force', False))
+        results = {}
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_code = {executor.submit(get_entry_zones, code, force): code for code in codes}
+            for future in as_completed(future_to_code):
+                code = future_to_code[future]
+                try:
+                    results[code] = future.result()
+                except Exception:
+                    results[code] = {'current_price': 0, 'entry1_price': 0, 'entry2_price': 0, 'status': 'unknown', 'status_label': '-'}
+        return jsonify({
+            'zones': results,
+            'updated_at': datetime.now().strftime('%H:%M:%S')
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -3543,9 +3664,13 @@ def get_realtime_prices():
                 quantity = stock.get('quantity', 0)
                 stop_loss_ratio = stock.get('stop_loss_ratio', 0)
                 target_buy_price = stock.get('target_buy_price') or 0
-                # [김선화] 매수 목표가는 "이 가격까지 떨어지면 매수" 기준이므로,
-                # 현재가가 목표가 이하로 하락했을 때 도달로 판정한다.
-                is_target_reached = target_buy_price > 0 and current_price > 0 and current_price <= target_buy_price
+                # [김선화] 매수 목표가 도달 판정:
+                # - 보유종목에서 목표가 > 매입단가 (2차 상방 돌파 추가매수): 현재가 >= 목표가
+                # - 목표가 <= 매입단가 (하방 눌림 추가매수) 또는 관심종목: 현재가 <= 목표가
+                if stock.get('type') == 'portfolio' and purchase_price > 0 and target_buy_price > purchase_price:
+                    is_target_reached = target_buy_price > 0 and current_price > 0 and current_price >= target_buy_price
+                else:
+                    is_target_reached = target_buy_price > 0 and current_price > 0 and current_price <= target_buy_price
 
                 profit_rate = 0
                 profit = 0

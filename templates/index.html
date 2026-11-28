@@ -509,6 +509,14 @@
                         <span style="position: absolute; right: 16px; color: var(--text-muted); font-weight: 700; font-size: 16px;">%</span>
                     </div>
                 </div>
+                <!-- 2nd Entry Target Buy Price -->
+                <div class="modal-form-group" style="margin-bottom: 0;">
+                    <label for="promoteTargetPrice" class="modal-label" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>2차 매수 목표가 (원)</span>
+                        <span id="promoteTargetHint" style="font-size:11px; color:#38bdf8; font-weight:600;"></span>
+                    </label>
+                    <input type="text" id="promoteTargetPrice" class="modal-input" placeholder="선택 (미입력 시 미설정)" oninput="formatPriceInput(this)">
+                </div>
                 <!-- Action Buttons -->
                 <div class="modal-button-row">
                     <button class="modal-btn-cancel" onclick="closePromoteModal()">취소</button>
@@ -1468,7 +1476,16 @@
                 <div id="realtimeGridPortfolio" class="realtime-stock-grid" style="margin-bottom: 40px;">
                 </div>
 
-                <h4 style="margin: 0 0 16px; font-size: 18px; color: var(--secondary);">★ 관심 리스트</h4>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0 0 16px;">
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <h4 style="margin: 0; font-size: 18px; color: var(--secondary);">★ 관심 리스트</h4>
+                        <span id="rtWatchlistZonesUpdatedAt" style="font-size: 11px; color: var(--text-muted);"></span>
+                    </div>
+                    <button id="refreshRtWatchlistZonesBtn" class="btn" onclick="refreshWatchlistEntryZones(true)"
+                        style="padding: 7px 14px; font-size: 12px; font-weight: 700; height: auto; border-radius: 12px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; box-shadow: none;">
+                        🔄 1·2차 구간 새로고침
+                    </button>
+                </div>
                 <div id="realtimeGridWatchlist" class="realtime-stock-grid">
                 </div>
             </div>
@@ -1648,6 +1665,40 @@
             box-shadow: 0 8px 24px rgba(0,0,0,0.5);
         }
         .sl-tooltip-wrap:hover .sl-tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+        .wl-badge-tip-wrap {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            flex-shrink: 0;
+            cursor: help;
+        }
+        .wl-badge-tip-wrap .wl-badge-tip {
+            visibility: hidden;
+            opacity: 0;
+            pointer-events: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            width: 240px;
+            background: rgba(15, 23, 42, 0.97);
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            border-radius: 10px;
+            padding: 10px 12px;
+            white-space: normal;
+            word-break: keep-all;
+            text-align: left;
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 1.55;
+            color: #cbd5e1;
+            z-index: 1000;
+            transition: opacity 0.15s ease;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+        }
+        .wl-badge-tip-wrap:hover .wl-badge-tip:not(:empty) {
             visibility: visible;
             opacity: 1;
         }
@@ -3749,6 +3800,7 @@
                                         </div>
                                         <div style="font-size: 19px; font-weight: 800; color: white; font-family: 'Outfit', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${stock.name}">${stock.name}</div>
                                     </div>
+                                    ${stock.type === 'watchlist' ? `<span class="wl-badge-tip-wrap"><span id="rt-wl-status-${stock.code}" style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,0.06); color: var(--text-muted); white-space: nowrap;">-</span><div id="rt-wl-tip-${stock.code}" class="wl-badge-tip"></div></span>` : ''}
                                 </div>
                             </div>
 
@@ -3785,7 +3837,7 @@
                                         </div>
                                     </span>` : ''}
                                     ${stock.type === 'portfolio' ? `<span style="color:#ef4444; white-space:nowrap;">최고 ${stock.holding_high ? stock.holding_high.toLocaleString() : '-'}</span>` : ''}
-                                    ${stock.target_buy_price > 0 ? `<span style="color:${stock.is_target_reached ? '#34d399' : '#6ee7b7'}; white-space:nowrap;">${stock.is_target_reached ? '✅' : '🎯'} 목표 ${stock.target_buy_price.toLocaleString()}</span>` : ''}
+                                    ${stock.target_buy_price > 0 ? `<span style="color:${stock.is_target_reached ? '#34d399' : '#6ee7b7'}; white-space:nowrap;">${stock.is_target_reached ? '✅' : '🎯'} 매수목표 ${stock.target_buy_price.toLocaleString()}</span>` : ''}
                                     <span style="color:var(--text-muted); font-weight:600; white-space:nowrap;">어제 ${prevClose.toLocaleString()}</span>
                                 </div>
                             </div>
@@ -3816,7 +3868,10 @@
                                         ${fmtProfit(todayProfit, `${stock.change_rate > 0 ? '+' : ''}${stock.change_rate}`)}
                                     </div>
                                 </div>
-                            </div>` : ''}
+                            </div>` : `
+                            <div id="rt-wl-zones-${stock.code}" style="display: flex; flex-direction: column; gap: 5px; background: rgba(15, 23, 42, 0.45); padding: 10px 12px; border-radius: 12px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.07); font-size: 12px;">
+                                <div style="color: var(--text-muted); text-align: center; font-size: 11px;">1·2차 구간 조회 중...</div>
+                            </div>`}
                             
                             <div class="mini-chart-container" style="width: 100%; height: 100px; background: rgba(0,0,0,0.3); border-radius: 12px; overflow: hidden; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.1); position: relative; cursor: pointer;" 
                                  onclick="openChartModal('${stock.code}', '${stock.name}')">
@@ -3828,6 +3883,7 @@
 
                             <div style="display: flex; gap: 8px;">
                                 <button onclick="selectStockForAnalysis('${stock.code}')" style="flex: 1; padding: 10px; font-size: 11px; border-radius: 10px; background: rgba(255,255,255,0.1); border: none; color: white; cursor: pointer; font-weight: 600;">분석실 이동</button>
+                                ${stock.type === 'portfolio' ? `<button onclick="setPortfolioEntry2Target('${stock.code}', '${stock.name}', this)" title="2차 구간(MA5/MA20 중 높은 기준가)을 매수 목표가로 자동 저장" style="flex: 1; padding: 10px; font-size: 11px; border-radius: 10px; background: rgba(56,189,248,0.18); border: 1px solid rgba(56,189,248,0.38); color: #38bdf8; cursor: pointer; font-weight: 700;">🎯 매수 목표가</button>` : ''}
                                 ${stock.type === 'watchlist' ? `<button onclick="promoteStockUI('${stock.code}', '${stock.name}')" style="flex: 1; padding: 10px; font-size: 11px; border-radius: 10px; background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.4); color: #10b981; cursor: pointer; font-weight: 600;">👛 매수</button>` : ''}
                             </div>
                         `;
@@ -3838,6 +3894,19 @@
                             watchlistGrid.appendChild(card);
                         }
                     });
+
+                    // [김선화] ★ 관심 리스트 전 종목 1·2차 진입 구간 동기화
+                    const rtWatchlistCodes = data.filter(s => s.type === 'watchlist').map(s => s.code);
+                    if (rtWatchlistCodes.length > 0) {
+                        const mergedCodes = Array.from(new Set([...(window.currentWatchlistCodesList || []), ...rtWatchlistCodes]));
+                        window.currentWatchlistCodesList = mergedCodes;
+                        const missingZones = rtWatchlistCodes.some(c => !window.watchlistEntryZones || !window.watchlistEntryZones[c]);
+                        if (missingZones) {
+                            refreshWatchlistEntryZones(false);
+                        } else {
+                            renderEntryZonesToDom(rtWatchlistCodes);
+                        }
+                    }
 
                     // [김선화] 소유자별 가로 스크롤 위치 복구
                     portfolioGrid.querySelectorAll('.owner-section').forEach(sec => {
@@ -3910,6 +3979,9 @@
                 });
         }
 
+        window.watchlistEntryZones = window.watchlistEntryZones || {};
+        window.currentWatchlistCodesList = [];
+
         function loadWatchlist() {
             fetch('/api/watchlist')
                 .then(response => response.json())
@@ -3918,9 +3990,11 @@
                     data.sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'ko'));
                     const list = document.getElementById('watchlistList');
                     if (!data || data.length === 0) {
+                        window.currentWatchlistCodesList = [];
                         list.innerHTML = '<p style="color: var(--text-muted); font-size: 16px; width: 100%; text-align: center; margin: 0;">등록된 관심 종목이 없습니다.</p>';
                         return;
                     }
+                    window.currentWatchlistCodesList = data.map(s => s.code);
                     list.innerHTML = data.map(stock => `
                         <div class="stock-tag" style="display: flex; flex-direction: column; gap: 8px; background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.2); padding: 20px 24px; border-radius: 24px; color: #e2e8f0; min-width: 0; position: relative;">
                             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
@@ -3947,16 +4021,161 @@
                         </div>
                     `).join('');
 
-                    loadAnalystTargets(data.map(s => s.code));
+                    loadAnalystTargets(window.currentWatchlistCodesList);
                 });
         }
 
-        function loadAnalystTargets(codes) {
+        function renderEntryZonesToDom(codes) {
+            const statusPalette = {
+                entry1:   { bg: 'rgba(16, 185, 129, 0.18)', color: '#34d399', border: 'rgba(16, 185, 129, 0.4)' },
+                entry2:   { bg: 'rgba(56, 189, 248, 0.18)', color: '#38bdf8', border: 'rgba(56, 189, 248, 0.4)' },
+                breakout: { bg: 'rgba(99, 102, 241, 0.22)', color: '#a5b4fc', border: 'rgba(99, 102, 241, 0.45)' },
+                wait:     { bg: 'rgba(251, 191, 36, 0.15)', color: '#fbbf24', border: 'rgba(251, 191, 36, 0.35)' },
+                over:     { bg: 'rgba(148, 163, 184, 0.15)', color: '#94a3b8', border: 'rgba(148, 163, 184, 0.3)' },
+                unknown:  { bg: 'rgba(255, 255, 255, 0.06)', color: '#94a3b8', border: 'rgba(255, 255, 255, 0.1)' }
+            };
+            const fmtDiff = (d) => `${d > 0 ? '+' : ''}${Number(d || 0).toFixed(1)}%`;
+
+            codes.forEach(code => {
+                const z = (window.watchlistEntryZones || {})[code];
+                const stEl = document.getElementById(`rt-wl-status-${code}`);
+                const tipEl = document.getElementById(`rt-wl-tip-${code}`);
+                const znEl = document.getElementById(`rt-wl-zones-${code}`);
+
+                if (!z || !z.current_price) {
+                    if (stEl) stEl.textContent = '-';
+                    if (tipEl) tipEl.innerHTML = '';
+                    if (znEl) znEl.innerHTML = '<div style="color: var(--text-muted); text-align: center; font-size: 11px;">시세 조회 불가</div>';
+                    return;
+                }
+
+                if (stEl) {
+                    const p = statusPalette[z.status] || statusPalette.unknown;
+                    stEl.textContent = z.status_label || '-';
+                    stEl.style.background = p.bg;
+                    stEl.style.color = p.color;
+                    stEl.style.border = `1px solid ${p.border}`;
+                }
+                if (tipEl) {
+                    const p1 = `${z.entry1_price.toLocaleString()}원`;
+                    const p2 = `${z.entry2_price.toLocaleString()}원`;
+                    const actionMap = {
+                        entry1: {
+                            action: '👉 1차 분할 매수 타이밍',
+                            color: '#34d399',
+                            guide: `지금은 낮은 지지선(${p1}) 부근입니다.<br>계획 금액의 <b>절반만 1차 매수</b>하고, 이후 <b>${p2}</b> 돌파 시 나머지를 추가하세요.`
+                        },
+                        wait: {
+                            action: '👉 지금 사지 말고 대기',
+                            color: '#fbbf24',
+                            guide: `중간에 낀 어중간한 가격입니다.<br>• 내려오면 <b>${p1}</b>에서 1차 매수<br>• 올라가면 <b>${p2}</b> 돌파 확인 후 매수`
+                        },
+                        entry2: {
+                            action: '👉 상승 중 2차 진입 가능',
+                            color: '#38bdf8',
+                            guide: `상승세가 살아있어 <b>${p2}</b> 지지 보며 소액 진입 가능합니다.<br>더 보수적으로 보려면 <b>${p1}</b>까지 눌림 대기.`
+                        },
+                        breakout: {
+                            action: '👉 추세 전환! 2차 매수 타이밍',
+                            color: '#a5b4fc',
+                            guide: `저항선(<b>${p2}</b>)을 뚫고 올라왔습니다.<br>종가까지 <b>${p2}</b> 위를 지키는지 확인 후 <b>2차(또는 신규) 매수</b>하세요.`
+                        },
+                        over: {
+                            action: '👉 단기 급등 — 추격 매수 금지',
+                            color: '#f87171',
+                            guide: `이미 단기 기준선보다 많이 오른 상태입니다.<br>최소 <b>${p2}</b> ~ <b>${p1}</b>까지 눌릴 때까지 기다리세요.`
+                        }
+                    };
+                    const a = actionMap[z.status];
+                    if (a) {
+                        tipEl.innerHTML = `
+                            <div style="font-size:12px; font-weight:800; color:${a.color}; margin-bottom:6px;">${a.action}</div>
+                            <div style="color:#e2e8f0; line-height:1.6;">${a.guide}</div>
+                        `;
+                    } else {
+                        tipEl.innerHTML = '';
+                    }
+                }
+                if (znEl) {
+                    const e2Color = z.regime === 'reversal' ? '#a5b4fc' : '#38bdf8';
+                    znEl.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+                            <span style="color: #94a3b8; font-weight: 600;">${z.entry1_label}</span>
+                            <span style="color: #34d399; font-weight: 800; font-family: 'Outfit', sans-serif;">
+                                ${z.entry1_price.toLocaleString()}원 <span style="font-size: 10px; color: #64748b; font-weight: 600;">(${fmtDiff(z.entry1_diff_pct)})</span>
+                            </span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+                            <span style="color: #94a3b8; font-weight: 600;">${z.entry2_label}</span>
+                            <span style="color: ${e2Color}; font-weight: 800; font-family: 'Outfit', sans-serif;">
+                                ${z.entry2_price.toLocaleString()}원 <span style="font-size: 10px; color: #64748b; font-weight: 600;">(${fmtDiff(z.entry2_diff_pct)})</span>
+                            </span>
+                        </div>
+                    `;
+                }
+            });
+        }
+
+        function refreshWatchlistEntryZones(force = false) {
+            const btn = document.getElementById('refreshRtWatchlistZonesBtn');
+            const setBtnState = (loading) => {
+                if (!btn) return;
+                btn.disabled = loading;
+                btn.textContent = loading ? '🔄 전체 갱신 중...' : '🔄 1·2차 구간 새로고침';
+                btn.style.opacity = loading ? '0.65' : '1';
+            };
+
+            const runFetch = (codes) => {
+                if (!codes || codes.length === 0) {
+                    if (force) showToast('등록된 관심 종목이 없습니다.', 'info');
+                    return;
+                }
+                window.currentWatchlistCodesList = codes;
+                setBtnState(true);
+                fetch('/api/watchlist/entry_zones', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ codes, force })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    const zones = data.zones || {};
+                    codes.forEach(code => {
+                        if (zones[code]) window.watchlistEntryZones[code] = zones[code];
+                    });
+                    renderEntryZonesToDom(codes);
+
+                    const tsEl = document.getElementById('rtWatchlistZonesUpdatedAt');
+                    if (tsEl && data.updated_at) tsEl.textContent = `최근 갱신 ${data.updated_at}`;
+                    if (force) {
+                        showToast(`관심 리스트 전체 ${codes.length}개 종목의 1·2차 진입 구간을 갱신했습니다.`);
+                    }
+                })
+                .catch(() => {
+                    if (force) showToast('진입 구간 갱신 중 오류가 발생했습니다.', 'error');
+                })
+                .finally(() => {
+                    setBtnState(false);
+                });
+            };
+
+            // 실시간 시세 탭 ★ 관심 리스트 전체 종목 기준으로 일괄 갱신
+            if (force || !(window.currentWatchlistCodesList && window.currentWatchlistCodesList.length > 0)) {
+                fetch('/api/watchlist')
+                    .then(res => res.json())
+                    .then(list => runFetch((list || []).map(s => s.code)))
+                    .catch(() => runFetch(window.currentWatchlistCodesList || []));
+            } else {
+                runFetch(window.currentWatchlistCodesList);
+            }
+        }
+
+        function loadAnalystTargets(codes, force = false) {
             if (!codes || codes.length === 0) return;
             fetch('/api/analyst_target_prices', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ codes })
+                body: JSON.stringify({ codes, force })
             })
             .then(res => res.json())
             .then(data => {
@@ -4095,9 +4314,27 @@
             document.getElementById('promoteModalTitle').innerText = `${name} 편입`;
             document.getElementById('promoteModalCode').innerText = code;
             
-            document.getElementById('promotePrice').value = '';
+            const zone = (window.watchlistEntryZones || {})[code];
+            const priceInput = document.getElementById('promotePrice');
+            priceInput.value = '';
+            priceInput.placeholder = (zone && zone.entry1_price > 0)
+                ? `1차 기준 ${zone.entry1_price.toLocaleString()}원`
+                : '0';
+
             document.getElementById('promoteQty').value = '';
             document.getElementById('promoteStopLoss').value = '0.0';
+
+            const targetInput = document.getElementById('promoteTargetPrice');
+            const targetHint = document.getElementById('promoteTargetHint');
+            if (targetInput) {
+                if (zone && zone.entry2_price > 0) {
+                    targetInput.value = zone.entry2_price.toLocaleString();
+                    if (targetHint) targetHint.textContent = `${zone.entry2_label} 자동 입력`;
+                } else {
+                    targetInput.value = '';
+                    if (targetHint) targetHint.textContent = '';
+                }
+            }
             
             const radios = document.getElementsByName('promoteOwner');
             for(let i = 0; i < radios.length; i++) {
@@ -4131,6 +4368,9 @@
             const price = parseFloat(rawPrice) || 0;
             const qty = parseInt(document.getElementById('promoteQty').value) || 0;
             const stopLoss = parseFloat(document.getElementById('promoteStopLoss').value) || 0;
+            const targetInput = document.getElementById('promoteTargetPrice');
+            const rawTarget = targetInput ? targetInput.value.replace(/,/g, '').trim() : '';
+            const targetBuyPrice = rawTarget === '' ? 0 : (parseFloat(rawTarget) || 0);
 
             if (price <= 0 || qty <= 0) {
                 showToast('매입단가와 수량은 0보다 큰 숫자여야 합니다.', 'error');
@@ -4146,7 +4386,8 @@
                     purchase_price: price,
                     quantity: qty,
                     stop_loss_ratio: stopLoss,
-                    owner: owner
+                    owner: owner,
+                    target_buy_price: targetBuyPrice
                 })
             })
             .then(res => res.json())
@@ -4370,8 +4611,12 @@
                                         style="width: 100%; background: rgba(248,113,113,0.05); border: 1px solid rgba(248,113,113,0.2); border-radius: 8px; color: #f87171; font-weight: 700; padding: 4px 6px; font-size: 12px; text-align: right;">
                                 </div>
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <span style="font-size: 10px; color: var(--text-muted); white-space: nowrap;">매수 목표가</span>
-                                    <input type="text" value="${(stock.target_buy_price || 0).toLocaleString()}"
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                                        <span style="font-size: 10px; color: var(--text-muted); white-space: nowrap;">매수 목표가</span>
+                                        <button type="button" onclick="setPortfolioEntry2Target('${stock.code}', '${stock.name}', this)" title="2차 구간 금액 자동 입력"
+                                            style="padding: 1px 6px; font-size: 10px; font-weight: 700; border-radius: 6px; background: rgba(56,189,248,0.16); border: 1px solid rgba(56,189,248,0.35); color: #38bdf8; cursor: pointer; white-space: nowrap;">🎯 2차</button>
+                                    </div>
+                                    <input id="pf-target-input-${stock.code}" type="text" value="${(stock.target_buy_price || 0).toLocaleString()}"
                                         oninput="this.value = formatNumber(this.value)"
                                         onchange="updateStockDetail('${stock.code}', 'target_price', this.value)"
                                         style="width: 100%; background: rgba(52,211,153,0.05); border: 1px solid rgba(52,211,153,0.2); border-radius: 8px; color: #34d399; font-weight: 700; padding: 4px 6px; font-size: 12px; text-align: right;">
@@ -5215,6 +5460,57 @@
             .then(data => {
                 showToast(data.message, data.success ? 'success' : 'error');
                 if (data.success) loadRebuySim();
+            });
+        }
+
+        function setPortfolioEntry2Target(code, name, btn) {
+            if (!code) return;
+            const originalText = btn ? btn.textContent : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '조회 중...';
+                btn.style.opacity = '0.65';
+            }
+            fetch('/api/watchlist/entry_zones', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ codes: [code], force: true })
+            })
+            .then(res => res.json())
+            .then(data => {
+                const z = (data.zones || {})[code];
+                if (!z || !z.entry2_price || z.entry2_price <= 0) {
+                    throw new Error('2차 구간 가격을 산출할 수 없습니다.');
+                }
+                const targetPrice = z.entry2_price;
+                return fetch(`/api/my_stocks/${code}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target_buy_price: targetPrice })
+                })
+                .then(r => r.json())
+                .then(resData => ({ resData, z, targetPrice }));
+            })
+            .then(({ resData, z, targetPrice }) => {
+                if (!resData || !resData.success) {
+                    throw new Error((resData && resData.message) || '저장에 실패했습니다.');
+                }
+                const stock = (myStocks || []).find(s => s.code === code);
+                if (stock) stock.target_buy_price = targetPrice;
+                const inputEl = document.getElementById(`pf-target-input-${code}`);
+                if (inputEl) inputEl.value = targetPrice.toLocaleString();
+                showToast(`${name} 매수 목표가를 ${z.entry2_label} ${targetPrice.toLocaleString()}원으로 설정했습니다.`);
+                if (typeof updateRealtimePrices === 'function') updateRealtimePrices();
+            })
+            .catch(err => {
+                showToast(err.message || '2차 구간 적용 중 오류가 발생했습니다.', 'error');
+            })
+            .finally(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                    btn.style.opacity = '1';
+                }
             });
         }
 
